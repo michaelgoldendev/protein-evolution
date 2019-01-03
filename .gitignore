@@ -1,4 +1,10 @@
 *.jl.cov
 *.jl.*.cov
 *.jl.mem
+*.log
+*.pdb
+binaries/
+cache/
+data/
+obsolete/
 deps/deps.jl
