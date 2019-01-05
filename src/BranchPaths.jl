@@ -1,26 +1,4 @@
-module BranchPaths
-
-	export BranchState
-	mutable struct BranchState
-		h::Int
-		aa::Int
-		phi::Float64		
-		omega::Float64
-		psi::Float64
-		bondlength1::Float64
-		bondlength2::Float64
-		bondlength3::Float64
-		bond_angle1::Float64
-		bond_angle2::Float64
-		bond_angle3::Float64
-
-		function BranchState(h::Int, aa::Int, phi::Float64, omega::Float64, psi::Float64)
-			new(h,aa,phi,omega,psi, -1000.0, -1000.0, -1000.0, -1000.0, -1000.0, -1000.0)
-		end
-		function BranchState(h::Int, aa::Int, phi::Float64, omega::Float64, psi::Float64, bondlength1::Float64, bondlength2::Float64, bondlength3::Float64, bondangle1::Float64, bondangle2::Float64, bondangle3::Float64)
-			new(h,aa,phi,omega,psi, bondlength1, bondlength2, bondlength3, bondangle1, bondangle2, bondangle3)
-		end
-	end
+module BranchPaths	
 
 	export BranchPath
 	mutable struct BranchPath

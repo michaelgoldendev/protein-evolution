@@ -3,6 +3,33 @@ module EMNodes
 	using Random
 	using LinearAlgebra
 
+	export SiteObservation
+	mutable struct SiteObservation
+		h::Int
+		aa::Int
+		phi::Float64		
+		omega::Float64
+		psi::Float64
+		bond_length1::Float64
+		bond_length2::Float64
+		bond_length3::Float64
+		bond_angle1::Float64
+		bond_angle2::Float64
+		bond_angle3::Float64
+
+		function SiteObservation()
+			new(0, 0, -1000.0, -1000.0, -1000.0, -1000.0, -1000.0, -1000.0, -1000.0, -1000.0, -1000.0)
+		end
+
+		function SiteObservation(h::Int, aa::Int, phi::Float64, omega::Float64, psi::Float64)
+			new(h,aa,phi,omega,psi, -1000.0, -1000.0, -1000.0, -1000.0, -1000.0, -1000.0)
+		end
+
+		function SiteObservation(h::Int, aa::Int, phi::Float64, omega::Float64, psi::Float64, bond_length1::Float64, bond_length2::Float64, bond_length3::Float64, bond_angle1::Float64, bond_angle2::Float64, bond_angle3::Float64)
+			new(h,aa,phi,omega,psi, bond_length1, bond_length2, bond_length3, bond_angle1, bond_angle2, bond_angle3)
+		end
+	end
+
 	export CategoricalNode
 	mutable struct CategoricalNode 
 		numcats::Int 
