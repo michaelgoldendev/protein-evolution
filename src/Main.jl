@@ -1,8 +1,28 @@
 using Distributions
 using LinearAlgebra
 using Serialization
-push!(LOAD_PATH,string(@__DIR__,"/../../MolecularEvolution/src/"))
+using JSON
+
+push!(LOAD_PATH,string(@__DIR__,"/../../../dev/MolecularEvolution/src/"))
 using MolecularEvolution
+
+push!(LOAD_PATH,string(@__DIR__))
+using PDBBuilder
+
+function binarize!(tree::TreeNode)
+    nodes = getnodelist(tree)
+    counter = 0
+    for n in nodes
+        while length(n.children) > 2
+            c1 = pop!(n.children)
+            c2 = pop!(n.children)
+            counter +=1 
+            push!(n.children, TreeNode(0.0, "binarized_$counter"))
+            n.children[end].children = [c1,c2]
+            n.children[end].parent = n
+        end
+    end
+end   
 
 push!(LOAD_PATH,@__DIR__)
 using BranchPaths
@@ -25,6 +45,45 @@ function pimod(angle::Float64)
   end
 end
 
+mutable struct MultivariateNode
+	mvn::MvNormal
+	data::Array{Array{Float64,1},1}
+
+	function MultivariateNode()
+		new(MvNormal([1.0,1.0,1.0]), Array{Float64,1}[])
+	end
+end
+
+function add_point(mv_node::MultivariateNode, point::Array{Float64,1})
+	cont = true
+	for p in point
+		if p <= -100.0
+			cont = false
+			break
+		end
+	end
+	if cont
+		push!(mv_node.data, point)
+	end
+end
+
+function estimate_multivariate_node(mv_node::MultivariateNode)	
+	println("N=",length(mv_node.data))
+	try
+		matrix = zeros(Float64, length(mv_node.data[1]), length(mv_node.data))
+		for col=1:size(matrix,2)
+			for (row,el) in enumerate(mv_node.data[col])
+				matrix[row,col] = el
+			end
+		end
+
+		mvn_suffstats = suffstats(MvNormal, matrix)
+		mv_node.mvn =  fit_mle(MvNormal, mvn_suffstats)
+	catch Exception 
+		mv_node.mvn = MvNormal(Float64[1.32, 1.47,1.53], Matrix{Float64}(I,3,3)*0.1)
+	end
+end
+
 mutable struct VonMisesNode
 	rx::Float64
 	ry::Float64
@@ -36,7 +95,7 @@ mutable struct VonMisesNode
 
 	function VonMisesNode()
 		mu = 0.0
-		kappa = 1.0
+		kappa = 1e-5
 		new(0.0, 0.0, 0.0, mu, kappa, VonMises(mu, kappa), Float64[])
 	end
 end
@@ -45,48 +104,57 @@ function estimatevonmises(vonmises_node::VonMisesNode)
 	if length(vonmises_node.data) > 0
 		vonmises_node.rx = 0.0
 		vonmises_node.ry = 0.0
+		vonmises_node.N = 0
 		for theta in vonmises_node.data
-			vonmises_node.rx += cos(theta)
-			vonmises_node.ry += sin(theta)
+			if theta > -100.0
+				vonmises_node.rx += cos(theta)
+				vonmises_node.ry += sin(theta)
+				vonmises_node.N += 1
+			end
+		end		
+	end
+	vonmises_node.data = Float64[]
+
+	if vonmises_node.N >= 2
+		rx = vonmises_node.rx
+		ry = vonmises_node.ry
+		n = vonmises_node.N
+
+		c = rx / n
+		s = ry / n
+		rho = sqrt(c*c + s*s)
+
+		if s > 0
+			mu = acos(c / rho)
+		else
+			mu = 2.0*pi - acos(c / rho)
 		end
-		vonmises_node.N = length(vonmises_node.data)
-		vonmises_node.data = Float64[]
+
+
+		if rho < 2.0/3.0
+			kappa = rho * ((2.0 - rho*rho) / (1.0 - rho*rho))
+		else
+			kappa = (rho + 1.0) / (4.0 * rho * (1 - rho))
+		end
+
+		vonmises_node.mu = mu
+		vonmises_node.kappa = kappa
+		vonmises_node.dist = VonMises(mu, min(700.0, kappa))
 	end
-
-	rx = vonmises_node.rx
-	ry = vonmises_node.ry
-	n = vonmises_node.N
-
-	c = rx / n
-	s = ry / n
-	rho = sqrt(c*c + s*s)
-
-	if s > 0
-		mu = acos(c / rho)
-	else
-		mu = 2.0*pi - acos(c / rho)
-	end
-
-
-	if rho < 2.0/3.0
-		kappa = rho * ((2.0 - rho*rho) / (1.0 - rho*rho))
-	else
-		kappa = (rho + 1.0) / (4.0 * rho * (1 - rho))
-	end
-
-	vonmises_node.mu = mu
-	vonmises_node.kappa = kappa
-	vonmises_node.dist = VonMises(mu,kappa)
 end
 
 mutable struct HiddenNode
 	phi_node::VonMisesNode
 	psi_node::VonMisesNode
 	omega_node::VonMisesNode
+	bond_angle1_node::VonMisesNode
+	bond_angle2_node::VonMisesNode
+	bond_angle3_node::VonMisesNode
+	bond_lengths_node::MultivariateNode
     aadist::Array{Float64,1}
 
     function HiddenNode()
-        new(VonMisesNode(),VonMisesNode(),VonMisesNode(), ones(Float64,20)/20.0)
+        new(VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(), MultivariateNode(), ones(Float64,20)/20.0)
     end
 end
 
@@ -312,27 +380,6 @@ function backwardsampling(rng::AbstractRNG,node::TreeNode, state::Int, selcol::I
 	end
 end
 
-function observationloglikelihood(proteins::Array{Array{BranchState,1},1}, nodelist::Array{TreeNode,1}, modelparams::ModelParams)
-	ll = 0.0
-	for node in nodelist
-		if isleafnode(node)
-			for col=1:length(node.data.branchpath.paths)
-				h = node.data.branchpath.paths[col][end]
-				site = proteins[node.seqindex][col]
-				if site.aa > 0
-					ll += log(modelparams.hiddennodes[h].aadist[site.aa])
-				end
-				if site.phi > -100.0
-					ll += logpdf(modelparams.hiddennodes[h].phi_node.dist, site.phi)
-				end
-				if site.psi > -100.0
-					ll += logpdf(modelparams.hiddennodes[h].psi_node.dist, site.psi)
-				end
-			end
-		end
-	end
-	return ll
-end
 
 function augmentedlikelihood(nodelist::Array{TreeNode,1}, cols::Array{Int,1}, modelparams::ModelParams)
 	loglikelihood = 0.0
@@ -402,21 +449,121 @@ function observationlikelihood(protein::Array{BranchState,1}, col::Int, modelpar
     v = zeros(Float64, modelparams.alphabet)
 	for h=1:modelparams.numhiddenstates
 		if protein[col].aa > 0
-			v[h] = modelparams.hiddennodes[h].aadist[protein[col].aa]
+			v[h] = log(modelparams.hiddennodes[h].aadist[protein[col].aa])
 		else
 			for aa=1:20
-				v[h] = modelparams.hiddennodes[h].aadist[aa]
+				v[h] = log(modelparams.hiddennodes[h].aadist[aa])
 			end
 		end
 
 		if protein[col].phi > -100.0
-			v[h] *= pdf(modelparams.hiddennodes[h].phi_node.dist, protein[col].phi)
+			v[h] += logpdf(modelparams.hiddennodes[h].phi_node.dist, protein[col].phi)
+		end
+		if protein[col].omega > -100.0
+			v[h] += logpdf(modelparams.hiddennodes[h].omega_node.dist, protein[col].omega)
 		end
 		if protein[col].psi > -100.0
-			v[h] *= pdf(modelparams.hiddennodes[h].psi_node.dist, protein[col].psi)
+			v[h] += logpdf(modelparams.hiddennodes[h].psi_node.dist, protein[col].psi)
+		end
+		if protein[col].bond_angle1 > -100.0
+			#v[h] += logpdf(modelparams.hiddennodes[h].bond_angle1_node.dist, protein[col].bond_angle1)
+		end
+		if protein[col].bond_angle2 > -100.0
+			#v[h] += logpdf(modelparams.hiddennodes[h].bond_angle2_node.dist, protein[col].bond_angle2)
+		end
+		if protein[col].bond_angle3 > -100.0
+			#v[h] += logpdf(modelparams.hiddennodes[h].bond_angle3_node.dist, protein[col].bond_angle3)
+		end
+		if protein[col].bondlength1 > -100.0 && protein[col].bondlength2 > -100.0 && protein[col].bondlength3 > -100.0
+			#v[h] += logpdf(modelparams.hiddennodes[h].bond_lengths_node.mvn, Float64[protein[col].bondlength1, protein[col].bondlength2, protein[col].bondlength3])
 		end
 	end
-	return v
+	return exp.(v .- maximum(v))
+end
+
+
+function observationloglikelihood(proteins::Array{Array{BranchState,1},1}, nodelist::Array{TreeNode,1}, modelparams::ModelParams)
+	ll = 0.0
+	for node in nodelist
+		if isleafnode(node)
+			for col=1:length(node.data.branchpath.paths)
+				h = node.data.branchpath.paths[col][end]
+				site = proteins[node.seqindex][col]
+				if site.aa > 0
+					ll += log(modelparams.hiddennodes[h].aadist[site.aa])
+				end
+				if site.phi > -100.0
+					ll += logpdf(modelparams.hiddennodes[h].phi_node.dist, site.phi)
+				end
+				if site.phi > -100.0
+					ll += logpdf(modelparams.hiddennodes[h].omega_node.dist, site.omega)
+				end
+				if site.psi > -100.0
+					ll += logpdf(modelparams.hiddennodes[h].psi_node.dist, site.psi)
+				end
+				if site.bond_angle1 > -100.0
+					#ll += logpdf(modelparams.hiddennodes[h].bond_angle1_node.dist, site.bond_angle1)
+				end
+				if site.bond_angle2 > -100.0
+					#ll += logpdf(modelparams.hiddennodes[h].bond_angle2_node.dist, site.bond_angle2)
+				end
+				if site.bond_angle3 > -100.0
+					#ll += logpdf(modelparams.hiddennodes[h].bond_angle3_node.dist, site.bond_angle3)
+				end
+				if site.bondlength1 > -100.0 && site.bondlength2 > -100.0 && site.bondlength3 > -100.0
+					#ll += logpdf(modelparams.hiddennodes[h].bond_lengths_node.mvn, Float64[site.bondlength1, site.bondlength2, site.bondlength3])
+				end
+			end
+		end
+	end
+	return ll
+end
+
+function sampletip(rng::AbstractRNG, node::TreeNode, modelparams::ModelParams)
+	numcols = length(node.data.branchpath.paths)
+	dihedralangles = Tuple{Float64,Float64,Float64}[]
+	for col=1:numcols
+		phiz = vonmisesrand(rng, modelparams.hiddennodes[node.data.branchpath.paths[col][end]].phi_node.dist)
+		psiz = vonmisesrand(rng, modelparams.hiddennodes[node.data.branchpath.paths[col][end]].psi_node.dist)		
+		omegaz = vonmisesrand(rng, modelparams.hiddennodes[node.data.branchpath.paths[col][end]].omega_node.dist)
+		push!(dihedralangles, (phiz,psiz,omegaz))
+	end
+	return dihedralangles
+end
+
+function sampletip2(rng::AbstractRNG, node::TreeNode, modelparams::ModelParams, aligned_sequence::String)
+	numcols = length(node.data.branchpath.paths)
+	sequence = ""
+    phi_psi = Tuple{Float64,Float64}[] 
+    omega = Float64[]
+    bond_angles = Tuple{Float64,Float64,Float64}[]
+    bond_lengths = Array{Float64,1}[]
+	for col=1:numcols
+		aa = aligned_sequence[col]
+		if aa != '-'
+			sequence = string(sequence, aa)
+			h = node.data.branchpath.paths[col][end]
+			#println("A")
+			phiz = pimod(vonmisesrand(rng, modelparams.hiddennodes[h].phi_node.dist))
+			#println("B")
+			psiz = pimod(vonmisesrand(rng, modelparams.hiddennodes[h].psi_node.dist))
+			push!(phi_psi, (phiz,psiz))
+			#println("C")
+			omegaz = pimod(vonmisesrand(rng, modelparams.hiddennodes[h].omega_node.dist))
+			push!(omega,omegaz)
+			#println("D")
+			bond_angle1z = pimod(vonmisesrand(rng, modelparams.hiddennodes[h].bond_angle1_node.dist))
+			#println("E")
+			bond_angle2z = pimod(vonmisesrand(rng, modelparams.hiddennodes[h].bond_angle2_node.dist))
+			#println("F")
+			bond_angle3z = pimod(vonmisesrand(rng, modelparams.hiddennodes[h].bond_angle3_node.dist))
+			push!(bond_angles, (bond_angle1z, bond_angle2z, bond_angle3z))
+			#println("G")
+			push!(bond_lengths, rand(rng, modelparams.hiddennodes[h].bond_lengths_node.mvn))
+			#println("H")
+		end
+	end
+	return sequence, phi_psi, omega, bond_angles, bond_lengths
 end
 
 
@@ -475,6 +622,61 @@ function createtrainingexample(pair)
 	push!(proteins,pair[2])
 
 	return (proteins, nodelist)
+end
+
+function training_example_from_json_family(rng::AbstractRNG, modelparams, json_family)
+	root = gettreefromnewick(json_family["newick_tree"])
+	binarize!(root)
+	nodelist = getnodelist(root)
+	seqindex = 1
+	for (index,node) in enumerate(nodelist)
+		if isleafnode(node)
+			node.seqindex = seqindex
+			seqindex += 1
+		end
+		node.nodeindex = index
+	end
+
+	V = constructJointMatrix(modelparams, ones(Float64,modelparams.numhiddenstates), ones(Float64,modelparams.numhiddenstates))
+
+	numcols = length(json_family["proteins"][1]["aligned_sequence"])
+
+	paths = Array{Int,1}[]
+	times = Array{Float64,1}[]
+	for col=1:numcols
+		state = rand(rng,1:modelparams.numhiddenstates)
+		push!(paths,Int[state,state])
+		push!(times,Float64[0.0, 1.0])
+	end	
+	root.data = AugmentedNodeData(BranchPath(paths,times), 1)
+	for node in nodelist
+		if !isroot(node)
+			paths = Array{Int,1}[]
+			times = Array{Float64,1}[]
+			parentnode = get(node.parent)
+			for col=1:numcols
+				parentstate = parentnode.data.branchpath.paths[col][end]
+				nodestate = rand(rng,1:modelparams.numhiddenstates)
+				path,time = modifiedrejectionsampling(rng, V*0.5, parentstate, nodestate, nothing)
+				push!(paths,path)
+				push!(times,time)
+			end
+			node.data = AugmentedNodeData(BranchPath(paths,times), 1)
+		end
+	end
+
+	proteins = Array{BranchState,1}[]
+	for p=1:length(json_family["proteins"])
+	    protein = BranchState[]
+	    json_protein = json_family["proteins"][p]
+	    for (aa,phi_psi,omega,bond_lengths,bond_angles) in zip(json_protein["aligned_sequence"], json_protein["aligned_phi_psi"], json_protein["aligned_omega"], json_protein["aligned_bond_lengths"], json_protein["aligned_bond_angles"])
+	    	phi = phi_psi[1]
+	    	psi = phi_psi[2]
+	        push!(protein, BranchState(0,indexof(string(aa), aminoacids),phi,omega,psi,bond_lengths[1],bond_lengths[2],bond_lengths[3],bond_angles[1],bond_angles[2],bond_angles[3]))
+	    end
+	    push!(proteins, protein)
+	end
+	return (proteins, nodelist,json_family)
 end
 
 function getexitrate(node::TreeNode, cols::Array{Int,1}, modelparams::ModelParams)
@@ -537,35 +739,33 @@ function vonmisesrand(rng::AbstractRNG, vonmises::VonMises)
 	return mod2pi(mid + vonmises.μ)
 end
 
-function sampletip(rng::AbstractRNG, node::TreeNode, modelparams::ModelParams)
-	numcols = length(node.data.branchpath.paths)
-	dihedralangles = Tuple{Float64,Float64}[]
-	for col=1:numcols
-		phiz = vonmisesrand(rng, modelparams.hiddennodes[node.data.branchpath.paths[col][end]].phi_node.dist)
-		psiz = vonmisesrand(rng, modelparams.hiddennodes[node.data.branchpath.paths[col][end]].psi_node.dist)
-		push!(dihedralangles, (phiz,psiz))
-	end
-	return dihedralangles
-end
 
-pairs = loadpairs("../data/etdbn_training_data.txt")
 
-numhiddenstates = 10
+rng = MersenneTwister(10498012421321)
+Random.seed!(1234)
+
+family_files = filter(f -> endswith(f,".fam"), readdir("../data/families/"))
+
+numhiddenstates = 15
 modelparams = ModelParams(LGmatrix,numhiddenstates,0.2)
 
+trainingexamples = Tuple[]
+for family_file in family_files[1:50]
+	full_path = abspath(joinpath("../data/families/", family_file))
+	json_family = JSON.parse(open(full_path, "r"))
+	if 2 <= length(json_family["proteins"]) <= 1e10
+		training_example = training_example_from_json_family(rng, modelparams, json_family)
+		push!(trainingexamples, training_example)
+		println(json_family["newick_tree"])
+	end
+end
 #=
 fin = open("model_h_15.model", "r")
 modelparams = Serialization.deserialize(fin)
 close(fin)=#
 
-rng = MersenneTwister(10498012421321)
-Random.seed!(1234)
-rootstate = rand(rng, 1:modelparams.alphabet)
 
-trainingexamples = Tuple[]
-for p=1:600
-	push!(trainingexamples, createtrainingexample(pairs[p]))
-end
+
 
 logwriter = open(string("trace", modelparams.numhiddenstates,".log"), "w")
 println(logwriter, "iter","\t","loglikelihood")
@@ -599,11 +799,6 @@ for iter=1:1000
 				branchiterator = BranchPathIterator(node.data.branchpath, Int[col,col+1])
 				for (prevstates,prevtime,currstates,currtime,changecol) in branchiterator
 					transitioncounts[prevstates[1],prevstates[2]] += 1.0
-
-					#=
-					dt = (currtime-prevtime)*node.branchlength
-					println(prevstates[1], "\t", prevstates[2], "\t", dt
-					=#
 				end
 			end
 		end
@@ -623,21 +818,44 @@ for iter=1:1000
 			end
 		end
 
+		for h=1:modelparams.numhiddenstates
+			modelparams.hiddennodes[h].bond_lengths_node.data = Array{Float64,1}[]
+		end
+
 		for col=1:numcols
-			for node in nodelist
+			for node in nodelist				
+				if isleafnode(node)
+					h = node.data.branchpath.paths[col][end]
+					if proteins[node.seqindex][col].aa > 0
+						aacounts[h,proteins[node.seqindex][col].aa] += 1.0
+						push!(modelparams.hiddennodes[h].phi_node.data, proteins[node.seqindex][col].phi)
+						push!(modelparams.hiddennodes[h].omega_node.data, proteins[node.seqindex][col].omega)
+						push!(modelparams.hiddennodes[h].psi_node.data, proteins[node.seqindex][col].psi)
+						push!(modelparams.hiddennodes[h].bond_angle1_node.data, proteins[node.seqindex][col].bond_angle1)
+						push!(modelparams.hiddennodes[h].bond_angle2_node.data, proteins[node.seqindex][col].bond_angle2)
+						push!(modelparams.hiddennodes[h].bond_angle3_node.data, proteins[node.seqindex][col].bond_angle3)
+						add_point(modelparams.hiddennodes[h].bond_lengths_node, Float64[proteins[node.seqindex][col].bondlength1, proteins[node.seqindex][col].bondlength2, proteins[node.seqindex][col].bondlength3])
+					end
+				end
+				#=
 				for p=1:length(node.data.branchpath.paths[col])
 					h = node.data.branchpath.paths[col][p]
 					if p == length(node.data.branchpath.paths[col]) && isleafnode(node)
 						if proteins[node.seqindex][col].aa > 0
 							aacounts[h,proteins[node.seqindex][col].aa] += 1.0
 							push!(modelparams.hiddennodes[h].phi_node.data, proteins[node.seqindex][col].phi)
+							push!(modelparams.hiddennodes[h].omega_node.data, proteins[node.seqindex][col].omega)
 							push!(modelparams.hiddennodes[h].psi_node.data, proteins[node.seqindex][col].psi)
+							push!(modelparams.hiddennodes[h].bond_angle1_node.data, proteins[node.seqindex][col].bond_angle1)
+							push!(modelparams.hiddennodes[h].bond_angle2_node.data, proteins[node.seqindex][col].bond_angle2)
+							push!(modelparams.hiddennodes[h].bond_angle3_node.data, proteins[node.seqindex][col].bond_angle3)
+							add_point(modelparams.hiddennodes[h].bond_lengths_node, Float64[proteins[node.seqindex][col].bondlength1, proteins[node.seqindex][col].bondlength2, proteins[node.seqindex][col].bondlength3])
 						end
 					else
 						sampleaa = CommonUtils.sample(rng, modelparams.hiddennodes[h].aadist)
 						aacounts[h,sampleaa] += 1.0
 					end
-				end
+				end=#
 			end
 		end
 
@@ -686,9 +904,18 @@ for iter=1:1000
 
 		estimatevonmises(modelparams.hiddennodes[h].phi_node)
 		estimatevonmises(modelparams.hiddennodes[h].psi_node)
-		println(iter,"\t",h,"\t",modelparams.hiddennodes[h].phi_node.mu,"\t",modelparams.hiddennodes[h].phi_node.kappa)
-		println(iter,"\t",h,"\t",modelparams.hiddennodes[h].psi_node.mu,"\t",modelparams.hiddennodes[h].psi_node.kappa)
-
+		estimatevonmises(modelparams.hiddennodes[h].omega_node)
+		estimatevonmises(modelparams.hiddennodes[h].bond_angle1_node)
+		estimatevonmises(modelparams.hiddennodes[h].bond_angle2_node)
+		estimatevonmises(modelparams.hiddennodes[h].bond_angle3_node)
+		estimate_multivariate_node(modelparams.hiddennodes[h].bond_lengths_node)
+		println(iter,"\t",h,"\t",modelparams.hiddennodes[h].phi_node.mu,"\t",modelparams.hiddennodes[h].phi_node.kappa,"\t",modelparams.hiddennodes[h].phi_node.N)		
+		println(iter,"\t",h,"\t",modelparams.hiddennodes[h].psi_node.mu,"\t",modelparams.hiddennodes[h].psi_node.kappa,"\t",modelparams.hiddennodes[h].psi_node.N)
+		println(iter,"\t",h,"\t",modelparams.hiddennodes[h].omega_node.mu,"\t",modelparams.hiddennodes[h].omega_node.kappa,"\t",modelparams.hiddennodes[h].omega_node.N)
+		println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle1_node.mu,"\t",modelparams.hiddennodes[h].bond_angle1_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle1_node.N)
+		println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle2_node.mu,"\t",modelparams.hiddennodes[h].bond_angle2_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle2_node.N)
+		println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle3_node.mu,"\t",modelparams.hiddennodes[h].bond_angle3_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle3_node.N)
+		println(iter,"\t",h,"\t", modelparams.hiddennodes[h].bond_lengths_node.mvn.μ)
 		for aa=1:20
 			println(iter,"\t",h,"\t",aminoacids[aa],"\t",modelparams.hiddennodes[h].aadist[aa])
 		end
@@ -697,13 +924,22 @@ for iter=1:1000
 	println("rates ", transitionratecounts)
 	println("rates ", transitionratetotals)
 
-	proteins,nodelist = trainingexamples[1]
-	phipsisample = sampletip(rng, nodelist[2], modelparams)
+
+	proteins,nodelist,json_family = trainingexamples[1]
+    sequence, phi_psi, omega, bond_angles, bond_lengths = sampletip2(rng, nodelist[2], modelparams, json_family["proteins"][1]["aligned_sequence"])
+
+    chain = build_structure_from_angles(sequence, phi_psi, omega, bond_angles, bond_lengths; use_input_bond_angles=true, use_input_bond_lengths=true)
+    fout = open("sample.pdb", "w")
+	writepdb(fout, chain)
+	close(fout)
+    #=
 	for col=1:length(phipsisample)
 		node = nodelist[2]
 		h = node.data.branchpath.paths[col][end]
-		println(pimod(phipsisample[col][1]),"\t", proteins[1][col].phi,"\t",modelparams.hiddennodes[h].phi_node.dist,"\t",pimod(phipsisample[col][2]),"\t", proteins[1][col].psi,"\t",modelparams.hiddennodes[h].psi_node.dist)
-	end
+		println(pimod(phipsisample[col][3]),"\t", proteins[1][col].omega, "\t", pimod(phipsisample[col][1]),"\t", proteins[1][col].phi,"\t",modelparams.hiddennodes[h].phi_node.dist,"\t",pimod(phipsisample[col][2]),"\t", proteins[1][col].psi,"\t",modelparams.hiddennodes[h].psi_node.dist)
+	end=#
+
+
 	#save(string("model_h_",modelparams.numhiddenstates,"_",iter,".model"), "modelparams", modelparams)
 	fout = open(string("model_h_",modelparams.numhiddenstates, ".model"), "w")
 	Serialization.serialize(fout, modelparams)

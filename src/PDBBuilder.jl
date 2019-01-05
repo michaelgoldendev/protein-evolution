@@ -168,10 +168,15 @@ module PDBBuilder
     export build_structure_from_angles
     function build_structure_from_angles(polypeptide; use_input_bond_angles::Bool=false, use_input_bond_lengths::Bool=false)
         sequence = polypeptide["sequence"]
+        phi_psi = polypeptide["phi_psi"]        
         omega = polypeptide["omega"]
-        phi_psi = polypeptide["phi_psi"]
         bond_angles = polypeptide["bond_angles"]
         bond_lengths = polypeptide["bond_lengths"]
+        return build_structure_from_angles(sequence, phi_psi, omega, bond_angles, bond_lengths, use_input_bond_angles, use_input_bond_lengths)
+    end
+
+    export build_structure_from_angles
+    function build_structure_from_angles(sequence, phi_psi, omega, bond_angles, bond_lengths; use_input_bond_angles::Bool=false, use_input_bond_lengths::Bool=false)
         chain = Chain("A")
 
         residue = add_residue(chain, Residue(one_to_three[string(sequence[1])]))
@@ -238,10 +243,16 @@ module PDBBuilder
 end
 
 #using PDBBuilder
+#=
 using JSON
 
-polypeptide = JSON.parse(open("../data/families/5_3_exonuclease.ali_2.fam", "r"))[1]
+polypeptide = JSON.parse(open("../data/families/5_3_exonuclease.ali_2.fam", "r"))["proteins"][1]
 chain = PDBBuilder.build_structure_from_angles(polypeptide, use_input_bond_angles=false, use_input_bond_lengths=true)
-fout = open("mytest.pdb", "w")
+fout = open("ideal-bond-angles.pdb", "w")
 PDBBuilder.writepdb(fout, chain)
 close(fout)
+
+chain = PDBBuilder.build_structure_from_angles(polypeptide, use_input_bond_angles=true, use_input_bond_lengths=true)
+fout = open("actual-bond-angles.pdb", "w")
+PDBBuilder.writepdb(fout, chain)
+close(fout)=#

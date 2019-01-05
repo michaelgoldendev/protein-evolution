@@ -3,6 +3,16 @@ from Bio import AlignIO
 import numpy as np
 import os
 import json
+import subprocess
+
+def fasttree_protein(fastafile):
+    infile = os.path.abspath(fastafile)
+    executable = os.path.abspath("../binaries/FastTree.exe")
+    cmd = "%s -lg %s > %s.nwk" % (executable, infile, infile)
+    subprocess.run(cmd, shell=True)
+    fin = open("%s.nwk" % infile, "r")
+    newick = fin.readlines()[0].strip()
+    return newick
 
 def norm(v):
 	return np.sqrt((np.sum(v**2)))
@@ -105,7 +115,9 @@ class AlignedProtein:
         self.omega = []
         self.aligned_omega = []
         self.bond_angles = []
+        self.aligned_bond_angles = []
         self.bond_lengths = []
+        self.aligned_bond_lengths = []
 
     def toJSON(self):
         return json.dumps(self, default=lambda o: o.__dict__, sort_keys=True, indent=4)
@@ -170,17 +182,24 @@ for homstradfolder in os.listdir(homstradpath):
                     print(len(family))
                     print(alignedseqs)
                     print(countnongaps(alignedseqs))
-                    fastaout = open("../data/families/%s_%d.fas" % (alignmentfile, len(family)), "w")
+                    fastafile = "../data/families/%s_%d.fas" % (alignmentfile, len(family))
+                    fastaout = open(fastafile, "w")
                     for alignedprotein in family:
                         fastaout.write(">%s\n" % alignedprotein.name)
                         alignedprotein.aligned_sequence = removeonlygaps(alignedprotein.aligned_sequence, alignedseqs)
                         alignedprotein.aligned_phi_psi = insertgaps(alignedprotein.aligned_sequence, alignedprotein.phi_psi, gapvalue=(-1000.0, -1000.0))
                         alignedprotein.aligned_omega = insertgaps(alignedprotein.aligned_sequence, alignedprotein.omega, gapvalue=-1000.0)
-                        fastaout.write(alignedprotein.aligned_sequence+"\n")
-                        
+                        alignedprotein.aligned_bond_angles = insertgaps(alignedprotein.aligned_sequence, alignedprotein.bond_angles, gapvalue=(-1000.0, -1000.0, -1000.0))
+                        alignedprotein.aligned_bond_lengths = insertgaps(alignedprotein.aligned_sequence, alignedprotein.bond_lengths, gapvalue=(-1000.0, -1000.0, -1000.0))
+                        fastaout.write(alignedprotein.aligned_sequence+"\n")                        
                     fastaout.close()
-                    fout = open("../data/families/%s_%d.fam" % (alignmentfile, len(family)), "w")                    
-                    fout.write("[")
+                    newick_tree = fasttree_protein(fastafile)
+                    fout = open("../data/families/%s_%d.fam" % (alignmentfile, len(family)), "w")
+                    fout.write("{\n")
+                    fout.write("\"newick_tree\": \"%s\",\n" % newick_tree)                    
+                    fout.write("\"proteins\": [")
                     fout.write(",".join([alignedprotein.toJSON() for alignedprotein in family]))
-                    fout.write("]")
+                    fout.write("]\n")
+
+                    fout.write("}")
                     fout.flush()
