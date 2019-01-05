@@ -7,7 +7,17 @@ push!(LOAD_PATH,string(@__DIR__,"/../../../dev/MolecularEvolution/src/"))
 using MolecularEvolution
 
 push!(LOAD_PATH,string(@__DIR__))
+using EMNodes
 using PDBBuilder
+push!(LOAD_PATH,@__DIR__)
+using BranchPaths
+using CommonUtils
+using LG
+using Random
+using CTMCs
+
+secondarystructure = "HBEGITSC"
+aminoacids = "ACDEFGHIKLMNPQRSTVWY"
 
 function binarize!(tree::TreeNode)
     nodes = getnodelist(tree)
@@ -22,19 +32,7 @@ function binarize!(tree::TreeNode)
             n.children[end].parent = n
         end
     end
-end   
-
-push!(LOAD_PATH,@__DIR__)
-using BranchPaths
-using CommonUtils
-using LG
-using Random
-using CTMCs
-
-include("Data.jl")
-
-secondarystructure = "HBEGITSC"
-aminoacids = "ACDEFGHIKLMNPQRSTVWY"
+end
 
 function pimod(angle::Float64)
   theta = mod2pi(angle)
@@ -44,120 +42,6 @@ function pimod(angle::Float64)
     return theta
   end
 end
-
-mutable struct MultivariateNode
-	mvn::MvNormal
-	data::Array{Array{Float64,1},1}
-
-	function MultivariateNode()
-		new(MvNormal([1.0,1.0,1.0]), Array{Float64,1}[])
-	end
-end
-
-function add_point(mv_node::MultivariateNode, point::Array{Float64,1})
-	cont = true
-	for p in point
-		if p <= -100.0
-			cont = false
-			break
-		end
-	end
-	if cont
-		push!(mv_node.data, point)
-	end
-end
-
-function estimate_multivariate_node(mv_node::MultivariateNode)	
-	println("N=",length(mv_node.data))
-	try
-		matrix = zeros(Float64, length(mv_node.data[1]), length(mv_node.data))
-		for col=1:size(matrix,2)
-			for (row,el) in enumerate(mv_node.data[col])
-				matrix[row,col] = el
-			end
-		end
-
-		mvn_suffstats = suffstats(MvNormal, matrix)
-		mv_node.mvn =  fit_mle(MvNormal, mvn_suffstats)
-	catch Exception 
-		mv_node.mvn = MvNormal(Float64[1.32, 1.47,1.53], Matrix{Float64}(I,3,3)*0.1)
-	end
-end
-
-mutable struct VonMisesNode
-	rx::Float64
-	ry::Float64
-	N::Float64
-	mu::Float64
-	kappa::Float64
-	dist::VonMises
-	data::Array{Float64,1}
-
-	function VonMisesNode()
-		mu = 0.0
-		kappa = 1e-5
-		new(0.0, 0.0, 0.0, mu, kappa, VonMises(mu, kappa), Float64[])
-	end
-end
-
-function estimatevonmises(vonmises_node::VonMisesNode)
-	if length(vonmises_node.data) > 0
-		vonmises_node.rx = 0.0
-		vonmises_node.ry = 0.0
-		vonmises_node.N = 0
-		for theta in vonmises_node.data
-			if theta > -100.0
-				vonmises_node.rx += cos(theta)
-				vonmises_node.ry += sin(theta)
-				vonmises_node.N += 1
-			end
-		end		
-	end
-	vonmises_node.data = Float64[]
-
-	if vonmises_node.N >= 2
-		rx = vonmises_node.rx
-		ry = vonmises_node.ry
-		n = vonmises_node.N
-
-		c = rx / n
-		s = ry / n
-		rho = sqrt(c*c + s*s)
-
-		if s > 0
-			mu = acos(c / rho)
-		else
-			mu = 2.0*pi - acos(c / rho)
-		end
-
-
-		if rho < 2.0/3.0
-			kappa = rho * ((2.0 - rho*rho) / (1.0 - rho*rho))
-		else
-			kappa = (rho + 1.0) / (4.0 * rho * (1 - rho))
-		end
-
-		vonmises_node.mu = mu
-		vonmises_node.kappa = kappa
-		vonmises_node.dist = VonMises(mu, min(700.0, kappa))
-	end
-end
-
-mutable struct HiddenNode
-	phi_node::VonMisesNode
-	psi_node::VonMisesNode
-	omega_node::VonMisesNode
-	bond_angle1_node::VonMisesNode
-	bond_angle2_node::VonMisesNode
-	bond_angle3_node::VonMisesNode
-	bond_lengths_node::MultivariateNode
-    aadist::Array{Float64,1}
-
-    function HiddenNode()
-        new(VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(), MultivariateNode(), ones(Float64,20)/20.0)
-    end
-end
-
 
 mutable struct ModelParams
     alphabet::Int
@@ -188,7 +72,6 @@ mutable struct ModelParams
         new(numhiddenstates,aminoacidQ,numhiddenstates,initialprobs,transitionprobs,transitionrates,hiddennodes,mu)
     end
 end
-
 
 mutable struct AugmentedNodeData <: NodeData
 	branchpath::BranchPath
@@ -249,7 +132,6 @@ function felsensteinhelper(node::TreeNode, selcolin::Int, cols::Array{Int,1}, v:
 			succprobs = modelparams.transitionprobs[:,succh]
 		end
 		R = constructJointMatrix(modelparams, prevprobs, succprobs)
-        #R = constructJointMatrix(modelparams, ones(Float64,modelparams.numhiddenstates), ones(Float64,modelparams.numhiddenstates))
 		dt = (currtime-prevtime)*node.branchlength
     	Pi = exp(R*dt)
     	push!(Rmatrices, R*dt)
@@ -335,7 +217,7 @@ function felsensteinresample(rng::AbstractRNG, proteins::Array{Array{BranchState
 		nextprobs = modelparams.transitionprobs[:,nexth]
 	end
 	for a=1:modelparams.alphabet
-		logfreqs[a] = log(prevprobs[a]*nextprobs[a])
+		logfreqs[a] = log(prevprobs[a]*nextprobs[a]) # TODO: include initial probs
 	end
 	freqs = exp.(logfreqs.-maximum(logfreqs))
 	freqs /= sum(freqs)
@@ -445,38 +327,41 @@ function constructJointMatrix(modelparams::ModelParams, prevprobs::Array{Float64
     return Q
 end
 
+function siteloglikelihood(site::BranchState, h::Int)
+	ll = 0.0
+	if site.aa > 0
+		ll += log(modelparams.hiddennodes[h].aa_node.probs[site.aa])
+	end
+
+	if site.phi > -100.0
+		ll += logpdf(modelparams.hiddennodes[h].phi_node.dist, site.phi)
+	end
+	if site.omega > -100.0
+		ll += logpdf(modelparams.hiddennodes[h].omega_node.dist, site.omega)
+	end
+	if site.psi > -100.0
+		ll += logpdf(modelparams.hiddennodes[h].psi_node.dist, site.psi)
+	end
+	#=
+	if site.bond_angle1 > -100.0
+		ll += logpdf(modelparams.hiddennodes[h].bond_angle1_node.dist, site.bond_angle1)
+	end
+	if site.bond_angle2 > -100.0
+		ll += logpdf(modelparams.hiddennodes[h].bond_angle2_node.dist, site.bond_angle2)
+	end
+	if site.bond_angle3 > -100.0
+		ll += logpdf(modelparams.hiddennodes[h].bond_angle3_node.dist, site.bond_angle3)
+	end
+	if site.bondlength1 > -100.0 && site.bondlength2 > -100.0 && site.bondlength3 > -100.0
+		ll += logpdf(modelparams.hiddennodes[h].bond_lengths_node.mvn, Float64[site.bondlength1, site.bondlength2, site.bondlength3])
+	end=#
+	return ll
+end
+
 function observationlikelihood(protein::Array{BranchState,1}, col::Int, modelparams::ModelParams)
     v = zeros(Float64, modelparams.alphabet)
 	for h=1:modelparams.numhiddenstates
-		if protein[col].aa > 0
-			v[h] = log(modelparams.hiddennodes[h].aadist[protein[col].aa])
-		else
-			for aa=1:20
-				v[h] = log(modelparams.hiddennodes[h].aadist[aa])
-			end
-		end
-
-		if protein[col].phi > -100.0
-			v[h] += logpdf(modelparams.hiddennodes[h].phi_node.dist, protein[col].phi)
-		end
-		if protein[col].omega > -100.0
-			v[h] += logpdf(modelparams.hiddennodes[h].omega_node.dist, protein[col].omega)
-		end
-		if protein[col].psi > -100.0
-			v[h] += logpdf(modelparams.hiddennodes[h].psi_node.dist, protein[col].psi)
-		end
-		if protein[col].bond_angle1 > -100.0
-			#v[h] += logpdf(modelparams.hiddennodes[h].bond_angle1_node.dist, protein[col].bond_angle1)
-		end
-		if protein[col].bond_angle2 > -100.0
-			#v[h] += logpdf(modelparams.hiddennodes[h].bond_angle2_node.dist, protein[col].bond_angle2)
-		end
-		if protein[col].bond_angle3 > -100.0
-			#v[h] += logpdf(modelparams.hiddennodes[h].bond_angle3_node.dist, protein[col].bond_angle3)
-		end
-		if protein[col].bondlength1 > -100.0 && protein[col].bondlength2 > -100.0 && protein[col].bondlength3 > -100.0
-			#v[h] += logpdf(modelparams.hiddennodes[h].bond_lengths_node.mvn, Float64[protein[col].bondlength1, protein[col].bondlength2, protein[col].bondlength3])
-		end
+		v[h] = siteloglikelihood(protein[col], h)
 	end
 	return exp.(v .- maximum(v))
 end
@@ -487,32 +372,8 @@ function observationloglikelihood(proteins::Array{Array{BranchState,1},1}, nodel
 	for node in nodelist
 		if isleafnode(node)
 			for col=1:length(node.data.branchpath.paths)
-				h = node.data.branchpath.paths[col][end]
-				site = proteins[node.seqindex][col]
-				if site.aa > 0
-					ll += log(modelparams.hiddennodes[h].aadist[site.aa])
-				end
-				if site.phi > -100.0
-					ll += logpdf(modelparams.hiddennodes[h].phi_node.dist, site.phi)
-				end
-				if site.phi > -100.0
-					ll += logpdf(modelparams.hiddennodes[h].omega_node.dist, site.omega)
-				end
-				if site.psi > -100.0
-					ll += logpdf(modelparams.hiddennodes[h].psi_node.dist, site.psi)
-				end
-				if site.bond_angle1 > -100.0
-					#ll += logpdf(modelparams.hiddennodes[h].bond_angle1_node.dist, site.bond_angle1)
-				end
-				if site.bond_angle2 > -100.0
-					#ll += logpdf(modelparams.hiddennodes[h].bond_angle2_node.dist, site.bond_angle2)
-				end
-				if site.bond_angle3 > -100.0
-					#ll += logpdf(modelparams.hiddennodes[h].bond_angle3_node.dist, site.bond_angle3)
-				end
-				if site.bondlength1 > -100.0 && site.bondlength2 > -100.0 && site.bondlength3 > -100.0
-					#ll += logpdf(modelparams.hiddennodes[h].bond_lengths_node.mvn, Float64[site.bondlength1, site.bondlength2, site.bondlength3])
-				end
+				h = node.data.branchpath.paths[col][end]				 
+				ll += siteloglikelihood(proteins[node.seqindex][col], h)
 			end
 		end
 	end
@@ -715,42 +576,16 @@ function proposebranchlength(rng::AbstractRNG, node::TreeNode, cols::Array{Int,1
 	return t,propratio
 end
 
-function vonmisesrand(rng::AbstractRNG, vonmises::VonMises)
-	dist = VonMises(0.0, vonmises.κ)
-	u = rand(rng)
-	v = -1.0
-	lower = -pi
-	upper = pi
-	mid = (upper-lower)/2.0 + lower
-	for i=1:10000
-		mid = (upper-lower)/2.0 + lower
-		v = cdf(dist, mid)
-		if abs(v-u) < 1e-10
-			break
-		elseif v < u
-			lower = mid
-		else
-			upper = mid
-		end
-	end
-	if abs(v-u) > 0.001
-		println("sample ",v,"\t",u,"\t",cdf(vonmises,mid),"\t",vonmises,"\t",lower,"\t",upper)
-	end
-	return mod2pi(mid + vonmises.μ)
-end
-
-
-
 rng = MersenneTwister(10498012421321)
 Random.seed!(1234)
 
 family_files = filter(f -> endswith(f,".fam"), readdir("../data/families/"))
 
-numhiddenstates = 15
+numhiddenstates = 5
 modelparams = ModelParams(LGmatrix,numhiddenstates,0.2)
 
 trainingexamples = Tuple[]
-for family_file in family_files[1:50]
+for family_file in family_files[1:30]
 	full_path = abspath(joinpath("../data/families/", family_file))
 	json_family = JSON.parse(open(full_path, "r"))
 	if 2 <= length(json_family["proteins"]) <= 1e10
@@ -826,36 +661,18 @@ for iter=1:1000
 			for node in nodelist				
 				if isleafnode(node)
 					h = node.data.branchpath.paths[col][end]
-					if proteins[node.seqindex][col].aa > 0
-						aacounts[h,proteins[node.seqindex][col].aa] += 1.0
-						push!(modelparams.hiddennodes[h].phi_node.data, proteins[node.seqindex][col].phi)
-						push!(modelparams.hiddennodes[h].omega_node.data, proteins[node.seqindex][col].omega)
-						push!(modelparams.hiddennodes[h].psi_node.data, proteins[node.seqindex][col].psi)
-						push!(modelparams.hiddennodes[h].bond_angle1_node.data, proteins[node.seqindex][col].bond_angle1)
-						push!(modelparams.hiddennodes[h].bond_angle2_node.data, proteins[node.seqindex][col].bond_angle2)
-						push!(modelparams.hiddennodes[h].bond_angle3_node.data, proteins[node.seqindex][col].bond_angle3)
-						add_point(modelparams.hiddennodes[h].bond_lengths_node, Float64[proteins[node.seqindex][col].bondlength1, proteins[node.seqindex][col].bondlength2, proteins[node.seqindex][col].bondlength3])
+					site = proteins[node.seqindex][col]
+					if site.aa > 0
+						modelparams.hiddennodes[h].aa_node.counts[site.aa] += 1.0
+						push!(modelparams.hiddennodes[h].phi_node.data, site.phi)
+						push!(modelparams.hiddennodes[h].omega_node.data, site.omega)
+						push!(modelparams.hiddennodes[h].psi_node.data, site.psi)
+						push!(modelparams.hiddennodes[h].bond_angle1_node.data, site.bond_angle1)
+						push!(modelparams.hiddennodes[h].bond_angle2_node.data, site.bond_angle2)
+						push!(modelparams.hiddennodes[h].bond_angle3_node.data, site.bond_angle3)
+						add_point(modelparams.hiddennodes[h].bond_lengths_node, Float64[site.bondlength1, site.bondlength2, site.bondlength3])
 					end
 				end
-				#=
-				for p=1:length(node.data.branchpath.paths[col])
-					h = node.data.branchpath.paths[col][p]
-					if p == length(node.data.branchpath.paths[col]) && isleafnode(node)
-						if proteins[node.seqindex][col].aa > 0
-							aacounts[h,proteins[node.seqindex][col].aa] += 1.0
-							push!(modelparams.hiddennodes[h].phi_node.data, proteins[node.seqindex][col].phi)
-							push!(modelparams.hiddennodes[h].omega_node.data, proteins[node.seqindex][col].omega)
-							push!(modelparams.hiddennodes[h].psi_node.data, proteins[node.seqindex][col].psi)
-							push!(modelparams.hiddennodes[h].bond_angle1_node.data, proteins[node.seqindex][col].bond_angle1)
-							push!(modelparams.hiddennodes[h].bond_angle2_node.data, proteins[node.seqindex][col].bond_angle2)
-							push!(modelparams.hiddennodes[h].bond_angle3_node.data, proteins[node.seqindex][col].bond_angle3)
-							add_point(modelparams.hiddennodes[h].bond_lengths_node, Float64[proteins[node.seqindex][col].bondlength1, proteins[node.seqindex][col].bondlength2, proteins[node.seqindex][col].bondlength3])
-						end
-					else
-						sampleaa = CommonUtils.sample(rng, modelparams.hiddennodes[h].aadist)
-						aacounts[h,sampleaa] += 1.0
-					end
-				end=#
 			end
 		end
 
@@ -880,11 +697,6 @@ for iter=1:1000
 	flush(logwriter)
 
 	for h=1:modelparams.numhiddenstates
-		for aa=1:20
-			modelparams.hiddennodes[h].aadist[aa] = aacounts[h,aa]
-		end
-		modelparams.hiddennodes[h].aadist /= sum(modelparams.hiddennodes[h].aadist)
-
 		for h2=1:modelparams.numhiddenstates
 			modelparams.transitionprobs[h,h2] = transitioncounts[h,h2]
 		end
@@ -902,6 +714,13 @@ for iter=1:1000
 			end
 		end=#
 
+		#=
+		for aa=1:20
+			modelparams.hiddennodes[h].aadist[aa] = aacounts[h,aa]
+		end
+		modelparams.hiddennodes[h].aadist /= sum(modelparams.hiddennodes[h].aadist)
+		=#
+		estimate_categorical(modelparams.hiddennodes[h].aa_node)
 		estimatevonmises(modelparams.hiddennodes[h].phi_node)
 		estimatevonmises(modelparams.hiddennodes[h].psi_node)
 		estimatevonmises(modelparams.hiddennodes[h].omega_node)
@@ -917,7 +736,7 @@ for iter=1:1000
 		println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle3_node.mu,"\t",modelparams.hiddennodes[h].bond_angle3_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle3_node.N)
 		println(iter,"\t",h,"\t", modelparams.hiddennodes[h].bond_lengths_node.mvn.μ)
 		for aa=1:20
-			println(iter,"\t",h,"\t",aminoacids[aa],"\t",modelparams.hiddennodes[h].aadist[aa])
+			println(iter,"\t",h,"\t",aminoacids[aa],"\t",modelparams.hiddennodes[h].aa_node.probs[aa])
 		end
 	end
 	println("probs ", modelparams.transitionprobs)
