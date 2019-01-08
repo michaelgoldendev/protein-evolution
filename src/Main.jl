@@ -146,9 +146,9 @@ mutable struct AugmentedNodeData <: NodeData
 	Pmatrices::Array{Array{Float64,2},1}
 	vs::Array{Array{Float64,1},1}
 	time::Array{Float64,1}
-	observations::Array{SiteObservation,1}
+	protein::Protein
 
-	AugmentedNodeData(branchpath::BranchPath, dummy::Int) = new(branchpath, dummy, Array{Float64,2}[], Array{Float64,2}[], Array{Float64,1}[], Float64[], SiteObservation[])
+	AugmentedNodeData(branchpath::BranchPath, dummy::Int) = new(branchpath, dummy, Array{Float64,2}[], Array{Float64,2}[], Array{Float64,1}[], Float64[], Protein())
 end
 
 function gettransprobs(node::TreeNode, selcolin::Int, cols::Array{Int,1}, modelparams::ModelParams)
@@ -249,7 +249,7 @@ function felsensteinhelper(node::TreeNode, selcolin::Int, cols::Array{Int,1}, v:
 end
 
 
-function felsensteinresample(rng::AbstractRNG, proteins::Array{Array{SiteObservation,1},1}, nodelist::Array{TreeNode,1}, selcolin::Int, cols::Array{Int,1}, modelparams::ModelParams)
+function felsensteinresample(rng::AbstractRNG, proteins::Array{Protein,1}, nodelist::Array{TreeNode,1}, selcolin::Int, cols::Array{Int,1}, modelparams::ModelParams)
 	#selcol = findfirst(x -> x == selcolin, cols)
 	selcol = selcolin
 	likelihoods = ones(Float64, length(nodelist), modelparams.alphabet)*-Inf
@@ -260,7 +260,7 @@ function felsensteinresample(rng::AbstractRNG, proteins::Array{Array{SiteObserva
 		nodeindex = stack[end]
 		node = nodelist[nodeindex]
 		if isleafnode(node)
-			v = observationlikelihood(node.data.observations, selcolin, modelparams)
+			v = observationlikelihood(node.data.protein, selcolin, modelparams)
 			for a=1:length(v)
 				likelihoods[nodeindex,a] = v[a]
 			end
@@ -283,7 +283,7 @@ function felsensteinresample(rng::AbstractRNG, proteins::Array{Array{SiteObserva
 				righttransprobs = gettransprobs(nodelist[rightchildindex], selcol, cols, modelparams)
 
         		#likelihoods[nodeindex, :] = (lefttransprobs*likelihoods[leftchildindex,:]).*(righttransprobs*likelihoods[rightchildindex,:])
-        		likelihoods[nodeindex, :] = (lefttransprobs*likelihoods[leftchildindex,:]).*(righttransprobs*likelihoods[rightchildindex,:]).*observationlikelihood(node.data.observations, selcolin, modelparams)
+        		likelihoods[nodeindex, :] = (lefttransprobs*likelihoods[leftchildindex,:]).*(righttransprobs*likelihoods[rightchildindex,:]).*observationlikelihood(node.data.protein, selcolin, modelparams)
 
 				Pmatrices_left,vs_left = felsensteinhelper(nodelist[leftchildindex], selcol, cols, likelihoods[leftchildindex,:], modelparams)
 				Pmatrices_right,vs_right = felsensteinhelper(nodelist[rightchildindex], selcol, cols, likelihoods[rightchildindex,:], modelparams)
@@ -357,7 +357,7 @@ function backwardsampling(rng::AbstractRNG,node::TreeNode, state::Int, selcol::I
 end
 
 
-function augmentedlikelihood(nodelist::Array{TreeNode,1}, cols::Array{Int,1}, modelparams::ModelParams)
+function augmentedloglikelihood(nodelist::Array{TreeNode,1}, cols::Array{Int,1}, modelparams::ModelParams)
 	loglikelihood = 0.0
 	for node in nodelist
 		if !isroot(node)
@@ -452,11 +452,11 @@ function siteloglikelihood(site::SiteObservation, h::Int, modelparams::ModelPara
 	return ll
 end
 
-function observationlikelihood(protein::Array{SiteObservation,1}, col::Int, modelparams::ModelParams)
-	if 1 <= col <= length(protein)
+function observationlikelihood(protein::Protein, col::Int, modelparams::ModelParams)
+	if 1 <= col <= length(protein.sites)
 	    v = zeros(Float64, modelparams.alphabet)
 		for h=1:modelparams.numhiddenstates
-			v[h] = siteloglikelihood(protein[col], h, modelparams)
+			v[h] = siteloglikelihood(protein.sites[col], h, modelparams)
 		end
 		return exp.(v .- maximum(v))
 	else
@@ -465,14 +465,12 @@ function observationlikelihood(protein::Array{SiteObservation,1}, col::Int, mode
 end
 
 
-function observationloglikelihood(proteins::Array{Array{SiteObservation,1},1}, nodelist::Array{TreeNode,1}, modelparams::ModelParams)
+function observationloglikelihood(proteins::Array{Protein,1}, nodelist::Array{TreeNode,1}, modelparams::ModelParams)
 	ll = 0.0
 	for node in nodelist
-		if isleafnode(node)
-			for col=1:length(node.data.branchpath.paths)
-				h = node.data.branchpath.paths[col][end]				 
-				ll += siteloglikelihood(proteins[node.seqindex][col], h, modelparams)
-			end
+		for col=1:min(length(node.data.branchpath.paths), length(node.data.protein))
+			h = node.data.branchpath.paths[col][end]				 
+			ll += siteloglikelihood(proteins[node.seqindex].sites[col], h, modelparams)
 		end
 	end
 	return ll
@@ -480,7 +478,8 @@ end
 
 function sampletreenode(rng::AbstractRNG, node::TreeNode, modelparams::ModelParams, aligned_sequence::String)
 	numcols = length(node.data.branchpath.paths)
-	sampled = SiteObservation[]
+	sampled = Protein()
+	sampled.name = node.name
 	for col=1:numcols
 		aa = aligned_sequence[col]
 		if aa != '-'
@@ -499,13 +498,13 @@ function sampletreenode(rng::AbstractRNG, node::TreeNode, modelparams::ModelPara
 			site.bond_angle1 = pimod(vonmisesrand(rng, hiddennode.bond_angle1_node.dist))
 			site.bond_angle2 = pimod(vonmisesrand(rng, hiddennode.bond_angle2_node.dist))
 			site.bond_angle3 = pimod(vonmisesrand(rng, hiddennode.bond_angle3_node.dist))
-			push!(sampled, site)
+			push!(sampled.sites, site)
 		end
 	end
 	return sampled
 end
 
-function protein_to_lists(protein::Array{SiteObservation,1})
+function protein_to_lists(protein::Protein)
 	sequence = ""
     phi_psi = Tuple{Float64,Float64}[] 
     omega = Float64[]
@@ -513,11 +512,11 @@ function protein_to_lists(protein::Array{SiteObservation,1})
     bond_lengths = Tuple{Float64,Float64,Float64}[]
     numcols = length(protein)
     for col=1:numcols
-    	sequence = string(sequence, get(aminoacids,protein[col].aa,'-'))
-    	push!(phi_psi, (protein[col].phi, protein[col].psi))
-    	push!(omega, protein[col].omega)
-    	push!(bond_angles, (protein[col].bond_angle1, protein[col].bond_angle2, protein[col].bond_angle3))
-    	push!(bond_lengths, (protein[col].bond_length1, protein[col].bond_length2, protein[col].bond_length3))
+    	sequence = string(sequence, get(aminoacids,protein.sites[col].aa,'-'))
+    	push!(phi_psi, (protein.sites[col].phi, protein.sites[col].psi))
+    	push!(omega, protein.sites[col].omega)
+    	push!(bond_angles, (protein.sites[col].bond_angle1, protein.sites[col].bond_angle2, protein.sites[col].bond_angle3))
+    	push!(bond_lengths, (protein.sites[col].bond_length1, protein.sites[col].bond_length2, protein.sites[col].bond_length3))
     end
 	return sequence, phi_psi, omega, bond_angles, bond_lengths
 end
@@ -526,35 +525,32 @@ function compare_branch_scalings(nodelist1,nodelist2)
 	branch_scaling = Float64[]
 	outputlist = deepcopy(nodelist1)
 	branch_scalings = Float64[0.0]
+	totalbranchlength1 = 0.0
+	totalbranchlength2 = 0.0
 	index = 1
 	for (n1, n2, o1) in zip(nodelist1, nodelist2, outputlist)
 		n1.nodeindex = index
 		n2.nodeindex = index
 		o1.nodeindex = index
 		if !isroot(n1)
-			push!(branch_scalings, n2.branchlength/n1.branchlength)
+			totalbranchlength1 += n1.branchlength
+			totalbranchlength2 += n2.branchlength
 		end
 		index += 1
 	end
-	noinf = Float64[]
-	for b in branch_scalings
-		if b != Inf
-			push!(noinf,b)
+	for (n1, n2, o1) in zip(nodelist1, nodelist2, outputlist)
+		if !isroot(n1)
+			b1 = n1.branchlength / totalbranchlength1
+			b2 = n2.branchlength / totalbranchlength2
+			push!(branch_scalings, b2/b1)
 		end
 	end
-	branch_scalings /= mean(noinf)
+
 	for o1 in outputlist
 		o1.name = string(o1.name, "_$(branch_scalings[o1.nodeindex])")
 	end
 	return outputlist[1]
 end
-
-nodelist1 = getnodelist(gettreefromnewick(readlines(open("tree.input.nwk","r"))[1]))
-nodelist2 = getnodelist(gettreefromnewick(readlines(open("tree.mean.consensus.nwk","r"))[1]))
-treewriter = open("tree.scalings.nwk", "w")
-println(treewriter, getnewick(compare_branch_scalings(nodelist1,nodelist2)))
-close(treewriter)
-exit()
 
 function training_example_from_sequence_alignment(rng::AbstractRNG, modelparams::ModelParams, fastafile::String)
 	println(fastafile)
@@ -602,14 +598,14 @@ function training_example_from_sequence_alignment(rng::AbstractRNG, modelparams:
 		end
 	end
     
-    proteins = Array{SiteObservation,1}[]
-	name_protein_dict = Dict{String,Any}()
+    proteins = Protein[]
+	name_protein_dict = Dict{String,Tuple{Int,Protein}}()
 	for (p,(sequence,name)) in enumerate(zip(sequences,names))
-	    protein = SiteObservation[]
+	    protein = Protein(name)
 	    for aa in sequence
 		    site = SiteObservation()
 		    site.aa = CommonUtils.indexof(string(aa),aminoacids)
-		    push!(protein,site)
+		    push!(protein.sites,site)
 	    end
 	    name_protein_dict[name] = (p, protein)
 	    push!(proteins, protein)
@@ -618,7 +614,7 @@ function training_example_from_sequence_alignment(rng::AbstractRNG, modelparams:
 		if haskey(name_protein_dict, node.name)
 			proteinindex, protein = name_protein_dict[node.name]
 			node.seqindex = proteinindex
-			node.data.observations = protein
+			node.data.protein = protein
 		end
 	end
 
@@ -660,15 +656,15 @@ function training_example_from_json_family(rng::AbstractRNG, modelparams::ModelP
 		end
 	end
 
-	proteins = Array{SiteObservation,1}[]
-	name_protein_dict = Dict{String,Any}()
+	proteins = Protein[]
+	name_protein_dict = Dict{String,Tuple{Int,Protein}}()
 	for p=1:length(json_family["proteins"])
-	    protein = SiteObservation[]
+	    protein = Protein()
 	    json_protein = json_family["proteins"][p]
 	    for (aa,phi_psi,omega,bond_lengths,bond_angles) in zip(json_protein["aligned_sequence"], json_protein["aligned_phi_psi"], json_protein["aligned_omega"], json_protein["aligned_bond_lengths"], json_protein["aligned_bond_angles"])
 	    	phi = phi_psi[1]
 	    	psi = phi_psi[2]
-	        push!(protein, SiteObservation(0,indexof(string(aa), aminoacids),phi,omega,psi,bond_lengths[1],bond_lengths[2],bond_lengths[3],bond_angles[1],bond_angles[2],bond_angles[3]))
+	        push!(protein.sites, SiteObservation(0,indexof(string(aa), aminoacids),phi,omega,psi,bond_lengths[1],bond_lengths[2],bond_lengths[3],bond_angles[1],bond_angles[2],bond_angles[3]))
 	    end
 	    name_protein_dict[json_family["proteins"][p]["name"]] = (p, protein)
 	    push!(proteins, protein)
@@ -678,7 +674,7 @@ function training_example_from_json_family(rng::AbstractRNG, modelparams::ModelP
 			proteinindex, protein = name_protein_dict[node.name]
 			node.seqindex = proteinindex			
 			println("node ", proteinindex)
-			node.data.observations = protein
+			node.data.protein = protein
 		end
 	end
 	return (proteins, nodelist,json_family)
@@ -720,7 +716,7 @@ function proposebranchlength(rng::AbstractRNG, node::TreeNode, cols::Array{Int,1
 	return t,propratio
 end
 
-function train(numhiddenstates::Int=25)
+function train(numhiddenstates::Int=5)
 	rng = MersenneTwister(10498012421321)
 	Random.seed!(1234)
 
@@ -730,7 +726,7 @@ function train(numhiddenstates::Int=25)
 	modelparams = ModelParams(LGmatrix,numhiddenstates,0.2)
 
 	trainingexamples = Tuple[]
-	for family_file in family_files[1:150]
+	for family_file in family_files[1:30]
 		full_path = abspath(joinpath(family_dir, family_file))
 		json_family = JSON.parse(open(full_path, "r"))
 		if 1 <= length(json_family["proteins"]) <= 1e10
@@ -745,11 +741,8 @@ function train(numhiddenstates::Int=25)
 		end
 	end
 
-
-
-
 	logwriter = open(string("trace", modelparams.numhiddenstates,".log"), "w")
-	println(logwriter, "iter","\t","loglikelihood")
+	println(logwriter, "iter\ttotalll\tpathll\tobservationll")
 	for iter=1:1000
 		reset_matrix_cache(modelparams)
 		aacounts = ones(Float64, modelparams.numhiddenstates, 20)*0.1
@@ -767,7 +760,6 @@ function train(numhiddenstates::Int=25)
 				if !isroot(node)
 					t,propratio = proposebranchlength(rng, node, Int[col for col=1:numcols], modelparams)
 					node.branchlength = t
-					#println(t,"\t",propratio)
 				end
 			end
 			
@@ -817,7 +809,7 @@ function train(numhiddenstates::Int=25)
 				for node in nodelist				
 					if isleafnode(node)
 						h = node.data.branchpath.paths[col][end]
-						site = proteins[node.seqindex][col]
+						site = proteins[node.seqindex].sites[col]
 						if site.aa > 0
 							modelparams.hiddennodes[h].aa_node.counts[site.aa] += 1.0
 							push!(modelparams.hiddennodes[h].phi_node.data, site.phi)
@@ -833,14 +825,14 @@ function train(numhiddenstates::Int=25)
 			end			
 		end
 
-		totalll = 0.0
+		observationll = 0.0
+		augmentedll = 0.0
 		for (proteins,nodelist) in trainingexamples
 			numcols = length(proteins[1])
-			#ll = augmentedlikelihood(nodelist, Int[col for col=1:numcols], modelparams)
-			ll = observationloglikelihood(proteins, nodelist, modelparams)
-			totalll += ll
+			augmentedll += augmentedloglikelihood(nodelist, Int[col for col=1:numcols], modelparams)
+			observationll += observationloglikelihood(proteins, nodelist, modelparams)
 		end
-		println(logwriter, iter,"\t",totalll)
+		println(logwriter, iter-1,"\t",augmentedll+observationll,"\t",augmentedll,"\t",observationll)
 		flush(logwriter)
 
 		for h=1:modelparams.numhiddenstates
@@ -861,12 +853,6 @@ function train(numhiddenstates::Int=25)
 				end
 			end=#
 
-			#=
-			for aa=1:20
-				modelparams.hiddennodes[h].aadist[aa] = aacounts[h,aa]
-			end
-			modelparams.hiddennodes[h].aadist /= sum(modelparams.hiddennodes[h].aadist)
-			=#
 			estimate_categorical(modelparams.hiddennodes[h].aa_node)
 			estimatevonmises(modelparams.hiddennodes[h].phi_node)
 			estimatevonmises(modelparams.hiddennodes[h].psi_node)
@@ -934,7 +920,6 @@ function infer()
 	modelparams = Serialization.deserialize(fin)
 	close(fin)
 
-	#=
 	
 	family_dir = "../data/families/"
 	family_files = filter(f -> endswith(f,".fam"), readdir(family_dir))
@@ -952,19 +937,21 @@ function infer()
 		training_example = (training_example[1], TreeNode[root], training_example[3])
 	end
 
-	proteins,nodelist,json_family = training_example=#
+	proteins,nodelist,json_family = training_example
 
-	proteins,nodelist = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/alignments/hiv-curated-sel.fasta"))
-	
+	#=
+	proteins,nodelist = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/alignments/hiv-curated-sel.fasta"))=#
+
+	inputnodelist = deepcopy(nodelist)
+
 	inputtreewriter = open("tree.input.nwk", "w")
 	println(inputtreewriter, getnewick(nodelist[1]))
 	close(inputtreewriter)
-	exit()
 
 	numcols = length(proteins[1])
 	mcmcwriter = open("mcmc.log", "w")
 	treewriter = open("tree.mcmc.log", "w")
-	print(mcmcwriter,"iter\tloglikelihood")
+	print(mcmcwriter, "iter\ttotalll\tpathll\tobservationll")
 	for node in nodelist
 		if !isroot(node)
 			if node.name == ""
@@ -1015,9 +1002,10 @@ function infer()
 			end
 			felsensteinresample(rng, proteins, nodelist, col, cols, modelparams)
 		end
-		
-		ll = observationloglikelihood(proteins, nodelist, modelparams)
-		print(mcmcwriter,"$(iter-1)\t$(ll)")
+
+		augmentedll = augmentedloglikelihood(nodelist, Int[col for col=1:numcols], modelparams)	
+		observationll = observationloglikelihood(proteins, nodelist, modelparams)
+		print(mcmcwriter, iter-1,"\t",augmentedll+observationll,"\t",augmentedll,"\t",observationll)
 		for node in nodelist
 			if !isroot(node)
 				print(mcmcwriter,"\t$(node.branchlength)")
@@ -1054,6 +1042,10 @@ function infer()
 		end
 		println(consensustreewriter, getnewick(outputnodelist[1]))
 		close(consensustreewriter)
+
+		treewriter = open("tree.scalings.nwk", "w")
+		println(treewriter, getnewick(compare_branch_scalings(inputnodelist,outputnodelist)))
+		close(treewriter)
 
 		consensustreewriter = open("tree.median.consensus.nwk", "w")
 		for outputnode in outputnodelist
@@ -1161,6 +1153,6 @@ function plot_nodes()
 	end
 end
 
-#train()
+train()
 #plot_nodes()
-infer()
+#infer()

@@ -30,6 +30,24 @@ module EMNodes
 		end
 	end
 
+	export Protein
+	mutable struct Protein
+		name::String
+		sites::Array{SiteObservation,1}
+
+		function Protein()
+			new("", SiteObservation[])
+		end
+
+		function Protein(name::String)
+			new(name, SiteObservation[])
+		end
+	end
+
+	function Base.length(protein::Protein)
+		return length(protein.sites)
+	end
+
 	export CategoricalNode
 	mutable struct CategoricalNode 
 		numcats::Int 
