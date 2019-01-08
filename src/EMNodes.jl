@@ -45,7 +45,7 @@ module EMNodes
 	export estimate_categorical
 	function estimate_categorical(categorical_node::CategoricalNode)
 		categorical_node.probs = categorical_node.counts / sum(categorical_node.counts)
-		categorical_node.probs = categorical_node.probs.^categorical_node.alphas
+		categorical_node.probs = categorical_node.probs.^categorical_node.alphas.^4.0
 		categorical_node.probs /= sum(categorical_node.probs)
 		categorical_node.counts = zeros(Float64,categorical_node.numcats)
 	end

@@ -3,6 +3,11 @@
 *.jl.mem
 *.log
 *.pdb
+*.png
+*.svg
+*.nexus
+*.nwk
+*.model
 binaries/
 cache/
 data/
