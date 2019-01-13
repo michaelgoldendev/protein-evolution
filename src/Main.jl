@@ -18,6 +18,7 @@ using Random
 using CTMCs
 using Nullables
 using FastaIO
+using Formatting
 
 secondarystructure = "HBEGITSC"
 aminoacids = "ACDEFGHIKLMNPQRSTVWY"
@@ -32,9 +33,164 @@ function binarize!(tree::TreeNode)
             counter +=1 
             push!(n.children, TreeNode(0.0, "binarized_$counter"))
             n.children[end].children = [c1,c2]
-            n.children[end].parent = n
+            c1.parent = Nullable{TreeNode}(n.children[end])
+            c2.parent = Nullable{TreeNode}(n.children[end])
+            n.children[end].parent = Nullable{TreeNode}(n)
         end
     end
+end
+
+function nodedistances(nodelist::Array{TreeNode,1})
+	for (index,node) in enumerate(nodelist)
+		node.nodeindex = index
+	end
+
+	distmatrix = ones(Float64, length(nodelist), length(nodelist))*Inf
+	for node in nodelist
+		distmatrix[node.nodeindex,node.nodeindex] = 0.0
+		for child in node
+			distmatrix[node.nodeindex,child.nodeindex] = child.branchlength
+			distmatrix[child.nodeindex,node.nodeindex] = child.branchlength
+		end
+	end
+
+	mindistmatrix = copy(distmatrix)
+	for n1 in nodelist
+		for v1 in nodelist
+			for v2 in nodelist
+				mindistmatrix[n1.nodeindex,v2.nodeindex] = min(mindistmatrix[n1.nodeindex,v2.nodeindex], mindistmatrix[n1.nodeindex,v1.nodeindex]+mindistmatrix[v1.nodeindex,v2.nodeindex])
+			end
+		end
+	end
+
+	return mindistmatrix
+end
+
+#=
+function root(node::TreeNode)
+	parents = []
+	current = node
+	while !isnull(current.parent)
+		current = get(current.parent)
+		push!(parents, current)
+	end
+	println([p.nodeindex for p in parents])
+
+	bottom = parents[end]
+	while length(parents) > 0
+		pop!(parents)
+		println("A",[b.nodeindex for b in bottom])
+		println("B",bottom.nodeindex,"\t",parents[end].nodeindex)		
+		exit()
+		leftchild = bottom.children[1]
+		push!(leftchild.children,bottom)		
+		bottom.children = bottom.children[2:end]
+
+
+		bottom.parent = leftchild
+		newroot = TreeNode(0.1, "dummy$(length(parents))")
+		push!(newroot.children,leftchild.children[1])
+		push!(newroot.children,leftchild)
+		leftchild.children[1].parent = Nullable{TreeNode}(newroot)
+		leftchild.parent = Nullable{TreeNode}(newroot)
+		leftchild.children = leftchild.children[2:end]
+		bottom = newroot
+	end
+	return bottom
+end=#
+
+function reorient(node, new_parent, new_branch_length)
+    newchildren = TreeNode[]
+    for c in node
+    	if c != new_parent
+    		push!(newchildren,c)
+    	end
+    end
+    node.children = newchildren
+    # If this node has a parent, reorient the parent.
+    if !isnull(node.parent)
+        parent = node.parent.value
+        reorient(parent, node, node.branchlength)
+        # Add the parent as a child
+        push!(node.children, parent)
+    end
+    # Set then new parent as the parent, with the new branch length
+    node.parent = Nullable{TreeNode}(new_parent)
+    node.branchlength = new_branch_length
+end
+
+function reroot(child_node, dist_above_child=(child_node.branchlength/2))
+    if dist_above_child > child_node.branchlength
+        print("This isn't going to work")
+    end
+        
+    # Remembering stuff
+    dist_below_parent = child_node.branchlength - dist_above_child
+    old_parent = child_node.parent.value
+        
+    new_root = TreeNode(0.0,"root")
+    child_node.branchlength = dist_above_child
+    reorient(old_parent, child_node, dist_below_parent)
+    new_root.children = [child_node, old_parent]
+    return new_root
+end
+
+
+function midpoint_root(nodelistin::Array{TreeNode,1})
+	nodelist = deepcopy(nodelistin)
+	for node in nodelist
+		if startswith(node.name,":") || node.name == ""
+			node.name = string("node",node.nodeindex)
+		end
+	end
+
+	mindistmatrix = nodedistances(nodelist)
+	minnodetotipdistance = Inf
+	minnodeindex = 0
+	for nonleaf in nodelist
+		if !isleafnode(nonleaf)			
+			nodetotipdistance = 0.0
+			vals = Float64[]
+			for leaf in nodelist
+				if isleafnode(leaf)
+					nodetotipdistance += mindistmatrix[nonleaf.nodeindex, leaf.nodeindex]
+					push!(vals, mindistmatrix[nonleaf.nodeindex, leaf.nodeindex])
+				end
+			end
+			stdeviation = std(vals)
+			if stdeviation < minnodetotipdistance
+				minnodetotipdistance = stdeviation
+				minnodeindex = nonleaf.nodeindex
+			end
+		end
+	end
+
+	newroot = reroot(nodelist[minnodeindex], nodelist[minnodeindex].branchlength/2.0)
+	nodelist = getnodelist(newroot)
+	for node in nodelist
+		if length(node.children) == 1
+			node.children = node.children[1].children
+			for c in node.children
+				c.parent = Nullable{TreeNode}(node)
+			end
+		end
+	end
+
+	return newroot
+	#root(newroot)
+
+end
+
+function testprint(node::TreeNode, seen::Array{Int,1}=Int[])
+	println(node.nodeindex,"\t", [c.nodeindex for c in node])
+	if node.nodeindex in seen
+		exit()
+	end
+	push!(seen, node.nodeindex)	
+
+	for c in node
+		testprint(c, seen)
+	end
 end
 
 function pimod(angle::Float64)
@@ -105,7 +261,7 @@ function reset_matrix_cache(modelparams::ModelParams)
 	modelparams.matrixcache = Dict{Tuple{Int,Int}, Tuple{Array{Float64,2},Array{Complex{Float64},2},Array{Complex{Float64},1},Array{Complex{Float64},2}}}()
 end
 
-function getPt(modelparams::ModelParams, prevh::Int, nexth::Int, t::Float64)
+function getQandPt(modelparams::ModelParams, prevh::Int, nexth::Int, t::Float64)
 	global countcachemisses
 	global countcachehits
 
@@ -136,7 +292,11 @@ function getPt(modelparams::ModelParams, prevh::Int, nexth::Int, t::Float64)
 	
 	Q,V,D,Vi = modelparams.matrixcache[key]
 
-	return Q, absmat(real(V*Diagonal(exp.(D*t))*Vi))
+	if t < 0.0
+		return Q, Q
+	else
+		return Q, absmat(real(V*Diagonal(exp.(D*t))*Vi))
+	end
 end
 
 mutable struct AugmentedNodeData <: NodeData
@@ -159,22 +319,6 @@ function gettransprobs(node::TreeNode, selcolin::Int, cols::Array{Int,1}, modelp
 	dummypath = Int[]
 	dummytime = Float64[]
 	for (prevstates,prevtime,currstates,currtime,changecol) in branchiterator
-		#=
-		prevprobs = ones(Float64,modelparams.numhiddenstates)
-		if changecol == 2
-			prevh = currstates[1]
-			prevprobs = modelparams.transitionprobs[prevh,:]
-		end
-		succprobs = ones(Float64,modelparams.numhiddenstates)
-		if length(currstates) == 3
-			succh = currstates[3]
-			succprobs = modelparams.transitionprobs[:,succh]
-		end
-		R = constructJointMatrix(modelparams, prevprobs, succprobs)
-		dt = (currtime-prevtime)*node.branchlength
-		Pi = exp(R*dt)=#
-
-		
 		dt = (currtime-prevtime)*node.branchlength
 		prevh = 0
 		succh = 0
@@ -184,7 +328,7 @@ function gettransprobs(node::TreeNode, selcolin::Int, cols::Array{Int,1}, modelp
 		if length(currstates) == 3
 			succh = currstates[3]
 		end
-		R,Pi = getPt(modelparams, prevh, succh, dt)
+		R,Pi = getQandPt(modelparams, prevh, succh, dt)
 
 		P *= Pi
 		push!(dummypath,0)
@@ -202,21 +346,6 @@ function felsensteinhelper(node::TreeNode, selcolin::Int, cols::Array{Int,1}, v:
 	vs = Array{Float64,1}[]
 	dummytime = Float64[]
 	for (prevstates,prevtime,currstates,currtime,changecol) in branchiterator
-		#=
-		prevprobs = ones(Float64,modelparams.numhiddenstates)
-		if changecol == 2
-			prevh = currstates[1]
-			prevprobs = modelparams.transitionprobs[prevh,:]
-		end
-		succprobs = ones(Float64,modelparams.numhiddenstates)
-		if length(currstates) == 3
-			succh = currstates[3]
-			succprobs = modelparams.transitionprobs[:,succh]
-		end
-		R = constructJointMatrix(modelparams, prevprobs, succprobs)
-		dt = (currtime-prevtime)*node.branchlength
-    	Pi = exp(R*dt)=#
-    	
     	dt = (currtime-prevtime)*node.branchlength
     	prevh = 0
 		succh = 0
@@ -226,7 +355,7 @@ function felsensteinhelper(node::TreeNode, selcolin::Int, cols::Array{Int,1}, v:
 		if length(currstates) == 3
 			succh = currstates[3]
 		end
-		R,Pi = getPt(modelparams, prevh, succh, dt)
+		R,Pi = getQandPt(modelparams, prevh, succh, dt)
     	push!(Rmatrices, R*dt)
     	push!(Pmatrices,Pi)
     	push!(dummytime,prevtime)
@@ -298,23 +427,15 @@ function felsensteinresample(rng::AbstractRNG, proteins::Array{Protein,1}, nodel
 
 	rootnode = nodelist[1]
 	len = length(rootnode.data.branchpath.paths)
-	rootseq = Int[rootnode.data.branchpath.paths[i][1] for i=1:len]
-	logfreqs = zeros(Float64,modelparams.alphabet)
-	prevprobs = ones(Float64, modelparams.numhiddenstates)
-	nextprobs = ones(Float64, modelparams.numhiddenstates)
+	prevh = 0
 	if selcol > 1
-		prevh = rootseq[selcol-1]
-		prevprobs = modelparams.transitionprobs[prevh,:]
+		prevh = rootnode.data.branchpath.paths[selcol-1][1]
 	end
+	nexth = 0
 	if selcol < len
-		nexth = rootseq[selcol+1]
-		nextprobs = modelparams.transitionprobs[:,nexth]
+		nexth = rootnode.data.branchpath.paths[selcol+1][1]
 	end
-	for a=1:modelparams.alphabet
-		logfreqs[a] = log(prevprobs[a]*nextprobs[a]) # TODO: include initial probs
-	end
-	freqs = exp.(logfreqs.-maximum(logfreqs))
-	freqs /= sum(freqs)
+	freqs = getinitialsiteprobs(modelparams, prevh, nexth)
 	rootliks = freqs.*likelihoods[1,:]
 	rootstate = CommonUtils.sample(rng,rootliks)
 	rootnode.data.branchpath.paths[selcol] = Int[rootstate]
@@ -368,36 +489,32 @@ function augmentedloglikelihood(nodelist::Array{TreeNode,1}, cols::Array{Int,1},
 				len = length(cols)
 				for selcol=1:len
 					prevstate = prevstates[selcol]
-					prevprobs = ones(Float64, modelparams.numhiddenstates)
+					prevh = 0
 					if selcol > 1
 						prevh = prevstates[selcol-1]
-						prevprobs = modelparams.transitionprobs[prevh,:]
 					end
-					nextprobs = ones(Float64, modelparams.numhiddenstates)
+					nexth = 0
 					if selcol < len
 						nexth = prevstates[selcol+1]
-						nextprobs = modelparams.transitionprobs[:,nexth]
 					end
-					#Qii += getratematrixrow(prevstates, selcol, params, modelspecification,componentindex)[prevstate]
-					Qii += constructJointMatrix(modelparams, prevprobs, nextprobs)[prevstate,prevstate]
+					#Qii += getratematrixrow(prevstates, selcol, params, modelspecification,componentindex)[prevstate]					
+					Qii += getQandPt(modelparams, prevh, nexth, -1.0)[1][prevstate,prevstate]
 				end
 				dt = (currtime-prevtime)*node.branchlength
 				if changecol > 0
 					prevstate = prevstates[changecol]
 					currstate = currstates[changecol]
 
-					prevprobs = ones(Float64, modelparams.numhiddenstates)
+					prevh = 0
 					if changecol > 1
 						prevh = currstates[changecol-1]
-						prevprobs = modelparams.transitionprobs[prevh,:]
 					end
-					nextprobs = ones(Float64, modelparams.numhiddenstates)
+					nexth = 0
 					if changecol < len
 						nexth = currstates[changecol+1]
-						nextprobs = modelparams.transitionprobs[:,nexth]
 					end
 					#Qhi = getratematrixrow(prevstates, changecol, params, modelspecification,componentindex)[currstate]
-					Qhi = constructJointMatrix(modelparams, prevprobs, nextprobs)[prevstate,currstate]
+					Qhi = getQandPt(modelparams, prevh, nexth, -1.0)[1][prevstate,currstate]
 					loglikelihood += log(Qhi)
 				end
 				loglikelihood +=  Qii*dt
@@ -405,6 +522,23 @@ function augmentedloglikelihood(nodelist::Array{TreeNode,1}, cols::Array{Int,1},
 		end
 	end
 	return loglikelihood
+end
+
+function getinitialsiteprobs(modelparams::ModelParams, prevh::Int, nexth::Int)
+	prevprobs = ones(Float64, modelparams.numhiddenstates)
+	if prevh > 0
+		prevprobs = modelparams.transitionprobs[prevh,:]
+	end	
+	nextprobs = ones(Float64, modelparams.numhiddenstates)
+	if nexth > 0
+		nextprobs = modelparams.transitionprobs[:,nexth]
+	end
+	logfreqs = zeros(Float64,modelparams.alphabet)
+	for a=1:modelparams.alphabet
+		logfreqs[a] = log(prevprobs[a]*nextprobs[a]) # TODO: include initial probs
+	end
+	freqs = exp.(logfreqs.-maximum(logfreqs))
+	freqs /= sum(freqs)
 end
 
 function constructJointMatrix(modelparams::ModelParams, prevprobs::Array{Float64,1}, succprobs::Array{Float64,1})
@@ -484,10 +618,11 @@ function sampletreenode(rng::AbstractRNG, node::TreeNode, modelparams::ModelPara
 		aa = aligned_sequence[col]
 		if aa != '-'
 			site = SiteObservation()
-			site.aa = indexof(string(aa), aminoacids)
+			#site.aa = indexof(string(aa), aminoacids)
 			site.h =  node.data.branchpath.paths[col][end]
 			h = site.h
 			hiddennode = modelparams.hiddennodes[h]
+			site.aa = CommonUtils.sample(rng, hiddennode.aa_node.probs)
 			site.phi = pimod(vonmisesrand(rng, hiddennode.phi_node.dist))
 			site.omega = pimod(vonmisesrand(rng, hiddennode.omega_node.dist))
 			site.psi = pimod(vonmisesrand(rng, hiddennode.psi_node.dist))
@@ -521,6 +656,7 @@ function protein_to_lists(protein::Protein)
 	return sequence, phi_psi, omega, bond_angles, bond_lengths
 end
 
+using Viridis
 function compare_branch_scalings(nodelist1,nodelist2)
 	branch_scaling = Float64[]
 	outputlist = deepcopy(nodelist1)
@@ -546,34 +682,141 @@ function compare_branch_scalings(nodelist1,nodelist2)
 		end
 	end
 
+	gradient = viridisgradient(_viridis_data)
+
 	for o1 in outputlist
-		o1.name = string(o1.name, "_$(branch_scalings[o1.nodeindex])")
+		if 0.0 < branch_scalings[o1.nodeindex] < Inf
+			val = (log(branch_scalings[o1.nodeindex])+2.0)/4.0
+			col = getcolor(gradient, val)
+			hex = string(string(col[1], base=16), string(col[2], base=16), string(col[3], base=16))
+			if isleafnode(o1)
+				o1.name = "'$(o1.name)'[&label=\"$(format(branch_scalings[o1.nodeindex],precision=1))\",!color=#$(hex)]"
+			else
+				o1.name = "[&label=\"$(format(branch_scalings[o1.nodeindex],precision=1))\",!color=#$(hex)]"			
+			end
+		end
 	end
+	newick = getnewick(outputlist[1])
+
+	nexus = """
+	#NEXUS
+	begin trees;
+		tree tree_1 = [&R] $(newick)
+	end;
+
+	begin figtree;
+		set appearance.backgroundColorAttribute="Default";
+		set appearance.backgroundColour=#ffffff;
+		set appearance.branchColorAttribute="User selection";
+		set appearance.branchColorGradient=false;
+		set appearance.branchLineWidth=2.0;
+		set appearance.branchMinLineWidth=0.0;
+		set appearance.branchWidthAttribute="Fixed";
+		set appearance.foregroundColour=#000000;
+		set appearance.hilightingGradient=false;
+		set appearance.selectionColour=#2d3680;
+		set branchLabels.colorAttribute="User selection";
+		set branchLabels.displayAttribute="Branch times";
+		set branchLabels.fontName="sansserif";
+		set branchLabels.fontSize=8;
+		set branchLabels.fontStyle=0;
+		set branchLabels.isShown=false;
+		set branchLabels.significantDigits=4;
+		set layout.expansion=0;
+		set layout.layoutType="RECTILINEAR";
+		set layout.zoom=0;
+		set legend.attribute="label";
+		set legend.fontSize=10.0;
+		set legend.isShown=false;
+		set legend.significantDigits=4;
+		set nodeBars.barWidth=4.0;
+		set nodeBars.displayAttribute=null;
+		set nodeBars.isShown=false;
+		set nodeLabels.colorAttribute="User selection";
+		set nodeLabels.displayAttribute="label";
+		set nodeLabels.fontName="sansserif";
+		set nodeLabels.fontSize=8;
+		set nodeLabels.fontStyle=0;
+		set nodeLabels.isShown=true;
+		set nodeLabels.significantDigits=4;
+		set nodeShapeExternal.colourAttribute="User selection";
+		set nodeShapeExternal.isShown=false;
+		set nodeShapeExternal.minSize=10.0;
+		set nodeShapeExternal.scaleType=Width;
+		set nodeShapeExternal.shapeType=Circle;
+		set nodeShapeExternal.size=4.0;
+		set nodeShapeExternal.sizeAttribute="Fixed";
+		set nodeShapeInternal.colourAttribute="User selection";
+		set nodeShapeInternal.isShown=false;
+		set nodeShapeInternal.minSize=10.0;
+		set nodeShapeInternal.scaleType=Width;
+		set nodeShapeInternal.shapeType=Circle;
+		set nodeShapeInternal.size=4.0;
+		set nodeShapeInternal.sizeAttribute="Fixed";
+		set polarLayout.alignTipLabels=false;
+		set polarLayout.angularRange=0;
+		set polarLayout.rootAngle=0;
+		set polarLayout.rootLength=100;
+		set polarLayout.showRoot=true;
+		set radialLayout.spread=0.0;
+		set rectilinearLayout.alignTipLabels=false;
+		set rectilinearLayout.curvature=0;
+		set rectilinearLayout.rootLength=100;
+		set scale.offsetAge=0.0;
+		set scale.rootAge=1.0;
+		set scale.scaleFactor=1.0;
+		set scale.scaleRoot=false;
+		set scaleAxis.automaticScale=true;
+		set scaleAxis.fontSize=8.0;
+		set scaleAxis.isShown=false;
+		set scaleAxis.lineWidth=1.0;
+		set scaleAxis.majorTicks=1.0;
+		set scaleAxis.minorTicks=0.5;
+		set scaleAxis.origin=0.0;
+		set scaleAxis.reverseAxis=false;
+		set scaleAxis.showGrid=true;
+		set scaleBar.automaticScale=true;
+		set scaleBar.fontSize=10.0;
+		set scaleBar.isShown=true;
+		set scaleBar.lineWidth=1.0;
+		set scaleBar.scaleRange=0.0;
+		set tipLabels.colorAttribute="User selection";
+		set tipLabels.displayAttribute="Names";
+		set tipLabels.fontName="sansserif";
+		set tipLabels.fontSize=8;
+		set tipLabels.fontStyle=0;
+		set tipLabels.isShown=true;
+		set tipLabels.significantDigits=4;
+		set trees.order=false;
+		set trees.orderType="increasing";
+		set trees.rooting=false;
+		set trees.rootingType="User Selection";
+		set trees.transform=false;
+		set trees.transformType="cladogram";
+	end;
+	"""
+	treewriter = open("tree.scalings.nexus", "w")
+	println(treewriter, nexus)
+	close(treewriter)
+
 	return outputlist[1]
 end
 
-function training_example_from_sequence_alignment(rng::AbstractRNG, modelparams::ModelParams, fastafile::String)
-	println(fastafile)
-	sequences = AbstractString[]
-    names = AbstractString[]
-
-	FastaIO.FastaReader(fastafile) do fr
-        for (desc, seq) in fr
-            push!(names,desc)
-            push!(sequences, seq)
-        end
-    end
-
-    newickstring, cachefile = Binaries.fasttreeaa(fastafile)
-    root = gettreefromnewick(newickstring)
-	binarize!(root)
-	nodelist = getnodelist(root)
+function initialise_tree(rng::AbstractRNG, modelparams::ModelParams, inputroot::TreeNode, numcols::Int; midpointroot::Bool=true)	
+	binarize!(inputroot)
+	nodelist = getnodelist(inputroot)
 	for (index,node) in enumerate(nodelist)
 		node.nodeindex = index
 	end
-
-	numcols = length(sequences[1])
-	V = constructJointMatrix(modelparams, ones(Float64,modelparams.numhiddenstates), ones(Float64,modelparams.numhiddenstates))
+	root = inputroot
+	if midpointroot
+		root = gettreefromnewick(getnewick(midpoint_root(nodelist)))
+	end
+	nodelist = getnodelist(root)
+	for (index,node) in enumerate(nodelist)
+		node.nodeindex = index
+	end	
+	V = getQandPt(modelparams, 0, 0, -1.0)[1]
 	paths = Array{Int,1}[]
 	times = Array{Float64,1}[]
 	for col=1:numcols
@@ -597,6 +840,29 @@ function training_example_from_sequence_alignment(rng::AbstractRNG, modelparams:
 			node.data = AugmentedNodeData(BranchPath(paths,times), 1)
 		end
 	end
+	return root,nodelist
+end
+
+function training_example_from_sequence_alignment(rng::AbstractRNG, modelparams::ModelParams, fastafile::String,newickfile::String=nothing)
+	println(fastafile)
+	sequences = AbstractString[]
+    names = AbstractString[]
+
+	FastaIO.FastaReader(fastafile) do fr
+        for (desc, seq) in fr
+            push!(names,desc)
+            push!(sequences, seq)
+        end
+    end
+
+    if newickfile == nothing
+	    newickstring, cachefile = Binaries.fasttreeaa(fastafile)
+	    root = gettreefromnewick(newickstring)
+	    root,nodelist = initialise_tree(rng, modelparams, root, length(sequences[1]))
+	else
+		root = gettreefromnewick(readlines(open(newickfile,"r"))[1])
+	    root,nodelist = initialise_tree(rng, modelparams, root, length(sequences[1]),midpointroot=false)
+	end
     
     proteins = Protein[]
 	name_protein_dict = Dict{String,Tuple{Int,Protein}}()
@@ -604,7 +870,12 @@ function training_example_from_sequence_alignment(rng::AbstractRNG, modelparams:
 	    protein = Protein(name)
 	    for aa in sequence
 		    site = SiteObservation()
-		    site.aa = CommonUtils.indexof(string(aa),aminoacids)
+		    if name == "6n41.pdb_1951"
+		    	site.aa = 0
+		    	println("here")
+		    else
+		    	site.aa = CommonUtils.indexof(string(aa),aminoacids)
+		    end
 		    push!(protein.sites,site)
 	    end
 	    name_protein_dict[name] = (p, protein)
@@ -630,7 +901,8 @@ function training_example_from_json_family(rng::AbstractRNG, modelparams::ModelP
 	end
 
 	numcols = length(json_family["proteins"][1]["aligned_sequence"])
-
+	root,nodelist = initialise_tree(rng, modelparams, root, numcols, midpointroot=false)
+	#=
 	V = constructJointMatrix(modelparams, ones(Float64,modelparams.numhiddenstates), ones(Float64,modelparams.numhiddenstates))
 	paths = Array{Int,1}[]
 	times = Array{Float64,1}[]
@@ -654,7 +926,7 @@ function training_example_from_json_family(rng::AbstractRNG, modelparams::ModelP
 			end
 			node.data = AugmentedNodeData(BranchPath(paths,times), 1)
 		end
-	end
+	end=#
 
 	proteins = Protein[]
 	name_protein_dict = Dict{String,Tuple{Int,Protein}}()
@@ -713,20 +985,38 @@ function proposebranchlength(rng::AbstractRNG, node::TreeNode, cols::Array{Int,1
 	newll = log(-totalexitrate) + totalexitrate*t
 	oldll = log(-totalexitrate) + totalexitrate*node.branchlength
 	propratio = oldll-newll
+
+	#=
+	priorll = -5.0*t + 5.0*node.branchlength
+	if exp(priorll) > rand(rng)
+
+	else 
+		t = node.branchlength
+	end=#
+
 	return t,propratio
 end
 
-function train(numhiddenstates::Int=5)
+function cosine_similarity(v1::Array{Float64,1}, v2::Array{Float64,1})
+	return dot(v1,v2)/(norm(v1)*norm(v2))
+end
+
+function train(numhiddenstates::Int=60)
 	rng = MersenneTwister(10498012421321)
 	Random.seed!(1234)
+
+	learnrates = true
 
 	family_dir = "../data/families/"
 	family_files = filter(f -> endswith(f,".fam"), readdir(family_dir))
 
 	modelparams = ModelParams(LGmatrix,numhiddenstates,0.2)
+	#modelparams = Serialization.deserialize(open("model_h.25_learnrates.true.model", "r"))
+
+	outputmodelname = string("_h.",modelparams.numhiddenstates,"_learnrates.",learnrates)
 
 	trainingexamples = Tuple[]
-	for family_file in family_files[1:30]
+	for family_file in family_files[1:300]
 		full_path = abspath(joinpath(family_dir, family_file))
 		json_family = JSON.parse(open(full_path, "r"))
 		if 1 <= length(json_family["proteins"]) <= 1e10
@@ -741,14 +1031,15 @@ function train(numhiddenstates::Int=5)
 		end
 	end
 
-	logwriter = open(string("trace", modelparams.numhiddenstates,".log"), "w")
+	logwriter = open(string("trace", outputmodelname,".log"), "w")
 	println(logwriter, "iter\ttotalll\tpathll\tobservationll")
 	for iter=1:1000
 		reset_matrix_cache(modelparams)
 		aacounts = ones(Float64, modelparams.numhiddenstates, 20)*0.1
 		transitioncounts = ones(Float64, modelparams.numhiddenstates, modelparams.numhiddenstates)*0.1
 		transitionratecounts = ones(Float64, modelparams.numhiddenstates, modelparams.numhiddenstates)*0.1
-		transitionratetotals = zeros(Float64, modelparams.numhiddenstates, modelparams.numhiddenstates)
+		#transitionratetotals = zeros(Float64, modelparams.numhiddenstates, modelparams.numhiddenstates)
+		transitionratetotals = ones(Float64, modelparams.numhiddenstates, modelparams.numhiddenstates)
 		for h=1:modelparams.numhiddenstates
 			transitionratecounts[h,h] = 0.0
 		end
@@ -836,24 +1127,67 @@ function train(numhiddenstates::Int=5)
 		flush(logwriter)
 
 		for h=1:modelparams.numhiddenstates
+			rowtotal = 0.0
+			for h2=1:modelparams.numhiddenstates
+				if h != h2
+					rowtotal += transitionratecounts[h,h2]
+				else 
+					transitionratecounts[h,h2] = 0.0
+				end
+			end
+			transitionratecounts[h,:] /= rowtotal
+		end
+
+		transitionweights = ones(Float64,modelparams.numhiddenstates,modelparams.numhiddenstates)*-Inf		
+		for h=1:modelparams.numhiddenstates
+			maxweight = -Inf
+			for h2=1:modelparams.numhiddenstates
+				#beta = 10.0*modelparams.numhiddenstates
+				beta = 5.0*iter
+				aa_profile_similarity = cosine_similarity(modelparams.hiddennodes[h].aa_node.probs, modelparams.hiddennodes[h2].aa_node.probs)
+				transitionweights[h,h2] = -beta*aa_profile_similarity
+				maxweight = max(maxweight, transitionweights[h,h2])
+			end
+			transitionweights[h,:] = transitionweights[h,:] .- maxweight
+		end
+		transitionweights = exp.(transitionweights)
+
+			
+		score = 0.0
+		for h=1:modelparams.numhiddenstates
+			for h2=1:modelparams.numhiddenstates
+				aa_profile_similarity = dot(modelparams.hiddennodes[h].aa_node.probs, modelparams.hiddennodes[h2].aa_node.probs)
+				score += aa_profile_similarity*transitionratecounts[h,h2]
+				if h != h2
+					println("SIM\t", h,"\t",h2,"\t",aa_profile_similarity,"\t",transitionweights[h,h2],"\t",transitionratecounts[h,h2])
+				end
+				transitionratecounts[h,h2] = transitionratecounts[h,h2]*transitionweights[h,h2]
+			end
+			transitionratecounts[h,:] /= sum(transitionratecounts[h,:])
+		end
+		println(transitionratecounts)
+		println("SCORE = ", score/modelparams.numhiddenstates)
+
+		for h=1:modelparams.numhiddenstates
 			for h2=1:modelparams.numhiddenstates
 				modelparams.transitionprobs[h,h2] = transitioncounts[h,h2]
 			end
 			modelparams.transitionprobs[h,:] = modelparams.transitionprobs[h,:] ./ sum(transitioncounts[h,:])
 
-			#transitionratecounts[h,:] = transitionratecounts[h,:] ./ sum(transitionratecounts[h,:])
-			#=
-			transitionratetotals = transitionratetotals ./ length(trainingexamples)
-			modelparams.transitionrates[h,h] = 0.0
-			for h2=1:modelparams.numhiddenstates
-				if h != h2
-					modelparams.transitionrates[h,h2] = (transitionratetotals[h,h2]+transitionratetotals[h2,h])/2.0
-					modelparams.transitionrates[h2,h] = modelparams.transitionrates[h,h2]
-					modelparams.transitionrates[h,h] -= modelparams.transitionrates[h,h2]
+			if learnrates				
+				modelparams.transitionrates[h,h] = 0.0
+				for h2=1:modelparams.numhiddenstates
+					if h != h2
+						modelparams.transitionrates[h,h2] = (transitionratecounts[h,h2]+transitionratecounts[h2,h])*sum(transitionratetotals[h,:]) / 2.0 / length(trainingexamples)
+						modelparams.transitionrates[h2,h] = (transitionratecounts[h,h2]+transitionratecounts[h2,h])*sum(transitionratetotals[h2,:]) / 2.0 / length(trainingexamples)
+						modelparams.transitionrates[h,h] -= modelparams.transitionrates[h,h2]
+					end
 				end
-			end=#
+				modelparams.mu = 1.0
+				println(modelparams.transitionrates)
+			end
 
-			estimate_categorical(modelparams.hiddennodes[h].aa_node)
+			estimate_categorical(modelparams.hiddennodes[h].aa_node, 1.0*iter)
 			estimatevonmises(modelparams.hiddennodes[h].phi_node)
 			estimatevonmises(modelparams.hiddennodes[h].psi_node)
 			estimatevonmises(modelparams.hiddennodes[h].omega_node)
@@ -891,7 +1225,7 @@ function train(numhiddenstates::Int=5)
 			println(pimod(phipsisample[col][3]),"\t", proteins[1][col].omega, "\t", pimod(phipsisample[col][1]),"\t", proteins[1][col].phi,"\t",modelparams.hiddennodes[h].phi_node.dist,"\t",pimod(phipsisample[col][2]),"\t", proteins[1][col].psi,"\t",modelparams.hiddennodes[h].psi_node.dist)
 		end=#
 
-		fout = open(string("model_h_",modelparams.numhiddenstates, ".model"), "w")
+		fout = open(string("model", outputmodelname, ".model"), "w")
 		Serialization.serialize(fout, modelparams)
 		close(fout)
 	end
@@ -916,11 +1250,14 @@ function infer()
 	rng = MersenneTwister(10498012421321)
 	Random.seed!(1234)
 
-	fin = open("model_h_25.model", "r")
+	#fin = open("model_h_25.model", "r")
+	fin = open("model_h_25_backup.model", "r")	
 	modelparams = Serialization.deserialize(fin)
 	close(fin)
 
-	
+	samplebranchlengths = true
+
+	#=
 	family_dir = "../data/families/"
 	family_files = filter(f -> endswith(f,".fam"), readdir(family_dir))
 	family_file = joinpath(family_dir, family_files[11])
@@ -938,15 +1275,19 @@ function infer()
 	end
 
 	proteins,nodelist,json_family = training_example
+	
+	#proteins,nodelist = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/alignments/HCV_REF_2014_ns5b_PRO_curated.fasta"))
+	#proteins,nodelist = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/alignments/hiv-curated-sel.fasta"))=#
 
-	#=
-	proteins,nodelist = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/alignments/hiv-curated-sel.fasta"))=#
-
+	#proteins,nodelist = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/H1N1_selection2.fas"), abspath("../data/influenza_a/HA/H1N1_selection2_rooted.fas.nwk"))
+	proteins,nodelist = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/selection4.fasta"), abspath("../data/influenza_a/HA/selection4.fasta.nwk"))
 	inputnodelist = deepcopy(nodelist)
-
 	inputtreewriter = open("tree.input.nwk", "w")
 	println(inputtreewriter, getnewick(nodelist[1]))
 	close(inputtreewriter)
+
+	countmatches = 1e-10
+	counttotal = 1e-10
 
 	numcols = length(proteins[1])
 	mcmcwriter = open("mcmc.log", "w")
@@ -980,12 +1321,23 @@ function infer()
 		end
 	end
 	println(mcmcwriter)
-	branchlength_cache = Dict{Int,Array{Float64,1}}()
+	subspersite_cache = Dict{Int,Array{Float64,1}}()
 	for iter=1:10000
-		for node in nodelist
-			if !isroot(node)
-				t,propratio = proposebranchlength(rng, node, Int[col for col=1:numcols], modelparams)
-				node.branchlength = t
+		if samplebranchlengths
+			randindex = rand(2:length(nodelist))
+			for node in nodelist
+				if !isroot(node)	
+					t,propratio = proposebranchlength(rng, node, Int[col for col=1:numcols], modelparams)
+					node.branchlength = t
+					#=				
+					if node.nodeindex == randindex
+						println(iter," branches ", node.branchlength,"\t",t)				
+						oldll = augmentedloglikelihood(nodelist, Int[col for col=1:numcols], modelparams)
+						
+						newll = augmentedloglikelihood(nodelist, Int[col for col=1:numcols], modelparams)
+						println(iter," likeliho ", newll,"\t",oldll,"\t",propratio)
+					end=#
+				end
 			end
 		end
 		
@@ -1002,6 +1354,18 @@ function infer()
 			end
 			felsensteinresample(rng, proteins, nodelist, col, cols, modelparams)
 		end
+
+		println(nodelist[2].name)
+		alignedsequence = "----------------SDTICIGYHANNSTDTVDTVLEKNVTVTHSVNLLEDSHNGKLCRLKGKAPLQLGKCNIAGWILGNPECESLLSKRSWSYIAETPNSENGTCYPGDFADYEELREQLSSVSSFERFEIFPKESSWPKHNTTRGVTAACSHARKSSFYKNLLWLTEANGSYPNLSKSYVNNQEKEVLVLWGVHHPSNIEDQRTLYRKENAYVSVVSSNYNRRFTPEIAERPKVRNQAGRMNYYWTLLEPGDTIIFEANGNLIAPWYAFALSRGLGSGIITSNASMDECDTKCQTPQGAINSSLPFQNIHPVTIGECPKYVKSTKLRMVTGLRN-------GLFGAIAGFIEGGWTGMMDGWYGYHHQNEQGSGYAADQKSTQNAINGITNKVNSVIEKMNTQFTAVGKEFNKLEKRMENLNKKVDDGFLDIWTYNAELLVLLENERTLDFHDSNVKNLYEKVKNQLRNNAKELGNGCFEFYHKCDNECMESVKNGTYDYSEE------------------------------------------------------------"
+	    sequence, phi_psi, omega, bond_angles, bond_lengths = protein_to_lists(sampletreenode(rng, nodelist[2], modelparams, alignedsequence))
+	    inputsequence = "SDTICIGYHANNSTDTVDTVLEKNVTVTHSVNLLEDSHNGKLCRLKGKAPLQLGKCNIAGWILGNPECESLLSKRSWSYIAETPNSENGTCYPGDFADYEELREQLSSVSSFERFEIFPKESSWPKHNTTRGVTAACSHARKSSFYKNLLWLTEANGSYPNLSKSYVNNQEKEVLVLWGVHHPSNIEDQRTLYRKENAYVSVVSSNYNRRFTPEIAERPKVRNQAGRMNYYWTLLEPGDTIIFEANGNLIAPWYAFALSRGLGSGIITSNASMDECDTKCQTPQGAINSSLPFQNIHPVTIGECPKYVKSTKLRMVTGLRNGLFGAIAGFIEGGWTGMMDGWYGYHHQNEQGSGYAADQKSTQNAINGITNKVNSVIEKMNTQFTAVGKEFNKLEKRMENLNKKVDDGFLDIWTYNAELLVLLENERTLDFHDSNVKNLYEKVKNQLRNNAKELGNGCFEFYHKCDNECMESVKNGTYDYSEE"
+	    for (aa1,aa2) in zip(sequence,inputsequence)
+	    	if aa1 == aa2
+	    		countmatches += 1.0
+	    	end
+	    	counttotal += 1.0
+	    	println(aa1,"\t",aa2,"\t",countmatches/counttotal)
+	    end
 
 		augmentedll = augmentedloglikelihood(nodelist, Int[col for col=1:numcols], modelparams)	
 		observationll = observationloglikelihood(proteins, nodelist, modelparams)
@@ -1023,9 +1387,9 @@ function infer()
 				subs_per_site = count_aminoacid_substitutions(rng,modelparams,node)/numcols
 				outputnode.branchlength = subs_per_site				
 				print(mcmcwriter,"\t$(subs_per_site)")
-				cached_branchlengths = get(branchlength_cache, outputnode.nodeindex, Float64[])
+				cached_branchlengths = get(subspersite_cache, outputnode.nodeindex, Float64[])
 				push!(cached_branchlengths, outputnode.branchlength)
-				branchlength_cache[outputnode.nodeindex] = cached_branchlengths
+				subspersite_cache[outputnode.nodeindex] = cached_branchlengths
 			end
 		end
 		println(mcmcwriter)
@@ -1037,7 +1401,7 @@ function infer()
 		consensustreewriter = open("tree.mean.consensus.nwk", "w")
 		for outputnode in outputnodelist
 			if !isroot(outputnode)
-				outputnode.branchlength = mean(branchlength_cache[outputnode.nodeindex][max(1,div(length(branchlength_cache[outputnode.nodeindex]),2)):end])
+				outputnode.branchlength = mean(subspersite_cache[outputnode.nodeindex][max(1,div(length(subspersite_cache[outputnode.nodeindex]),2)):end])
 			end
 		end
 		println(consensustreewriter, getnewick(outputnodelist[1]))
@@ -1050,7 +1414,7 @@ function infer()
 		consensustreewriter = open("tree.median.consensus.nwk", "w")
 		for outputnode in outputnodelist
 			if !isroot(outputnode)
-				outputnode.branchlength = median(branchlength_cache[outputnode.nodeindex][max(1,div(length(branchlength_cache[outputnode.nodeindex]),2)):end])
+				outputnode.branchlength = median(subspersite_cache[outputnode.nodeindex][max(1,div(length(subspersite_cache[outputnode.nodeindex]),2)):end])
 			end
 		end
 		println(consensustreewriter, getnewick(outputnodelist[1]))
@@ -1063,7 +1427,7 @@ end
 
 using PyPlot
 function plot_nodes()
-	fin = open("model_h_25.model", "r")
+	fin = open("model_h_25_backup.model", "r")
 	modelparams = Serialization.deserialize(fin)
 	close(fin)
 

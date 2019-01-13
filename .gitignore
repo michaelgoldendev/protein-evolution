@@ -13,3 +13,4 @@ cache/
 data/
 obsolete/
 deps/deps.jl
+*.zip
