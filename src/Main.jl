@@ -232,7 +232,7 @@ mutable struct ModelParams
 			push!(hiddennodes, HiddenNode())
 		end
 		matrixcache = Dict{Tuple{Int,Int}, Tuple{Array{Float64,2},Array{Complex{Float64},2},Array{Complex{Float64},1},Array{Complex{Float64},2}}}()
-        new(numhiddenstates,aminoacidQ,numhiddenstates,initialprobs,transitionprobs,transitionrates,hiddennodes,mu,matrixcache)
+        new(20,aminoacidQ,numhiddenstates,initialprobs,transitionprobs,transitionrates,hiddennodes,mu,matrixcache)
     end
 end
 
@@ -301,20 +301,18 @@ end
 
 mutable struct AugmentedNodeData <: NodeData
 	branchpath::BranchPath
+	aabranchpath::BranchPath
 	dummy::Int
-	Rmatrices::Array{Array{Float64,2},1}
-	Pmatrices::Array{Array{Float64,2},1}
-	vs::Array{Array{Float64,1},1}
-	time::Array{Float64,1}
 	protein::Protein
 
-	AugmentedNodeData(branchpath::BranchPath, dummy::Int) = new(branchpath, dummy, Array{Float64,2}[], Array{Float64,2}[], Array{Float64,1}[], Float64[], Protein())
+	AugmentedNodeData(col::Int) = new(BranchPath(col),BranchPath(col),1, Protein()) 
+	AugmentedNodeData(branchpath::BranchPath, aabranchpath::BranchPath, dummy::Int) = new(branchpath, aabranchpath, dummy, Protein())
 end
 
 function gettransprobs(node::TreeNode, selcolin::Int, cols::Array{Int,1}, modelparams::ModelParams)
 	selcol = findfirst(x -> x == selcolin, cols)
 	branchiterator = BranchPathIterator(node.data.branchpath,cols)
-	P = Matrix{Float64}(I, modelparams.alphabet, modelparams.alphabet)
+	P = Matrix{Float64}(I, modelparams.numhiddenstates, modelparams.numhiddenstates)
 	Pmatrices = Array{Float64,2}[]
 	dummypath = Int[]
 	dummytime = Float64[]
@@ -340,7 +338,7 @@ end
 function felsensteinhelper(node::TreeNode, selcolin::Int, cols::Array{Int,1}, v::Array{Float64,1}, modelparams::ModelParams)
 	selcol = findfirst(x -> x == selcolin, cols)
 	branchiterator = BranchPathIterator(node.data.branchpath,cols)
-	P = Matrix{Float64}(I, modelparams.alphabet, modelparams.alphabet)
+	P = Matrix{Float64}(I, modelparams.numhiddenstates, modelparams.numhiddenstates)
 	Rmatrices = Array{Float64,2}[]
 	Pmatrices = Array{Float64,2}[]
 	vs = Array{Float64,1}[]
@@ -370,10 +368,10 @@ function felsensteinhelper(node::TreeNode, selcolin::Int, cols::Array{Int,1}, v:
     end
     popfirst!(vs)
 
-    node.data.Rmatrices = Rmatrices
-    node.data.Pmatrices = Pmatrices
-    node.data.vs = vs
-    node.data.time = dummytime
+    node.data.branchpath.Rmatrices = Rmatrices
+    node.data.branchpath.Pmatrices = Pmatrices
+    node.data.branchpath.vs = vs
+    node.data.branchpath.time = dummytime
     return Pmatrices,vs
 end
 
@@ -381,7 +379,7 @@ end
 function felsensteinresample(rng::AbstractRNG, proteins::Array{Protein,1}, nodelist::Array{TreeNode,1}, selcolin::Int, cols::Array{Int,1}, modelparams::ModelParams)
 	#selcol = findfirst(x -> x == selcolin, cols)
 	selcol = selcolin
-	likelihoods = ones(Float64, length(nodelist), modelparams.alphabet)*-Inf
+	likelihoods = ones(Float64, length(nodelist), modelparams.numhiddenstates)*-Inf
 	logm = zeros(Float64,length(nodelist))
 
 	stack = Int[1]
@@ -447,7 +445,7 @@ end
 function backwardsampling(rng::AbstractRNG,node::TreeNode, state::Int, selcol::Int,likelihoods,print::Bool,modelparams::ModelParams)
 	for child in node
 		path = Int[state]
-		for (Pi,v) in zip(child.data.Pmatrices, child.data.vs)
+		for (Pi,v) in zip(child.data.branchpath.Pmatrices, child.data.branchpath.vs)
 			liks = Pi[path[end],:].*v
 			samplestate = CommonUtils.sample(rng,liks)
 			push!(path,samplestate)
@@ -456,18 +454,18 @@ function backwardsampling(rng::AbstractRNG,node::TreeNode, state::Int, selcol::I
 		newpath = Int[]
 		newtime = Float64[]
 		for z=1:length(path)-1
-			dt = child.data.time[z+1]-child.data.time[z]
-			samplepath, sampletimes = modifiedrejectionsampling(rng, child.data.Rmatrices[z], path[z], path[z+1],(modelparams))
+			dt = child.data.branchpath.time[z+1]-child.data.branchpath.time[z]
+			samplepath, sampletimes = modifiedrejectionsampling(rng, child.data.branchpath.Rmatrices[z], path[z], path[z+1],(modelparams))
 			append!(newpath,samplepath)
-			append!(newtime,(sampletimes*dt) .+ child.data.time[z])
+			append!(newtime,(sampletimes*dt) .+ child.data.branchpath.time[z])
 		end
 
 		newpath, newtime = removevirtualjumps(newpath, newtime)
 
 		if print && isleafnode(child) && child.data.branchpath.paths[selcol][end] != newpath[end]
 			println(isleafnode(child),"\t",selcol)
-			println(child.data.Pmatrices)
-			println(child.data.vs)
+			println(child.data.branchpath.Pmatrices)
+			println(child.data.branchpath.vs)
 			println("J", newpath,newtime)
 			println("K", child.data.branchpath.paths[selcol], child.data.branchpath.times[selcol])
 		end
@@ -533,8 +531,8 @@ function getinitialsiteprobs(modelparams::ModelParams, prevh::Int, nexth::Int)
 	if nexth > 0
 		nextprobs = modelparams.transitionprobs[:,nexth]
 	end
-	logfreqs = zeros(Float64,modelparams.alphabet)
-	for a=1:modelparams.alphabet
+	logfreqs = zeros(Float64,modelparams.numhiddenstates)
+	for a=1:modelparams.numhiddenstates
 		logfreqs[a] = log(prevprobs[a]*nextprobs[a]) # TODO: include initial probs
 	end
 	freqs = exp.(logfreqs.-maximum(logfreqs))
@@ -588,7 +586,7 @@ end
 
 function observationlikelihood(protein::Protein, col::Int, modelparams::ModelParams)
 	if 1 <= col <= length(protein.sites)
-	    v = zeros(Float64, modelparams.alphabet)
+	    v = zeros(Float64, modelparams.numhiddenstates)
 		for h=1:modelparams.numhiddenstates
 			v[h] = siteloglikelihood(protein.sites[col], h, modelparams)
 		end
@@ -802,7 +800,7 @@ function compare_branch_scalings(nodelist1,nodelist2)
 	return outputlist[1]
 end
 
-function initialise_tree(rng::AbstractRNG, modelparams::ModelParams, inputroot::TreeNode, numcols::Int; midpointroot::Bool=true)	
+function initialise_tree(rng::AbstractRNG, modelparams::ModelParams, inputroot::TreeNode, name_protein_dict::Dict{String,Tuple{Int64,Protein}}, numcols::Int; midpointroot::Bool=true)	
 	binarize!(inputroot)
 	nodelist = getnodelist(inputroot)
 	for (index,node) in enumerate(nodelist)
@@ -816,6 +814,16 @@ function initialise_tree(rng::AbstractRNG, modelparams::ModelParams, inputroot::
 	for (index,node) in enumerate(nodelist)
 		node.nodeindex = index
 	end	
+
+	for node in nodelist
+		node.data = AugmentedNodeData(numcols)
+		if haskey(name_protein_dict, node.name)
+			proteinindex, protein = name_protein_dict[node.name]
+			node.seqindex = proteinindex
+			node.data.protein = protein
+		end
+	end
+
 	V = getQandPt(modelparams, 0, 0, -1.0)[1]
 	paths = Array{Int,1}[]
 	times = Array{Float64,1}[]
@@ -824,12 +832,21 @@ function initialise_tree(rng::AbstractRNG, modelparams::ModelParams, inputroot::
 		push!(paths,Int[state,state])
 		push!(times,Float64[0.0, 1.0])
 	end	
-	root.data = AugmentedNodeData(BranchPath(paths,times), 1)
+	aapaths = Array{Int,1}[]
+	aatimes = Array{Float64,1}[]
+	for col=1:numcols
+		aastate = rand(rng,1:modelparams.alphabet)
+		push!(aapaths,Int[aastate,aastate])
+		push!(aatimes,Float64[0.0, 1.0])
+	end	
+	root.data.branchpath = BranchPath(paths,times)
+	root.data.aabranchpath = BranchPath(aapaths,aatimes)
 	for node in nodelist
-		if !isroot(node)
+		if !isroot(node)			
+			parentnode = get(node.parent)
+
 			paths = Array{Int,1}[]
 			times = Array{Float64,1}[]
-			parentnode = get(node.parent)
 			for col=1:numcols
 				parentstate = parentnode.data.branchpath.paths[col][end]
 				nodestate = rand(rng,1:modelparams.numhiddenstates)
@@ -837,9 +854,41 @@ function initialise_tree(rng::AbstractRNG, modelparams::ModelParams, inputroot::
 				push!(paths,path)
 				push!(times,time)
 			end
-			node.data = AugmentedNodeData(BranchPath(paths,times), 1)
+
+			aapaths = Array{Int,1}[]
+			aatimes = Array{Float64,1}[]
+			for col=1:numcols
+				parentaastate = parentnode.data.aabranchpath.paths[col][end]
+				nodeaastate = rand(rng,1:modelparams.alphabet)
+				if 1 <= col <= length(node.data.protein.sites) && node.data.protein.sites[col].aa > 0
+					nodeaastate = node.data.protein.sites[col].aa
+				end
+				aapath,aatime = modifiedrejectionsampling(rng, modelparams.aminoacidQ, parentaastate, nodeaastate, nothing)
+				push!(aapaths,aapath)
+				push!(aatimes,aatime)
+			end
+
+			node.data.branchpath = BranchPath(paths,times)
+			node.data.aabranchpath = BranchPath(aapaths,aatimes)
+
+			it = BranchPathIterator(node.data.branchpath,Int[1,2,3])
+			aait = BranchPathIterator(node.data.aabranchpath,Int[2])
+			multit = MultiBranchPathIterator(BranchPathIterator[it,aait])
+
+			for index in it.indices
+				println(it.branch.paths[index],"\t", it.branch.times[index])
+			end
+			println(aait.branch.paths[2],"\t", aait.branch.times[2])
+			for el in multit
+
+			end		
+			println("HERE")
 		end
 	end
+
+
+	#exit()
+
 	return root,nodelist
 end
 
@@ -854,15 +903,6 @@ function training_example_from_sequence_alignment(rng::AbstractRNG, modelparams:
             push!(sequences, seq)
         end
     end
-
-    if newickfile == nothing
-	    newickstring, cachefile = Binaries.fasttreeaa(fastafile)
-	    root = gettreefromnewick(newickstring)
-	    root,nodelist = initialise_tree(rng, modelparams, root, length(sequences[1]))
-	else
-		root = gettreefromnewick(readlines(open(newickfile,"r"))[1])
-	    root,nodelist = initialise_tree(rng, modelparams, root, length(sequences[1]),midpointroot=false)
-	end
     
     proteins = Protein[]
 	name_protein_dict = Dict{String,Tuple{Int,Protein}}()
@@ -881,12 +921,14 @@ function training_example_from_sequence_alignment(rng::AbstractRNG, modelparams:
 	    name_protein_dict[name] = (p, protein)
 	    push!(proteins, protein)
 	end
-	for node in nodelist
-		if haskey(name_protein_dict, node.name)
-			proteinindex, protein = name_protein_dict[node.name]
-			node.seqindex = proteinindex
-			node.data.protein = protein
-		end
+
+    if newickfile == nothing
+	    newickstring, cachefile = Binaries.fasttreeaa(fastafile)
+	    root = gettreefromnewick(newickstring)
+	    root,nodelist = initialise_tree(rng, modelparams, root, name_protein_dict, length(sequences[1]))
+	else
+		root = gettreefromnewick(readlines(open(newickfile,"r"))[1])
+	    root,nodelist = initialise_tree(rng, modelparams, root, name_protein_dict, length(sequences[1]),midpointroot=false)
 	end
 
 	return (proteins, nodelist)
@@ -901,7 +943,7 @@ function training_example_from_json_family(rng::AbstractRNG, modelparams::ModelP
 	end
 
 	numcols = length(json_family["proteins"][1]["aligned_sequence"])
-	root,nodelist = initialise_tree(rng, modelparams, root, numcols, midpointroot=false)
+	
 	#=
 	V = constructJointMatrix(modelparams, ones(Float64,modelparams.numhiddenstates), ones(Float64,modelparams.numhiddenstates))
 	paths = Array{Int,1}[]
@@ -941,14 +983,8 @@ function training_example_from_json_family(rng::AbstractRNG, modelparams::ModelP
 	    name_protein_dict[json_family["proteins"][p]["name"]] = (p, protein)
 	    push!(proteins, protein)
 	end
-	for node in nodelist
-		if haskey(name_protein_dict, node.name)
-			proteinindex, protein = name_protein_dict[node.name]
-			node.seqindex = proteinindex			
-			println("node ", proteinindex)
-			node.data.protein = protein
-		end
-	end
+
+	root,nodelist = initialise_tree(rng, modelparams, root, name_protein_dict, numcols, midpointroot=false)
 	return (proteins, nodelist,json_family)
 end
 
@@ -1001,7 +1037,7 @@ function cosine_similarity(v1::Array{Float64,1}, v2::Array{Float64,1})
 	return dot(v1,v2)/(norm(v1)*norm(v2))
 end
 
-function train(numhiddenstates::Int=60)
+function train(numhiddenstates::Int=5)
 	rng = MersenneTwister(10498012421321)
 	Random.seed!(1234)
 
@@ -1016,7 +1052,7 @@ function train(numhiddenstates::Int=60)
 	outputmodelname = string("_h.",modelparams.numhiddenstates,"_learnrates.",learnrates)
 
 	trainingexamples = Tuple[]
-	for family_file in family_files[1:300]
+	for family_file in family_files[1:20]
 		full_path = abspath(joinpath(family_dir, family_file))
 		json_family = JSON.parse(open(full_path, "r"))
 		if 1 <= length(json_family["proteins"]) <= 1e10
@@ -1251,13 +1287,13 @@ function infer()
 	Random.seed!(1234)
 
 	#fin = open("model_h_25.model", "r")
-	fin = open("model_h_25_backup.model", "r")	
+	fin = open("model_h.5_learnrates.true.model", "r")	
 	modelparams = Serialization.deserialize(fin)
 	close(fin)
 
 	samplebranchlengths = true
 
-	#=
+	
 	family_dir = "../data/families/"
 	family_files = filter(f -> endswith(f,".fam"), readdir(family_dir))
 	family_file = joinpath(family_dir, family_files[11])
@@ -1280,7 +1316,8 @@ function infer()
 	#proteins,nodelist = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/alignments/hiv-curated-sel.fasta"))=#
 
 	#proteins,nodelist = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/H1N1_selection2.fas"), abspath("../data/influenza_a/HA/H1N1_selection2_rooted.fas.nwk"))
-	proteins,nodelist = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/selection4.fasta"), abspath("../data/influenza_a/HA/selection4.fasta.nwk"))
+	#proteins,nodelist = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/selection4.fasta"), abspath("../data/influenza_a/HA/selection4.fasta.nwk"))
+	
 	inputnodelist = deepcopy(nodelist)
 	inputtreewriter = open("tree.input.nwk", "w")
 	println(inputtreewriter, getnewick(nodelist[1]))
@@ -1517,6 +1554,6 @@ function plot_nodes()
 	end
 end
 
-train()
+#train()
 #plot_nodes()
-#infer()
+infer()
