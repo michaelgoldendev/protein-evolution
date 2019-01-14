@@ -151,11 +151,13 @@ module BranchPaths
 		branchpathiterators::Array{BranchPathIterator,1}
 		branchpathindex::Int
 		mintime::Float64
+		prevtime::Float64
+		currtime::Float64
 		done::Bool
 		count::Int
 
 		function MultiBranchPathIterator(branchpathiterators::Array{BranchPathIterator,1})
-			return new(branchpathiterators,1,0.0,false,0)
+			return new(branchpathiterators,1,0.0,0.0,0.0,false,0)
 		end
 
 
@@ -164,16 +166,19 @@ module BranchPaths
 	export iterate
 	function Base.iterate(multi_iter::MultiBranchPathIterator,state=(nothing,0))
 		prevelement, multi_iter.count = state
+		multi_iter.prevtime = multi_iter.currtime
+
 		miniterator = 1
 		mintime = Inf
 		for (itindex, it) in enumerate(multi_iter.branchpathiterators)
 			peekedtime = peek(it)
-			if peekedtime < mintime
+			if peekedtime < mintime && !it.done
 				mintime = peekedtime
 				miniterator = itindex
 			end
 		end
 		curriter = multi_iter.branchpathiterators[miniterator]
+		multi_iter.branchpathindex = miniterator
 
 		if multi_iter.count == 0
 			for i=1:length(multi_iter.branchpathiterators)
@@ -182,9 +187,34 @@ module BranchPaths
 				end
 			end
 		end
-
-		println(miniterator,"\t", next(curriter,curriter.count)[1])
+		#=
+		multi_iter.currtime = curriter.currtime
+		println(multi_iter.prevtime,"\t",multi_iter.currtime)
 		if curriter.mincol == -1
+			#multi_iter.done = true
+			#return nothing
+			alldone = true
+			for it in multi_iter.branchpathiterators
+				if !it.done 
+					alldone = false
+				end
+			end
+			if alldone
+				multi_iter.done = true
+				return nothing
+			end
+		end=#
+
+		
+		#println(miniterator,"\t", next(curriter,curriter.count)[1])
+		multi_iter.currtime = curriter.currtime
+		#println(multi_iter.prevtime,"\t",multi_iter.currtime)
+		if multi_iter.count == 0 && curriter.mincol == -1	
+			multi_iter.prevtime = 0.0
+			multi_iter.currtime = 1.0
+		end
+		if multi_iter.count != 0 && curriter.mincol == -1			
+			multi_iter.done = true
 			return nothing
 		end
 		return (prevelement, (curriter,multi_iter.count+1))

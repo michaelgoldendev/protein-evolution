@@ -37,4 +37,7 @@ for i=1:20
     end
 end
 
+export LGexchangeability
+LGexchangeability = S
+
 end
