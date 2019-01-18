@@ -155,9 +155,10 @@ module BranchPaths
 		currtime::Float64
 		done::Bool
 		count::Int
+		mincol::Int
 
 		function MultiBranchPathIterator(branchpathiterators::Array{BranchPathIterator,1})
-			return new(branchpathiterators,1,0.0,0.0,0.0,false,0)
+			return new(branchpathiterators,1,0.0,0.0,0.0,false,0,0)
 		end
 
 
@@ -207,7 +208,9 @@ module BranchPaths
 
 		
 		#println(miniterator,"\t", next(curriter,curriter.count)[1])
+		next(curriter,curriter.count)
 		multi_iter.currtime = curriter.currtime
+		multi_iter.mincol = curriter.mincol
 		#println(multi_iter.prevtime,"\t",multi_iter.currtime)
 		if multi_iter.count == 0 && curriter.mincol == -1	
 			multi_iter.prevtime = 0.0

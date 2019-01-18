@@ -65,7 +65,7 @@ module EMNodes
 		categorical_node.probs = categorical_node.counts / sum(categorical_node.counts)
 		categorical_node.probs = categorical_node.probs.^categorical_node.alphas.^beta
 		categorical_node.probs /= sum(categorical_node.probs)
-		categorical_node.counts = zeros(Float64,categorical_node.numcats)
+		categorical_node.counts =  ones(Float64, categorical_node.numcats)*0.1
 	end
 
 	export MultivariateNode
