@@ -1,4 +1,4 @@
-#push!(LOAD_PATH,"../juliamolev/src/")
+module TraitAssociation
 
 push!(LOAD_PATH,string(@__DIR__,"/../../../dev/MolecularEvolution/src/"))
 using MolecularEvolution
@@ -1136,11 +1136,20 @@ end
 
 
 
-function pathreconstruction()
+function pathreconstruction(fastafile="",treefile="",blindnodenames::Array{String,1}=String[])
     rng = MersenneTwister(2184104820249809)
-    parsed_args = parse_commandline()
-    fastafile = parsed_args["alignment"]
-    treefile = parsed_args["tree"]
+    parsed_args = nothing
+    if fastafile == "" || treefile == ""
+        parsed_args = parse_commandline()
+        fastafile = parsed_args["alignment"]
+        treefile = parsed_args["tree"]
+    end
+    if length(blindnodenames) == 0
+        blindnodenames = String["B.US.1978.SF4.KJ704795"]
+        blindnodenames = String["6n41.pdb_1951"]
+        println(blindnodenames)
+    end
+
     zup = 1
 
     #fastafile = "example.fas"1
@@ -1205,8 +1214,7 @@ function pathreconstruction()
     blank_nodeindex = 0
     blank_seqindex = 0
     for (taxon,sequence) in zip(names, sequences)
-         #if taxon == "A/WSN/1933|Human|1933"
-         if taxon == "6n41.pdb_1951"         
+         if taxon in blindnodenames
             blank_seqindex = seqindex
             blank_nodeindex = seqnametonodeindex[taxon]
             println(blank_seqindex,"\t",blank_nodeindex)
@@ -1267,7 +1275,7 @@ function pathreconstruction()
                 if aminoacids[sample[blank_nodeindex]] == trueseq[col]                    
                     nummatches += 1.0   
                 else                 
-                    println("Col $(col) sample $(aminoacids[sample[blank_nodeindex]]) $(trueseq[col]) $(nummatches/numtotal)")
+                   #println("Col $(col) sample $(aminoacids[sample[blank_nodeindex]]) $(trueseq[col]) $(nummatches/numtotal)")
                 end
                 numtotal += 1.0
             end
@@ -1280,6 +1288,7 @@ function pathreconstruction()
                 println(jsondict[col]["samples"][s]["times"][child.nodeindex])
             end=#
         end
+        #println("$(col) $(nummatches/numtotal)")
     end
 
     #=
@@ -1361,6 +1370,9 @@ function pathreconstruction()
 
 
     println(JSON.json(jsondict))=#
+
+    println(nummatches/numtotal)
+    return nummatches/numtotal
 end
 
 function getchar(path::Array{Int,1}, time::Array{Float64}, t::Float64)
@@ -1457,5 +1469,7 @@ function getjsontree(nodelist::Array{TreeNode,1}, traits::Array{Int,1})
     return JSON.json(json)
 end
 
-pathreconstruction()
+end
+
+#TraitAssociation.pathreconstruction()
 #main()

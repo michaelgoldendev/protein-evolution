@@ -56,7 +56,7 @@ module EMNodes
 		alphas::Array{Float64,1}
 
 		function CategoricalNode(numcats::Int)
-			new(numcats, ones(Float64,numcats)/numcats, zeros(Float64,numcats), ones(Float64,numcats))
+			new(numcats, ones(Float64,numcats)/numcats, ones(Float64, numcats)*0.1, ones(Float64,numcats))
 		end
 	end
 
