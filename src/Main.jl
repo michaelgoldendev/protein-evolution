@@ -1000,11 +1000,11 @@ function augmentedloglikelihood(nodelist::Array{TreeNode,1}, cols::Array{Int,1},
 			aaiter = multi_iter.branchpathiterators[2]	
 
 			for it in multi_iter
-				dt = (multi_iter.currtime-multi_iter.prevtime)*node.branchlength
+				dt = (multi_iter.currtime-multi_iter.prevtime)
 				for col=1:numcols
 					changecol = col
 					Qii = entry(modelparams, get(hiddeniter.prevstates, changecol-1, 0), get(hiddeniter.prevstates, changecol+1, 0), hiddeniter.prevstates[changecol], hiddeniter.prevstates[changecol], aaiter.prevstates[changecol], aaiter.prevstates[changecol])
-					loglikelihood += Qii*dt
+					loglikelihood += Qii*dt*node.branchlength
 				end
 
 				changecol = 0
@@ -1026,7 +1026,7 @@ function augmentedloglikelihood(nodelist::Array{TreeNode,1}, cols::Array{Int,1},
 					end
 
 					Qhi = entry(modelparams, get(hiddeniter.prevstates, changecol-1, 0), get(hiddeniter.prevstates, changecol+1, 0), prevstatesh, currstatesh, prevstatesaa, currstatesaa)
-					loglikelihood += log(Qhi)
+					loglikelihood += log(Qhi*node.branchlength)
 				end
 			end
 		end
@@ -1796,64 +1796,26 @@ function getexitrate(node::TreeNode, cols::Array{Int,1}, modelparams::ModelParam
 			N += 1.0
 		end
 	end
-	#=
-	println("EXIT", exitrate)
-	if exitrate == 0.0		
-		exit()
-	end=#
+
 	return exitrate, N
 end
 
 function proposebranchlength(rng::AbstractRNG, node::TreeNode, cols::Array{Int,1}, modelparams::ModelParams)
-
-	#exp(Qii*-dt)*exp((log(Qhi) + log(dt)))
-	#exp(Qii*-dt)*Qhi*dt
-
 	totalexitrate, N = getexitrate(node, cols, modelparams)
-	#=
+	
 	alpha = N+1.0
 	beta = -totalexitrate
 
-	dist = Gamma(alpha, 1.0/beta)
+	dist = Gamma(alpha, 1.0/beta)	
 	t = rand(dist)
-	propratio = 0.0
-	newll = logpdf(dist, t)
-	oldll = logpdf(dist, node.branchlength)
-	propratio = oldll-newll=#
+	propratio = logpdf(dist, node.branchlength)-logpdf(dist,t)
+	println(node.name,"\t",totalexitrate,"\t",N,"\t",node.data.inputbranchlength,"\t",mean(dist),"\t",t)
 	#=
-	println(totalexitrate,"\t",N,"\t",t)
-
-	newll = logpdf(dist, t)
-	oldll = logpdf(dist, node.branchlength)
-	propratio = oldll-newll=#
-
-	
-	t = log(1.0 - rand(rng))/totalexitrate
-	#=
-	gammadist = Gamma(max(0.0001, node.data.inputbranchlength/0.1),0.1)
-	hits = 0.0
-	for i=1:1000
-		newt =  log(1.0 - rand(rng))/totalexitrate
-		priorll = logpdf(gammadist, newt) - logpdf(gammadist, t) 
-		if exp(priorll) > rand(rng)
-			t = newt
-			hits += 1.0
-		end
-	end
-	println("RATIO = ", hits/1000.0)=#
-	propratio = 0.0
-	#=
-	#println(totalexitrate,"\tT\t",t)
+	t =  log(1.0 - rand(rng))/totalexitrate
 	newll = log(-totalexitrate) + totalexitrate*t
 	oldll = log(-totalexitrate) + totalexitrate*node.branchlength
 	propratio = oldll-newll
-
-	priorll = -2.0*t + 2.0*node.branchlength
-	if exp(priorll) > rand(rng)
-
-	else 
-		t = node.branchlength
-	end=#
+	=#
 
 	return t,propratio
 end
@@ -1887,7 +1849,7 @@ function train(numhiddenstates::Int=5)
 	Random.seed!(1234)
 
 	learnrates = true
-	samplebranchlengths = false
+	samplebranchlengths = true
 	family_dir = "../data/families/"
 	family_files = filter(f -> endswith(f,".fam"), readdir(family_dir))
 
@@ -2024,10 +1986,17 @@ function train(numhiddenstates::Int=5)
 					for node in nodelist
 						if !isroot(node)
 							t,propratio = proposebranchlength(rng, node, Int[col for col=1:numcols], modelparams)
+							
+							#=
+							println(iter," branches ", node.branchlength,"\t",t)				
+							oldll = augmentedloglikelihood(nodelist, Int[col for col=1:numcols], modelparams)
 							node.branchlength = t
+							newll = augmentedloglikelihood(nodelist, Int[col for col=1:numcols], modelparams)
+							println(iter," likeliho ", newll,"\t",oldll,"\t",propratio,"\t",newll-oldll+propratio)=#
+
 							events = mean([length(p)-1.0 for p in node.data.branchpath.paths])
 							aa_events = mean([length(p)-1.0 for p in node.data.aabranchpath.paths])
-							println(node.nodeindex,"\t",node.branchlength,"\t",events,"\t",aa_events)
+							println(node.nodeindex,"\t",node.data.inputbranchlength,"\t",node.branchlength,"\t",events,"\t",aa_events)
 						end
 					end
 				end
@@ -2105,8 +2074,6 @@ function train(numhiddenstates::Int=5)
 			end			
 		end
 
-
-		
 		if learnrates
 			#modelparams.transitionrates = ones(Float64, modelparams.numhiddenstates, modelparams.numhiddenstates)
 
@@ -2236,47 +2203,8 @@ function train(numhiddenstates::Int=5)
 			println("LG",[sum(LGexchangeability[aa,:]) for aa=1:20])
 			modelparams.aa_exchangeablities = aatransitionrates
 		end
-		#println("probs ", modelparams.transitionprobs)
-		#println("rates ", transitionrate_counts)
-		#println("rates ", transitionrate_totals)
 
-		#=
-
-		proteins,nodelist,json_family = trainingexamples[1]
-	    sequence, phi_psi, omega, bond_angles, bond_lengths = protein_to_lists(sampletreenode(rng, nodelist[2], modelparams, json_family["proteins"][1]["aligned_sequence"]))
-
-	    chain = build_structure_from_angles(sequence, phi_psi, omega, bond_angles, bond_lengths; use_input_bond_angles=true, use_input_bond_lengths=true)
-	    fout = open("sample.pdb", "w")
-		writepdb(fout, chain)
-		close(fout)=#
-
-	    #=
-		for col=1:length(phipsisample)
-			node = nodelist[2]
-			h = node.data.branchpath.paths[col][end]
-			println(pimod(phipsisample[col][3]),"\t", proteins[1][col].omega, "\t", pimod(phipsisample[col][1]),"\t", proteins[1][col].phi,"\t",modelparams.hiddennodes[h].phi_node.dist,"\t",pimod(phipsisample[col][2]),"\t", proteins[1][col].psi,"\t",modelparams.hiddennodes[h].psi_node.dist)
-		end=#
-
-		#println("BEFORE ", calculateloglikelihood(modelparams, trainingexamples))
-		if iter % 4 == 0
-			#
-		end
 		optimizerates(trainingexamples, modelparams)
-		#modelparams.mu = optimizehiddenscaling(trainingexamples, modelparams)[1]
-		#modelparams.mu = optimizehiddenscaling(trainingexamples, modelparams)[1]
-		#println("AFTER ", calculateloglikelihood(modelparams, trainingexamples))
-
-		#=
-		for x in 0.5:5.0:100.0
-			modelparams.mu = x
-			augmentedll = 0.0
-			for (proteins,nodelist) in trainingexamples	
-				numcols = length(proteins[1])
-				augmentedll += augmentedloglikelihood(nodelist, Int[col for col=1:numcols], modelparams)
-			end
-			println(x,"\t",augmentedll)
-		end
-		modelparams.mu = 1.0=#
 
 		augmentedll_end,observationll_end = calculateloglikelihood(modelparams, trainingexamples)
 		totalll_end = augmentedll_end+observationll_end
@@ -2483,7 +2411,7 @@ end
 
 using TraitAssociation
 
-function infer(;modelfile="model_h.5_learnrates.true.model", samplebranchlengths::Bool=true)
+function infer(;modelfile="model_h.5_learnrates.true.model", samplebranchlengths::Bool=false)
 	rng = MersenneTwister(10498012421321)
 	Random.seed!(1234)
 
@@ -2529,9 +2457,9 @@ function infer(;modelfile="model_h.5_learnrates.true.model", samplebranchlengths
 	
 	fastafile = abspath("../data/influenza_a/HA/selection3.fasta")
 	newickfile= abspath("../data/influenza_a/HA/selection3.fasta.nwk")	
-	#newickfile= abspath("tree.mean.branch.consensus.nwk")		
-	#blindnodenames = String["6n41.pdb_1951"]
-	blindnodenames = String[]
+	newickfile= abspath("tree.mean.branch.consensus.nwk")		
+	blindnodenames = String["6n41.pdb_1951"]
+	#blindnodenames = String[]
 
 	#=
 	fastafile = abspath("../data/hiv/curated6.fasta")
@@ -2613,22 +2541,19 @@ function infer(;modelfile="model_h.5_learnrates.true.model", samplebranchlengths
 			for node in nodelist
 				if !isroot(node)	
 					t,propratio = proposebranchlength(rng, node, Int[col for col=1:numcols], modelparams)
+					#println(iter," branches ", node.branchlength,"\t",t)				
+					#oldll = augmentedloglikelihood(nodelist, Int[col for col=1:numcols], modelparams)
 					node.branchlength = t
-					#=				
-					if node.nodeindex == randindex
-						println(iter," branches ", node.branchlength,"\t",t)				
-						oldll = augmentedloglikelihood(nodelist, Int[col for col=1:numcols], modelparams)
-						
-						newll = augmentedloglikelihood(nodelist, Int[col for col=1:numcols], modelparams)
-						println(iter," likeliho ", newll,"\t",oldll,"\t",propratio)
-					end=#
+					#newll = augmentedloglikelihood(nodelist, Int[col for col=1:numcols], modelparams)
+					#println(iter," likeliho ", newll,"\t",oldll,"\t",propratio,"\t",newll-oldll+propratio)
 				end
 			end
 			println("$(iter).1 Sampling branch lengths DONE")
 		end
 		
 		println("$(iter).2 Sampling sites START")
-		for col=1:numcols
+		randcols = shuffle(rng, Int[i for i=1:numcols])
+		for col in randcols
 			cols = Int[]
 			selcol = 1
 			if col > 1
