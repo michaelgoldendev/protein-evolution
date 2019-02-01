@@ -1086,9 +1086,8 @@ function discretizegamma(shape::Float64, scale::Float64, numcategories::Int)
   end
 end
 
-function aa_alignmentloglikelihood(nodelist::Array{TreeNode,1}, numcols::Int, data::Array{Float64,3},subcolumnrefs::Array{Int,2}, mu::Float64, shape::Float64)
+function aa_alignmentloglikelihood(nodelist::Array{TreeNode,1}, numcols::Int, data::Array{Float64,3},subcolumnrefs::Array{Int,2}, mu::Float64, shape::Float64, numcats::Int)
     try
-        numcats = 10
         rates = discretizegamma(shape, 1.0/shape, numcats)
         #println(rates)
         siteloglikelihoodsconditionals = ones(Float64, numcols, numcats)*-Inf
@@ -1119,10 +1118,10 @@ function aa_alignmentloglikelihood(nodelist::Array{TreeNode,1}, numcols::Int, da
    end
 end
 
-function optimizealignmentlikelihood(nodelist::Array{TreeNode,1}, numcols::Int, data::Array{Float64,3},subcolumnrefs::Array{Int,2}, mu::Float64, shape::Float64)
+function optimizealignmentlikelihood(nodelist::Array{TreeNode,1}, numcols::Int, data::Array{Float64,3},subcolumnrefs::Array{Int,2}, mu::Float64, shape::Float64, numcats::Int)
     maxoptiter = 2000
     opt = Opt(:LN_COBYLA, 2)
-    localObjectiveFunction = ((param, grad) -> aa_alignmentloglikelihood(nodelist, numcols, data, subcolumnrefs, param[1], param[2])[1])
+    localObjectiveFunction = ((param, grad) -> aa_alignmentloglikelihood(nodelist, numcols, data, subcolumnrefs, param[1], param[2], numcats)[1])
     lower = ones(Float64, 2)*1e-3
     upper = ones(Float64, 2)*1e3
     lower_bounds!(opt, lower)
@@ -1136,7 +1135,7 @@ end
 
 
 
-function pathreconstruction(fastafile="",treefile="",blindnodenames::Array{String,1}=String[])
+function pathreconstruction(fastafile="",treefile="",blindnodenames::Array{String,1}=String[],numrates::Int=10)
     rng = MersenneTwister(2184104820249809)
     parsed_args = nothing
     if fastafile == "" || treefile == ""
@@ -1240,10 +1239,10 @@ function pathreconstruction(fastafile="",treefile="",blindnodenames::Array{Strin
     nummatches = 1e-10
     numtotal = 1e-10
 
-    minf, minx = optimizealignmentlikelihood(nodelist, numcols, aadata, subcolumnrefs, 0.188721, 0.123624)
+    minf, minx = optimizealignmentlikelihood(nodelist, numcols, aadata, subcolumnrefs, 0.188721, 0.123624, numrates)
     println(minf,"\t",minx)
-    maxll, siteloglikelihoodsconditionals = aa_alignmentloglikelihood(nodelist, numcols, aadata, subcolumnrefs, minx[1], minx[2])
-    rates = discretizegamma(minx[2], 1.0/minx[2], 10)
+    maxll, siteloglikelihoodsconditionals = aa_alignmentloglikelihood(nodelist, numcols, aadata, subcolumnrefs, minx[1], minx[2],numrates)
+    rates = discretizegamma(minx[2], 1.0/minx[2], numrates)
     #selcols = Int[143, 384, 274, 438, 136,402,335,287,152,198,214]
     selcols = 1:numcols
     for col in selcols
