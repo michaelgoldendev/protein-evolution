@@ -9,6 +9,8 @@ module BranchPaths
 		Pmatrices::Array{Array{Float64,2},1}
 		vs::Array{Array{Float64,1},1}
 		time::Array{Float64,1}
+		P::Array{Float64,2}
+		R::Array{Float64,2}
 
 		function BranchPath(len::Int)
 			paths = Array{Int,1}[]
@@ -17,11 +19,11 @@ module BranchPaths
 				push!(paths, Int[])
 				push!(times, Float64[])
 			end
-			return new(paths,times, Array{Float64,2}[], Array{Float64,2}[], Array{Float64,1}[], Float64[])
+			return new(paths,times, Array{Float64,2}[], Array{Float64,2}[], Array{Float64,1}[], Float64[],zeros(Float64,1,1),zeros(Float64,1,1))
 		end
 
 		function BranchPath(paths::Array{Array{Int,1},1}, times::Array{Array{Float64,1},1})
-			new(paths,times, Array{Float64,2}[], Array{Float64,2}[], Array{Float64,1}[], Float64[])
+			new(paths,times, Array{Float64,2}[], Array{Float64,2}[], Array{Float64,1}[], Float64[],zeros(Float64,1,1),zeros(Float64,1,1))
 		end
 	end
 
