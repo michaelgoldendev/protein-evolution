@@ -220,6 +220,7 @@ mutable struct ModelParams
 	hiddenmu::Float64
 	matrixcache::Dict{Tuple{Int,Int,Int}, Tuple{Array{Float64,2},Array{Complex{Float64},2},Array{Complex{Float64},1},Array{Complex{Float64},2}}}
 	branchscalingfactor::Float64
+	scalingfactor::Float64
 
     function ModelParams(aminoacidQ::Array{Float64,2}, numhiddenstates::Int,mu::Float64=1.0,hiddenmu::Float64=1.0)
         initialprobs = ones(Float64, numhiddenstates)./numhiddenstates
@@ -239,7 +240,7 @@ mutable struct ModelParams
 			push!(hiddennodes, HiddenNode())
 		end
 		matrixcache = Dict{Tuple{Int,Int,Int}, Tuple{Array{Float64,2},Array{Complex{Float64},2},Array{Complex{Float64},1},Array{Complex{Float64},2}}}()
-        new(20,aminoacidQ,LGexchangeability,numhiddenstates,initialprobs,transitioncounts,transitionprobs,transitionrates,hiddennodes,mu,hiddenmu,matrixcache,1.0)
+        new(20,aminoacidQ,LGexchangeability,numhiddenstates,initialprobs,transitioncounts,transitionprobs,transitionrates,hiddennodes,mu,hiddenmu,matrixcache,1.0,1.0)
     end
 end
 
@@ -247,6 +248,7 @@ function estimate_hidden_transition_probs(modelparams::ModelParams)
 	for h=1:modelparams.numhiddenstates
 		modelparams.transitionprobs[h,:] = modelparams.transitioncounts[h,:] ./ sum(modelparams.transitioncounts[h,:])
 	end
+	println(modelparams.transitionprobs)
 	modelparams.transitioncounts = ones(Float64, modelparams.numhiddenstates, modelparams.numhiddenstates)*0.1
 end
 
@@ -272,36 +274,6 @@ function reset_matrix_cache(modelparams::ModelParams)
 	countcachemisses = 0
 	countcachehits = 0
 	modelparams.matrixcache = Dict{Tuple{Int,Int}, Tuple{Array{Float64,2},Array{Complex{Float64},2},Array{Complex{Float64},1},Array{Complex{Float64},2}}}()
-end
-
-function getJointPt(modelparams::ModelParams, prev_hmm::Int, next_hmm::Int, t::Float64)
-	global countcachemisses
-	global countcachehits
-
-	key = (prev_hmm,next_hmm)
-	if !haskey(modelparams.matrixcache, key)		
-		countcachemisses += 1
-		Q = constructJointMatrix(modelparams, prev_hmm, next_hmm)
-		
-		#=
-		decomposition = eigen(Q)
-		D, V = decomposition.values, decomposition.vectors
-		Vi = inv(V)
-		modelparams.matrixcache[key] = (Q,V,D,Vi)=#
-		return Q,exp(Q*t)
-
-		#println("CACHE HITS $(countcachehits) / $(countcachehits+countcachemisses) ($(countcachehits / (countcachehits+countcachemisses)))")
-	else		
-		countcachehits += 1
-	end
-	
-	Q,V,D,Vi = modelparams.matrixcache[key]
-
-	if t < 0.0
-		return Q, Q
-	else
-		return Q, absmat(real(V*Diagonal(exp.(D*t))*Vi))
-	end
 end
 
 function getAAandPt(modelparams::ModelParams, prev_hmm::Int, next_hmm::Int, h::Int, t::Float64)
@@ -378,202 +350,6 @@ mutable struct AugmentedNodeData <: NodeData
 	AugmentedNodeData(branchpath::BranchPath, aabranchpath::BranchPath, jointbranchpath::BranchPath, dummy::Int) = new(branchpath, aabranchpath, jointbranchpath, dummy, Protein(),1.0)
 end
 
-function gettransprobs_joint(node::TreeNode, selcolin::Int, cols::Array{Int,1}, aacol::Int, modelparams::ModelParams)
-	selcol = findfirst(x -> x == selcolin, cols)
-	multi_iter = MultiBranchPathIterator(BranchPathIterator[BranchPathIterator(node.data.branchpath,cols), BranchPathIterator(node.data.aabranchpath,Int[aacol])])
-	hiddeniter = multi_iter.branchpathiterators[1]
-	aaiter = multi_iter.branchpathiterators[2]
-	P = Matrix{Float64}(I, modelparams.numhiddenstates*modelparams.alphabet, modelparams.numhiddenstates*modelparams.alphabet)
-	Pmatrices = Array{Float64,2}[]
-	dummypath = Int[]
-	dummytime = Float64[]
-
-	for it in multi_iter
-		dt = (multi_iter.currtime-multi_iter.prevtime)*node.branchlength
-		R,Pi = getJointPt(modelparams, get(hiddeniter.prevstates, selcol-1, 0), get(hiddeniter.prevstates, selcol+1, 0), dt)
-
-		#tAAandPt(modelparams, get(hiddeniter.prevstates, selcol-1, 0), get(hiddeniter.prevstates, selcol+1, 0), hiddeniter.prevstates[selcol], dt)
-
-		P *= Pi
-		push!(dummypath,0)
-		push!(dummytime,multi_iter.prevtime)
-	end
-	return P
-end
-
-
-
-
-
-function felsensteinhelper_joint(node::TreeNode, selcolin::Int, cols::Array{Int,1}, aacol::Int, v::Array{Float64,1}, modelparams::ModelParams)
-	selcol = findfirst(x -> x == selcolin, cols)
-	multi_iter = MultiBranchPathIterator(BranchPathIterator[BranchPathIterator(node.data.branchpath,cols), BranchPathIterator(node.data.aabranchpath,Int[aacol])])
-	hiddeniter = multi_iter.branchpathiterators[1]
-	aaiter = multi_iter.branchpathiterators[2]
-	P = Matrix{Float64}(I, modelparams.alphabet*modelparams.numhiddenstates, modelparams.alphabet*modelparams.numhiddenstates)
-	Rmatrices = Array{Float64,2}[]
-	Pmatrices = Array{Float64,2}[]
-	vs = Array{Float64,1}[]
-	dummytime = Float64[]
-	
-    for it in multi_iter
-		dt = (multi_iter.currtime-multi_iter.prevtime)*node.branchlength
-		R,Pi = getJointPt(modelparams, get(hiddeniter.prevstates, selcol-1, 0), get(hiddeniter.prevstates, selcol+1, 0), dt)
-
-		push!(Rmatrices, R*dt)
-    	push!(Pmatrices,Pi)
-    	push!(dummytime,multi_iter.prevtime)
-	end
-	push!(dummytime,1.0)
-
-    tempv = copy(v)
-    pushfirst!(vs,v)
-    for P in reverse(Pmatrices)
-        tempv = P*tempv
-    	pushfirst!(vs,copy(tempv))
-    end
-    popfirst!(vs)
-
-    node.data.jointbranchpath.Rmatrices = Rmatrices
-    node.data.jointbranchpath.Pmatrices = Pmatrices
-    node.data.jointbranchpath.vs = vs
-    node.data.jointbranchpath.time = dummytime
-    return Pmatrices,vs
-end
-
-
-function felsensteinresample_joint(rng::AbstractRNG, proteins::Array{Protein,1}, nodelist::Array{TreeNode,1}, selcolin::Int, cols::Array{Int,1}, aacol::Int, modelparams::ModelParams)
-	#selcol = findfirst(x -> x == selcolin, cols)
-	selcol = selcolin
-	likelihoods = ones(Float64, length(nodelist), modelparams.numhiddenstates*modelparams.alphabet)*-Inf
-	logm = zeros(Float64,length(nodelist))
-
-	stack = Int[1]
-	while length(stack) > 0
-		nodeindex = stack[end]
-		node = nodelist[nodeindex]
-		if isleafnode(node)
-			v = observationlikelihood(node.data.protein, selcolin, modelparams)
-			if 1 <= selcolin <= length(node.data.protein.sites) && node.data.protein.sites[selcolin].aa > 0
-				numstates = modelparams.numhiddenstates*modelparams.alphabet
-				for a=1:numstates
-					likelihoods[nodeindex,a] = 0.0
-				end
-				for h=1:modelparams.numhiddenstates
-					aa = node.data.protein.sites[selcolin].aa
-					index = (h-1)*modelparams.alphabet + aa
-					likelihoods[nodeindex,index] = v[h]
-				end
-			else
-				for h=1:modelparams.numhiddenstates
-					for aa=1:modelparams.alphabet
-						index = (h-1)*modelparams.alphabet + aa
-						likelihoods[nodeindex,index] = v[h]
-					end
-				end
-			end
-			pop!(stack)
-		else
-			leftchildindex = node.children[1].nodeindex
-			rightchildindex = node.children[2].nodeindex
-			cont = true
-			if likelihoods[leftchildindex,1] == -Inf
-				push!(stack, leftchildindex)
-				cont = false
-			end
-			if likelihoods[rightchildindex,1] == -Inf
-				push!(stack, rightchildindex)
-				cont = false
-			end
-
-			if cont
-                lefttransprobs = gettransprobs_joint(nodelist[leftchildindex], selcol, cols, aacol, modelparams)
-				righttransprobs = gettransprobs_joint(nodelist[rightchildindex], selcol, cols, aacol, modelparams)
-
-        		#likelihoods[nodeindex, :] = (lefttransprobs*likelihoods[leftchildindex,:]).*(righttransprobs*likelihoods[rightchildindex,:])
-        		likelihoods[nodeindex, :] = (lefttransprobs*likelihoods[leftchildindex,:]).*(righttransprobs*likelihoods[rightchildindex,:])
-
-				Pmatrices_left,vs_left = felsensteinhelper_joint(nodelist[leftchildindex], selcol, cols, aacol, likelihoods[leftchildindex,:], modelparams)
-				Pmatrices_right,vs_right = felsensteinhelper_joint(nodelist[rightchildindex], selcol, cols, aacol, likelihoods[rightchildindex,:], modelparams)
-
-				m = maximum(likelihoods[nodeindex,:])
-				likelihoods[nodeindex,:] = likelihoods[nodeindex,:] ./ m
-				logm[nodeindex] = log(m) + logm[leftchildindex] + logm[rightchildindex]
-        		pop!(stack)
-        	end
-        end
-    end
-
-	rootnode = nodelist[1]
-
-	len = length(rootnode.data.jointbranchpath.paths)
-	prevh = 0
-	prevprobs = ones(Float64, modelparams.numhiddenstates)
-	if selcol > 1
-		prevh = rootnode.data.branchpath.paths[selcol-1][1]
-		prevprobs = modelparams.transitionprobs[prevh,:]
-	end
-	nexth = 0
-	nextprobs = ones(Float64, modelparams.numhiddenstates)
-	if selcol < len
-		nexth = rootnode.data.branchpath.paths[selcol+1][1]
-		nextprobs = modelparams.transitionprobs[:,nexth]
-	end
-	v = Float64[]
-	for h=1:modelparams.numhiddenstates
-		for aa=1:modelparams.alphabet
-			push!(v, prevprobs[h]*nextprobs[h]*modelparams.hiddennodes[h].aa_node.probs[aa])
-		end
-	end
-	rootliks = v.*likelihoods[1,:]
-	rootstate = CommonUtils.sample(rng,rootliks)
-	rootnode.data.jointbranchpath.paths[selcol] = Int[rootstate]
-	rootnode.data.jointbranchpath.times[selcol] = Float64[0.0]
-	rootnode.data.aabranchpath.paths[selcol] = Int[(rootstate-1)%modelparams.alphabet+1]
-	rootnode.data.aabranchpath.times[selcol] = Float64[0.0]
-	rootnode.data.branchpath.paths[selcol] = Int[div(rootstate-1,modelparams.alphabet)+1]
-	rootnode.data.branchpath.times[selcol] = Float64[0.0]
-	print = false
-	backwardsampling_joint(rng,nodelist[1], rootstate, selcol,likelihoods,print,modelparams)
-end
-
-
-
-function backwardsampling_joint(rng::AbstractRNG,node::TreeNode, state::Int, selcol::Int,likelihoods,print::Bool,modelparams::ModelParams)
-	for child in node
-		path = Int[state]
-		for (Pi,v) in zip(child.data.jointbranchpath.Pmatrices, child.data.jointbranchpath.vs)
-			liks = Pi[path[end],:].*v
-			samplestate = CommonUtils.sample(rng,liks)
-			push!(path,samplestate)
-		end
-
-		newpath = Int[]
-		newtime = Float64[]
-		for z=1:length(path)-1
-			dt = child.data.jointbranchpath.time[z+1]-child.data.jointbranchpath.time[z]
-			samplepath, sampletimes = modifiedrejectionsampling(rng, child.data.jointbranchpath.Rmatrices[z], path[z], path[z+1],(modelparams))
-			append!(newpath,samplepath)
-			append!(newtime,(sampletimes*dt) .+ child.data.jointbranchpath.time[z])
-		end
-
-		newpath, newtime = removevirtualjumps(newpath, newtime)
-
-		child.data.jointbranchpath.paths[selcol] = newpath
-		child.data.jointbranchpath.times[selcol] = newtime
-
-		child.data.aabranchpath.paths[selcol] = Int[(a-1)%modelparams.alphabet+1 for a in newpath]
-		child.data.aabranchpath.times[selcol] = copy(newtime)
-		child.data.branchpath.paths[selcol] = Int[div(a-1,modelparams.alphabet)+1 for a in newpath]
-		child.data.branchpath.times[selcol] = copy(newtime)
-
-		child.data.aabranchpath.paths[selcol], child.data.aabranchpath.times[selcol] = removevirtualjumps(child.data.aabranchpath.paths[selcol], child.data.aabranchpath.times[selcol])
-		child.data.branchpath.paths[selcol], child.data.branchpath.times[selcol] = removevirtualjumps(child.data.branchpath.paths[selcol], child.data.branchpath.times[selcol])
-
-		backwardsampling_joint(rng,child, path[end],selcol, likelihoods,print,modelparams)
-	end
-end
-
 function felsensteinhelper_likelihood(nodelist::Array{TreeNode,1}, cols::Array{Int,1}, aacol::Int, modelparams::ModelParams)
 	selcol = findfirst(x -> x == aacol, cols)
 	loglikelihood = log(modelparams.hiddennodes[nodelist[1].data.branchpath.paths[aacol][end]].aa_node.probs[nodelist[1].data.aabranchpath.paths[aacol][end]])
@@ -618,7 +394,6 @@ function felsensteinhelper(node::TreeNode, selcolin::Int, incols::Array{Int,1}, 
     for it in multi_iter
 		dt = (multi_iter.currtime-multi_iter.prevtime)*node.branchlength
 		R,Pi = getQandPt(modelparams, get(hiddeniter.prevstates, selcol-1, 0), get(hiddeniter.prevstates, selcol, 0), aaiter.prevstates[1], dt)
-		#R,Pi = getQandPt(modelparams, prevh, succh, aaiter.currstates[1], dt)
 		P *= Pi
 		push!(Rmatrices, R*dt)
     	push!(Pmatrices,Pi)
@@ -709,8 +484,8 @@ function felsensteinresample(rng::AbstractRNG, proteins::Array{Protein,1}, nodel
 	rootstate = CommonUtils.sample(rng,rootliks)
 	rootnode.data.branchpath.paths[selcol] = Int[rootstate]
 	rootnode.data.branchpath.times[selcol] = Float64[0.0]
-	ll = backwardsampling(rng,nodelist[1], rootstate, selcol, modelparams)
-	return log(freqs[rootstate])+ll
+	return backwardsampling(rng,nodelist[1], rootstate, selcol, modelparams)
+	#return log(freqs[rootstate])+ll
 end
 
 function hidden_proposal_likelihood(nodelist::Array{TreeNode,1}, aacol::Int, modelparams::ModelParams, paths::Array{Array{Int,1},1}=Array{Int,1}[], times::Array{Array{Float64,1},1}=Array{Float64,1}[])
@@ -763,88 +538,19 @@ function backwardsampling(rng::AbstractRNG, node::TreeNode, state::Int, aacol::I
 		R = child.data.branchpath.R
 		liks = P[state,:].*child.data.branchpath.vs[end]
 		b = CommonUtils.sample(rng,liks)
-		newpath, newtime = modifiedrejectionsampling(rng, R*child.branchlength, state, b,(modelparams))
+		newpath, newtime, success = modifiedrejectionsampling(rng, R*child.branchlength, state, b,(modelparams))
+		if !success
+			return false
+		end
 		child.data.branchpath.paths[aacol] = newpath
 		child.data.branchpath.times[aacol] = newtime
-		backwardsampling(rng,child, b,aacol, modelparams)
+		success = backwardsampling(rng,child, b,aacol, modelparams)
+		if !success
+			return false
+		end
 	end
-	return 0.0
+	return true
 end
-
-#=
-function backwardsampling(rng::AbstractRNG,node::TreeNode, state::Int, selcol::Int,likelihoods,modelparams::ModelParams)
-	for child in node
-		path = Int[state]
-		for (Pi,v) in zip(child.data.branchpath.Pmatrices, child.data.branchpath.vs)
-			liks = Pi[path[end],:].*v
-			samplestate = CommonUtils.sample(rng,liks)
-			push!(path,samplestate)
-		end
-
-		newpath = Int[]
-		newtime = Float64[]
-		for z=1:length(path)-1
-			dt = child.data.branchpath.time[z+1]-child.data.branchpath.time[z]
-			samplepath, sampletimes = modifiedrejectionsampling(rng, child.data.branchpath.Rmatrices[z], path[z], path[z+1],(modelparams))
-			append!(newpath,samplepath)
-			append!(newtime,(sampletimes*dt) .+ child.data.branchpath.time[z])
-		end
-
-		newpath, newtime = removevirtualjumps(newpath, newtime)
-
-		child.data.branchpath.paths[selcol] = newpath
-		child.data.branchpath.times[selcol] = newtime
-		backwardsampling(rng,child, path[end],selcol, likelihoods,modelparams)
-	end
-end=#
-#=
-function backwardsampling(rng::AbstractRNG,node::TreeNode, state::Int, selcol::Int,likelihoods,modelparams::ModelParams)
-	ll = 0.0
-	for child in node		
-		path = Int[state]
-		for (Pi,v) in zip(child.data.branchpath.Pmatrices, child.data.branchpath.vs)
-			liks = Pi[path[end],:].*v
-			samplestate = CommonUtils.sample(rng,liks)
-			ll += log(Pi[path[end],samplestate])
-			push!(path,samplestate)
-		end
-		#=
-		if selcol < length(child.data.protein.sites)
-			println(child.data.protein.sites[selcol].aa)
-		else
-			println("0")
-		end
-		println("A",path,"\t",child.data.aabranchpath.time)=#
-
-		newpath = Int[]
-		newtime = Float64[]
-		for z=1:length(path)-1
-			dt = child.data.branchpath.time[z+1]-child.data.branchpath.time[z]
-			samplepath, sampletimes = modifiedrejectionsampling(rng, child.data.branchpath.Rmatrices[z], path[z], path[z+1],(modelparams))
-			append!(newpath,samplepath)
-			append!(newtime,(sampletimes*dt) .+ child.data.branchpath.time[z])
-			#=
-			for x=1:length(samplepath)-1
-				dtx = (sampletimes[x+1]-sampletimes[x])
-				a = samplepath[x]
-				b = samplepath[x+1]
-				ll += child.data.branchpath.Rmatrices[z][a,a]*dtx
-				ll += log(child.data.branchpath.Rmatrices[z][a,b])
-			end
-			a = samplepath[end]
-			ll += (1.0-sampletimes[end])*child.data.branchpath.Rmatrices[z][a,a]
-			=#
-		end
-		#println(newpath,"\t",newtime)
-		newpath, newtime = removevirtualjumps(newpath, newtime)
-		#println("B",newpath,newtime)
-
-		child.data.branchpath.paths[selcol] = newpath
-		child.data.branchpath.times[selcol] = newtime
-		ll += backwardsampling(rng,child, path[end],selcol,likelihoods,modelparams)
-	end	
-	return ll
-end=#
 
 function felsensteinhelper_aa_likelihood(nodelist::Array{TreeNode,1}, cols::Array{Int,1}, aacol::Int, modelparams::ModelParams)
 	cols = Int[aacol]
@@ -970,9 +676,8 @@ function felsensteinresample_aa(rng::AbstractRNG, proteins::Array{Protein,1}, no
 	rootnode.data.aabranchpath.paths[aacol] = Int[rootstate]
 	rootnode.data.aabranchpath.times[aacol] = Float64[0.0]
 	#backwardsampling_aa(rng,nodelist[1], rootstate, selcol,likelihoods,print,modelparams)
-	ll = backwardsampling_aa(rng,nodelist[1], rootstate, aacol,modelparams)
+	return backwardsampling_aa(rng,nodelist[1], rootstate, aacol,modelparams)
 	#return log(modelparams.hiddennodes[h].aa_node.probs[rootstate]) + ll
-	return log(modelparams.hiddennodes[h].aa_node.probs[rootstate]) + ll
 end
 
 
@@ -1015,89 +720,19 @@ function backwardsampling_aa(rng::AbstractRNG, node::TreeNode, state::Int, aacol
 		R = child.data.aabranchpath.R
 		liks = P[state,:].*child.data.aabranchpath.vs[end]
 		b = CommonUtils.sample(rng,liks)
-		newpath, newtime = modifiedrejectionsampling(rng, R*child.branchlength, state, b,(modelparams))
+		newpath, newtime, success = modifiedrejectionsampling(rng, R*child.branchlength, state, b,(modelparams))
+		if !success
+			return false
+		end
 		child.data.aabranchpath.paths[aacol] = newpath
 		child.data.aabranchpath.times[aacol] = newtime
-		backwardsampling_aa(rng,child, b,aacol, modelparams)
+		success = backwardsampling_aa(rng,child, b,aacol, modelparams)
+		if !success
+			return false
+		end
 	end
-	return 0.0
+	return true
 end
-
-#=
-function backwardsampling_aa(rng::AbstractRNG,node::TreeNode, state::Int, selcol::Int,likelihoods,print::Bool,modelparams::ModelParams)
-	for child in node
-		path = Int[state]
-		for (Pi,v) in zip(child.data.aabranchpath.Pmatrices, child.data.aabranchpath.vs)
-			liks = Pi[path[end],:].*v
-			samplestate = CommonUtils.sample(rng,liks)
-			push!(path,samplestate)
-		end
-
-		newpath = Int[]
-		newtime = Float64[]
-		for z=1:length(path)-1
-			dt = child.data.aabranchpath.time[z+1]-child.data.aabranchpath.time[z]
-			samplepath, sampletimes = modifiedrejectionsampling(rng, child.data.aabranchpath.Rmatrices[z], path[z], path[z+1],(modelparams))
-			append!(newpath,samplepath)
-			append!(newtime,(sampletimes*dt) .+ child.data.aabranchpath.time[z])
-		end
-
-		newpath, newtime = removevirtualjumps(newpath, newtime)
-
-		child.data.aabranchpath.paths[selcol] = newpath
-		child.data.aabranchpath.times[selcol] = newtime
-		backwardsampling_aa(rng,child, path[end],selcol, likelihoods,print,modelparams)
-	end
-end=#
-
-#=
-function backwardsampling_aa(rng::AbstractRNG,node::TreeNode, state::Int, selcol::Int,modelparams::ModelParams)
-	ll = 0.0
-	for child in node		
-		path = Int[state]
-		for (Pi,v) in zip(child.data.aabranchpath.Pmatrices, child.data.aabranchpath.vs)
-			liks = Pi[path[end],:].*v
-			samplestate = CommonUtils.sample(rng,liks)
-			ll += log(Pi[path[end],samplestate])
-			push!(path,samplestate)
-		end
-		#=
-		if selcol < length(child.data.protein.sites)
-			println(child.data.protein.sites[selcol].aa)
-		else
-			println("0")
-		end
-		println("A",path,"\t",child.data.aabranchpath.time)=#
-
-		newpath = Int[]
-		newtime = Float64[]
-		for z=1:length(path)-1
-			dt = child.data.aabranchpath.time[z+1]-child.data.aabranchpath.time[z]
-			samplepath, sampletimes = modifiedrejectionsampling(rng, child.data.aabranchpath.Rmatrices[z], path[z], path[z+1],(modelparams))
-			append!(newpath,samplepath)
-			append!(newtime,(sampletimes*dt) .+ child.data.aabranchpath.time[z])
-
-			#=
-			for x=1:length(samplepath)-1
-				dtx = (sampletimes[x+1]-sampletimes[x])
-				a = samplepath[x]
-				b = samplepath[x+1]
-				ll += child.data.aabranchpath.Rmatrices[z][a,a]*dtx
-				ll += log(child.data.aabranchpath.Rmatrices[z][a,b])
-			end
-			a = samplepath[end]
-			ll += (1.0-sampletimes[end])*child.data.aabranchpath.Rmatrices[z][a,a]=#
-		end
-		#println(newpath,"\t",newtime)
-		newpath, newtime = removevirtualjumps(newpath, newtime)
-		#println("B",newpath,newtime)
-
-		child.data.aabranchpath.paths[selcol] = newpath
-		child.data.aabranchpath.times[selcol] = newtime
-		ll += backwardsampling_aa(rng,child, path[end],selcol,modelparams)
-	end
-	return ll
-end=#
 
 function augmentedloglikelihood_joint(nodelist::Array{TreeNode,1}, cols::Array{Int,1}, modelparams::ModelParams)
 	numcols = length(cols)
@@ -1404,7 +1039,7 @@ function getaaentry(modelparams::ModelParams, prevh_hmm::Int, nexth_hmm::Int, h:
 		end
 		return modelparams.mu*prevprob*nextprob*modelparams.aa_exchangeablities[prevaa,curraa]*modelparams.hiddennodes[h].aa_node.probs[curraa]
 		=#
-		return modelparams.mu*modelparams.aa_exchangeablities[prevaa,curraa]*modelparams.hiddennodes[h].aa_node.probs[curraa]
+		return modelparams.scalingfactor*modelparams.mu*modelparams.aa_exchangeablities[prevaa,curraa]*modelparams.hiddennodes[h].aa_node.probs[curraa]
 	else
 		q = 0.0
 		for aa=1:modelparams.alphabet
@@ -1442,7 +1077,7 @@ function gethiddenentry(modelparams::ModelParams, prevh_hmm::Int, nexth_hmm::Int
 			nextprob = modelparams.transitionprobs[currh,nexth_hmm]
 			nextprob2 = modelparams.transitionprobs[prevh,nexth_hmm]
 		end
-		return sqrt((prevprob*nextprob)/(prevprob2*nextprob2))*modelparams.hiddenmu*modelparams.transitionrates[prevh,currh]*modelparams.hiddennodes[currh].aa_node.probs[aa]
+		return modelparams.scalingfactor*sqrt((prevprob*nextprob)/(prevprob2*nextprob2))*modelparams.hiddenmu*modelparams.transitionrates[prevh,currh]*modelparams.hiddennodes[currh].aa_node.probs[aa]
 		
 	else
 		q = 0.0
@@ -1825,7 +1460,7 @@ function initialise_tree_aa(rng::AbstractRNG, modelparams::ModelParams, nodelist
 				parentstate = node_h[parentnode.nodeindex,col]
 				nodestate = node_h[node.nodeindex,col]
 				V = getQandPt(modelparams, 0, 0, node_aa[parentnode.nodeindex,col], 1.0)[1]
-				path,time = modifiedrejectionsampling(rng, V*max(0.01,node.branchlength), parentstate, nodestate, nothing)
+				path,time, success = modifiedrejectionsampling(rng, V*max(0.01,node.branchlength), parentstate, nodestate, nothing)
 				push!(paths,path)
 				push!(times,time)
 			end
@@ -1838,55 +1473,13 @@ function initialise_tree_aa(rng::AbstractRNG, modelparams::ModelParams, nodelist
 				parentaastate = node_aa[parentnode.nodeindex,col]
 				nodeaastate = node_aa[node.nodeindex,col]
 				Q = getAAandPt(modelparams, 0, 0, node_h[parentnode.nodeindex,col], 1.0)[1]
-				aapath,aatime = modifiedrejectionsampling(rng, Q*max(0.01,node.branchlength), parentaastate, nodeaastate, nothing)
+				aapath,aatime,success = modifiedrejectionsampling(rng, Q*max(0.01,node.branchlength), parentaastate, nodeaastate, nothing)
 				push!(aapaths,aapath)
 				push!(aatimes,aatime)
 			end
 			node.data.aabranchpath = BranchPath(aapaths,aatimes)
-
-			#=
-			jointpaths = Array{Int,1}[]
-			jointtimes = Array{Float64,1}[]
-			for col=1:numcols
-				parentstate = (node_h[parentnode.nodeindex,col]-1)*modelparams.numhiddenstates + node_aa[parentnode.nodeindex,col]
-				nodestate = (node_h[node.nodeindex,col]-1)*modelparams.numhiddenstates + node_aa[node.nodeindex,col]
-				Q = getJointPt(modelparams, 0, 0, 1.0)[1]
-				jointpath,jointtime = modifiedrejectionsampling(rng, Q*max(0.001,node.branchlength), parentstate, nodestate, nothing)
-				push!(jointpaths,jointpath)
-				push!(jointtimes,jointtime)
-
-				node.data.aabranchpath.paths[col] = Int[(a-1)%modelparams.alphabet+1 for a in jointpath]
-				node.data.aabranchpath.times[col] = copy(jointtime)
-				node.data.branchpath.paths[col] = Int[div(a-1,modelparams.alphabet)+1 for a in jointpath]
-				node.data.branchpath.times[col] = copy(jointtime)
-
-				node.data.aabranchpath.paths[col], node.data.aabranchpath.times[col] = removevirtualjumps(node.data.aabranchpath.paths[col], node.data.aabranchpath.times[col])
-				node.data.branchpath.paths[col], node.data.branchpath.times[col] = removevirtualjumps(node.data.branchpath.paths[col], node.data.branchpath.times[col])
-
-			end
-			node.data.jointbranchpath = BranchPath(jointpaths,jointtimes)
-			=#
-			
-			#=
-
-			col = rand(1:numcols)
-			cols = [col]
-			multi_iter = MultiBranchPathIterator(BranchPathIterator[BranchPathIterator(node.data.branchpath,cols), BranchPathIterator(node.data.aabranchpath,cols)])
-			hiddeniter = multi_iter.branchpathiterators[1]
-			aaiter = multi_iter.branchpathiterators[2]	
-			println("START")
-			println(col,"\t",node.data.branchpath.paths[col],"\t", node.data.branchpath.times[col])
-			println(col,"\t",node.data.aabranchpath.paths[col],"\t", node.data.aabranchpath.times[col])
-			for it in multi_iter
-				dt = (multi_iter.currtime-multi_iter.prevtime)
-				curriter = multi_iter.branchpathiterators[multi_iter.branchpathindex]
-				println(multi_iter.prevtime,"\t",multi_iter.currtime,"\t",curriter.prevstates,"\t",curriter.prevtime,"\t",curriter.currstates,"\t",curriter.currtime,"\t",curriter.mincol)
-			end
-			println("DONE")
-			println("")=#
 		end
 	end
-	#exit()
 end
 
 function initialise_tree(rng::AbstractRNG, modelparams::ModelParams, inputroot::TreeNode, name_protein_dict::Dict{String,Tuple{Int64,Protein}}, numcols::Int; midpointroot::Bool=true, scalebranchlengths::Bool=true)	
@@ -1914,63 +1507,15 @@ function initialise_tree(rng::AbstractRNG, modelparams::ModelParams, inputroot::
 		node.data.inputbranchlength = node.branchlength
 	end
 
+	#=
 	if scalebranchlengths
 		println("Branch length scaling: ", modelparams.branchscalingfactor)
 		for node in nodelist
 			node.branchlength *= modelparams.branchscalingfactor
 		end
-	end
-
-	initialise_tree_aa(rng, modelparams, nodelist, numcols) 
-	#=
-	V = getQandPt(modelparams, 0, 0, 1,2, -1.0)[1]
-	paths = Array{Int,1}[]
-	times = Array{Float64,1}[]
-	for col=1:numcols
-		state = rand(rng,1:modelparams.numhiddenstates)
-		push!(paths,Int[state,state])
-		push!(times,Float64[0.0, 1.0])
-	end	
-	aapaths = Array{Int,1}[]
-	aatimes = Array{Float64,1}[]
-	for col=1:numcols
-		aastate = rand(rng,1:modelparams.alphabet)
-		push!(aapaths,Int[aastate,aastate])
-		push!(aatimes,Float64[0.0, 1.0])
-	end	
-	root.data.branchpath = BranchPath(paths,times)
-	root.data.aabranchpath = BranchPath(aapaths,aatimes)
-	for node in nodelist
-		if !isroot(node)			
-			parentnode = get(node.parent)
-
-			paths = Array{Int,1}[]
-			times = Array{Float64,1}[]
-			for col=1:numcols
-				parentstate = parentnode.data.branchpath.paths[col][end]
-				nodestate = rand(rng,1:modelparams.numhiddenstates)
-				path,time = modifiedrejectionsampling(rng, V*0.5, parentstate, nodestate, nothing)
-				push!(paths,path)
-				push!(times,time)
-			end
-
-			aapaths = Array{Int,1}[]
-			aatimes = Array{Float64,1}[]
-			for col=1:numcols
-				parentaastate = parentnode.data.aabranchpath.paths[col][end]
-				nodeaastate = rand(rng,1:modelparams.alphabet)
-				if 1 <= col <= length(node.data.protein.sites) && node.data.protein.sites[col].aa > 0
-					nodeaastate = node.data.protein.sites[col].aa
-				end
-				aapath,aatime = modifiedrejectionsampling(rng, modelparams.aminoacidQ, parentaastate, nodeaastate, nothing)
-				push!(aapaths,aapath)
-				push!(aatimes,aatime)
-			end
-
-			node.data.branchpath = BranchPath(paths,times)
-			node.data.aabranchpath = BranchPath(aapaths,aatimes)
-		end
 	end=#
+
+	initialise_tree_aa(rng, modelparams, nodelist, numcols)
 
 	return root,nodelist
 end
@@ -2155,6 +1700,63 @@ function getexitrate(node::TreeNode, inputcols::Array{Int,1}, modelparams::Model
 	return exitrate, N
 end
 
+function proposescalingfactor(rng::AbstractRNG, nodelist::Array{TreeNode,1}, inputcols::Array{Int,1}, modelparams::ModelParams)
+	exitrate = 0.0
+	N = 0.0
+	for node in nodelist 
+		if !isroot(node)
+			numcols = length(inputcols)
+			for col in inputcols
+				cols = Int[]
+				selcol = 1
+				if col > 1
+					push!(cols,col-1)
+					selcol = 2
+				end
+				push!(cols,col)
+				if col < numcols
+					push!(cols,col+1)
+				end
+
+				multi_iter = MultiBranchPathIterator(BranchPathIterator[BranchPathIterator(node.data.branchpath,cols), BranchPathIterator(node.data.aabranchpath,Int[col])])
+				hiddeniter = multi_iter.branchpathiterators[1]
+				aaiter = multi_iter.branchpathiterators[2]
+				#ratesiter = multi_iter.branchpathiterators[3]
+				for it in multi_iter
+					dt = (multi_iter.currtime-multi_iter.prevtime)
+					
+					changecol = selcol
+					Qii = entry(modelparams, get(hiddeniter.prevstates, changecol-1, 0), get(hiddeniter.prevstates, changecol+1, 0), hiddeniter.prevstates[changecol], hiddeniter.prevstates[changecol], aaiter.prevstates[1], aaiter.prevstates[1])
+					exitrate +=  Qii*dt*node.branchlength
+
+					changecol = 0
+					if multi_iter.branchpathindex == 1
+						changecol = hiddeniter.mincol
+						if changecol == selcol
+							N += 1.0
+						end
+					elseif multi_iter.branchpathindex == 2
+						changecol = aaiter.mincol
+						N += 1.0
+					end
+
+					
+				end
+			end
+		end
+	end
+	alpha = N+1.0
+	beta = -exitrate/modelparams.scalingfactor
+
+	dist = Gamma(alpha, 1.0/beta)	
+	scalingfactor = rand(dist)
+	propratio = logpdf(dist, modelparams.scalingfactor)-logpdf(dist,scalingfactor)
+	println(alpha,"\t",beta)
+	println("SCALING ",modelparams.scalingfactor,"\t",scalingfactor)
+	modelparams.scalingfactor = scalingfactor
+	return propratio
+end
+
 function proposebranchlength(rng::AbstractRNG, node::TreeNode, cols::Array{Int,1}, modelparams::ModelParams)
 	totalexitrate, N = getexitrate(node, cols, modelparams)
 	
@@ -2194,12 +1796,12 @@ function samplepaths(rng::AbstractRNG, col::Int,proteins,nodelist::Array{TreeNod
 	temppath = Array{Int,1}[node.data.branchpath.paths[col] for node in nodelist]
 	temptimes = Array{Float64,1}[node.data.branchpath.times[col] for node in nodelist]
 	site1 = augmentedloglikelihood_site(nodelist, col, modelparams)	
-	felsensteinresample(rng, proteins, nodelist, col, cols,col, modelparams)
+	cont = felsensteinresample(rng, proteins, nodelist, col, cols,col, modelparams)
 	prop1 = hidden_proposal_likelihood(nodelist, col, modelparams, temppath, temptimes)
 	site2 = augmentedloglikelihood_site(nodelist, col, modelparams)
 	prop2 = hidden_proposal_likelihood(nodelist, col, modelparams)
 
-	if exp((site2-site1)+(prop1-prop2)) > rand(rng)
+	if cont && exp((site2-site1)+(prop1-prop2)) > rand(rng)
 		accepted_hidden += 1.0
 	else
 		index = 1
@@ -2215,13 +1817,13 @@ function samplepaths(rng::AbstractRNG, col::Int,proteins,nodelist::Array{TreeNod
 	temppath = Array{Int,1}[node.data.aabranchpath.paths[col] for node in nodelist]
 	temptimes = Array{Float64,1}[node.data.aabranchpath.times[col] for node in nodelist]
 	site1 = augmentedloglikelihood_site(nodelist, col, modelparams)	
-	felsensteinresample_aa(rng, proteins, nodelist, cols,col, modelparams)
+	cont = felsensteinresample_aa(rng, proteins, nodelist, cols,col, modelparams)
 	prop1 = aa_proposal_likelihood(nodelist, col, modelparams, temppath, temptimes)
 	site2 = augmentedloglikelihood_site(nodelist, col, modelparams)
 	prop2 = aa_proposal_likelihood(nodelist, col, modelparams)
 	#println(site1,"\t",site2,"\t",prop1,"\t",prop2,"\t",site2-site1,"\t",prop1-prop2,"\t",site2-site1+prop1-prop2)
 
-	if exp((site2-site1)+(prop1-prop2)) > rand(rng)
+	if cont && exp((site2-site1)+(prop1-prop2)) > rand(rng)
 		accepted_aa += 1.0
 	else
 		index = 1
@@ -2238,70 +1840,6 @@ function samplepaths(rng::AbstractRNG, col::Int,proteins,nodelist::Array{TreeNod
 
 	return accepted_hidden,accepted_hidden_total,accepted_aa,accepted_aa_total
 end
-
-#=
-function samplepaths(rng::AbstractRNG, col::Int,proteins,nodelist::Array{TreeNode,1}, modelparams::ModelParams)
-	numcols = length(nodelist[1].data.branchpath.paths)
-	cols = Int[]
-	selcol = 1
-	if col > 1
-		push!(cols,col-1)
-		selcol = 2
-	end
-	push!(cols,col)
-	if col < numcols
-		push!(cols,col+1)
-	end
-	accepted_hidden = 0.0
-	accepted_hidden_total = 0.0
-	accepted_aa = 0.0
-	accepted_aa_total = 0.0
-	temppath = Array{Int,1}[node.data.branchpath.paths[col] for node in nodelist]
-	temptimes = Array{Float64,1}[node.data.branchpath.times[col] for node in nodelist]
-	site1 = augmentedloglikelihood_site(nodelist, col, modelparams)
-	prop1 = felsensteinhelper_likelihood(nodelist, cols, col, modelparams)
-	felsensteinresample(rng, proteins, nodelist, col, cols,col, modelparams)
-	site2 = augmentedloglikelihood_site(nodelist, col, modelparams)
-	prop2 = felsensteinhelper_likelihood(nodelist, cols, col, modelparams)
-
-	if exp((site2-site1)+(prop1-prop2)) > rand(rng)
-		accepted_hidden += 1.0
-	else
-		index = 1
-		for node in nodelist
-			node.data.branchpath.paths[col] = temppath[index]
-			node.data.branchpath.times[col] = temptimes[index]
-			index += 1
-		end
-	end
-	accepted_hidden_total += 1.0
-
-
-	temppath = Array{Int,1}[node.data.aabranchpath.paths[col] for node in nodelist]
-	temptimes = Array{Float64,1}[node.data.aabranchpath.times[col] for node in nodelist]
-	site1 = augmentedloglikelihood_site(nodelist, col, modelparams)
-	prop1 = felsensteinhelper_aa_likelihood(nodelist, cols, col, modelparams)
-	felsensteinresample_aa(rng, proteins, nodelist, cols,col, modelparams)
-	site2 = augmentedloglikelihood_site(nodelist, col, modelparams)
-	prop2 = felsensteinhelper_aa_likelihood(nodelist, cols, col, modelparams)
-
-	if exp((site2-site1)+(prop1-prop2)) > rand(rng)
-		accepted_aa += 1.0
-	else
-		index = 1
-		for node in nodelist
-			#println("a", length(node.data.aabranchpath.paths))
-			#println("b", length(temppath))
-			#println(length(nodelist))
-			node.data.aabranchpath.paths[col] = temppath[index]
-			node.data.aabranchpath.times[col] = temptimes[index]
-			index += 1
-		end
-	end
-	accepted_aa_total += 1.0
-
-	return accepted_hidden,accepted_hidden_total,accepted_aa,accepted_aa_total
-end=#
 
 function cosine_similarity(v1::Array{Float64,1}, v2::Array{Float64,1})
 	return dot(v1,v2)/(norm(v1)*norm(v2))
@@ -2318,9 +1856,7 @@ function calculateloglikelihood(modelparams::ModelParams, trainingexamples::Arra
 	return augmentedll, observationll
 end
 
-function train(numhiddenstates::Int=30)
-	#rng = MersenneTwister(10498012421321)
-	#Random.seed!(1234)
+function train(numhiddenstates::Int=20)
 	rng = MersenneTwister(15149874541631)
 	Random.seed!(rand(rng,UInt))
 
@@ -2343,7 +1879,7 @@ function train(numhiddenstates::Int=30)
 
 	println("Data files: ", length(family_files))
 	trainingexamples = Tuple[]
-	for family_file in family_files[1:1009]
+	for family_file in family_files[1:250]
 		full_path = abspath(joinpath(family_dir, family_file))
 		json_family = JSON.parse(open(full_path, "r"))
 		if 1 <= length(json_family["proteins"]) <= 1e10
@@ -2418,7 +1954,7 @@ function train(numhiddenstates::Int=30)
 		for (proteins,nodelist,json_family,sequences) in trainingexamples
 			numcols = length(proteins[1])
 			
-			for i=1:2
+			for i=1:5
 				randcols = shuffle(rng, Int[i for i=1:numcols])
 				for col in randcols
 					a1,a2,a3,a4 = samplepaths(rng,col,proteins,nodelist, modelparams)
@@ -2426,32 +1962,6 @@ function train(numhiddenstates::Int=30)
 					accepted_hidden_total += a2
 					accepted_aa += a3
 					accepted_aa_total += a4
-					
-					#=
-					if rand(rng) < 0.01
-						site1 = augmentedloglikelihood(nodelist, cols, modelparams)
-						help1 = felsensteinhelper_likelihood(nodelist, cols, col, modelparams)
-						prop2 = felsensteinresample(rng, proteins, nodelist, col, cols,col, modelparams)
-						site2 = augmentedloglikelihood(nodelist, cols, modelparams)
-						help2 = felsensteinhelper_likelihood(nodelist, cols, col, modelparams)
-						#println(site1,"\t",site2,"\t",prop1,"\t",prop2,"\t",site2-site1,"\t",prop1-prop2,"\t",site2-site1+prop1-prop2)
-						println("A\t",site2-site1,"\t",help2-help1)
-					end=#
-					#=
-
-					felsensteinresample_aa(rng, proteins, nodelist, cols,col, modelparams)
-					if rand(rng) < 0.01						
-						help1 = felsensteinhelper_aa_likelihood(nodelist,cols,col,modelparams)		
-						#prop1 += help1		
-						site1 = augmentedloglikelihood_site(nodelist, col, modelparams)
-						prop2 = felsensteinresample_aa(rng, proteins, nodelist, cols,col, modelparams)
-						help2 = felsensteinhelper_aa_likelihood(nodelist,cols,col,modelparams)
-						#prop2 += help2		
-						site2 = augmentedloglikelihood_site(nodelist, col, modelparams)
-						#println(site1,"\t",site2,"\t",help1,"\t",help2,"\t",prop1,"\t",prop2,"\t",site2-site1,"\t",prop1-prop2,"\t",help1-help2,"\t",site2-site1+help1-help2)
-						#felsensteinresample_joint(rng, proteins, nodelist, col, cols,col, modelparams)
-						println("B\t",site2-site1,"\t",help2-help1)
-					end=#
 				end
 
 
@@ -2511,8 +2021,8 @@ function train(numhiddenstates::Int=30)
 		end
 		modelparams.branchscalingfactor = totalbranchlength_output/totalbranchlength_input
 
-		for h=1:modelparams.numhiddenstates			
-			estimate_hidden_transition_probs(modelparams)
+		estimate_hidden_transition_probs(modelparams)
+		for h=1:modelparams.numhiddenstates
 			estimate_categorical(modelparams.hiddennodes[h].aa_node, 1.0)
 			estimatevonmises(modelparams.hiddennodes[h].phi_node)
 			estimatevonmises(modelparams.hiddennodes[h].psi_node)
@@ -2534,61 +2044,7 @@ function train(numhiddenstates::Int=30)
 		end
 
 
-		if learnrates
-			#=
-			for (proteins,nodelist,json_family,sequences) in trainingexamples
-				numcols = length(proteins[1])
-				cols =  Int[col for col=1:numcols]
-				for node in nodelist
-					if !isroot(node)
-						multi_iter = MultiBranchPathIterator(BranchPathIterator[BranchPathIterator(node.data.branchpath,cols), BranchPathIterator(node.data.aabranchpath,cols)])
-						hiddeniter = multi_iter.branchpathiterators[1]
-						aaiter = multi_iter.branchpathiterators[2]
-						for it in multi_iter
-							dt = (multi_iter.currtime-multi_iter.prevtime)
-							
-							for col=1:numcols
-								changecol = col
-								for h=1:modelparams.numhiddenstates
-									thish = hiddeniter.prevstates[changecol]
-									if thish != h
-										hiddenrateentry = gethiddenentry(modelparams, get(hiddeniter.prevstates, changecol-1, 0), get(hiddeniter.prevstates, changecol+1, 0), thish, h, aaiter.prevstates[changecol])
-										#transitionrate_times[thish] += hiddenrateentry*dt*node.branchlength/modelparams.transitionrates[thish,h]
-										transitionrate_totals[thish, h] += hiddenrateentry*dt*node.branchlength/modelparams.transitionrates[thish,h]
-									end
-								end
-
-								for aa=1:modelparams.alphabet
-									thisaa = aaiter.prevstates[changecol]
-									if thisaa != aa
-										aaentry = getaaentry(modelparams, get(hiddeniter.prevstates, changecol-1, 0), get(hiddeniter.prevstates, changecol+1, 0), hiddeniter.prevstates[changecol], thisaa, aa)
-										aatransitionrate_times[thisaa, aa] += aaentry*dt*node.branchlength/modelparams.aa_exchangeablities[thisaa, aa]
-									end
-								end
-							end
-
-							changecol = 0
-							if multi_iter.branchpathindex == 1
-								changecol = hiddeniter.mincol
-							else
-								changecol = aaiter.mincol
-							end
-
-							if 1 <= changecol <= numcols 
-								if hiddeniter.prevstates[changecol] != hiddeniter.currstates[changecol]
-									transitionrate_counts[hiddeniter.prevstates[changecol], hiddeniter.currstates[changecol]] += 1.0
-									transitionrate_events[hiddeniter.prevstates[changecol]] += 1.0
-								end
-
-								if aaiter.prevstates[changecol] != aaiter.currstates[changecol]
-									aatransitionrate_events[aaiter.prevstates[changecol], aaiter.currstates[changecol]] += 1.0
-								end
-							end
-						end
-					end
-				end
-			end=#
-			
+		if learnrates			
 			for (proteins,nodelist,json_family,sequences) in trainingexamples
 				numcols = length(proteins[1])
 				inputcols =  Int[col for col=1:numcols]
@@ -2631,24 +2087,6 @@ function train(numhiddenstates::Int=30)
 									end
 								end
 
-								#=
-								changecol = 0
-								if multi_iter.branchpathindex == 1
-									changecol = hiddeniter.mincol
-								else
-									changecol = aaiter.mincol
-								end
-
-								if changecol == selcol
-									if hiddeniter.prevstates[changecol] != hiddeniter.currstates[changecol]
-										transitionrate_counts[hiddeniter.prevstates[changecol], hiddeniter.currstates[changecol]] += 1.0
-										transitionrate_events[hiddeniter.prevstates[changecol]] += 1.0
-									end
-
-									if aaiter.prevstates[changecol] != aaiter.currstates[changecol]
-										aatransitionrate_events[aaiter.prevstates[changecol], aaiter.currstates[changecol]] += 1.0
-									end
-								end=#
 								changecol = 0
 								if multi_iter.branchpathindex == 1
 									changecol = hiddeniter.mincol
@@ -2672,16 +2110,12 @@ function train(numhiddenstates::Int=30)
 				modelparams.transitionrates[h,h] = 0.0			
 				for h2=1:modelparams.numhiddenstates
 					if h != h2
-						#modelparams.transitionrates[h,h2] = transitionrate_counts[h,h2]/transitionrate_times[h]
 						modelparams.transitionrates[h,h2] = (transitionrate_counts[h,h2]+transitionrate_counts[h2,h])/(transitionrate_totals[h,h2]+transitionrate_totals[h2,h])
 						modelparams.transitionrates[h,h] -= modelparams.transitionrates[h,h2]
 					end
 				end
 			end
 
-			#println(transitionrate_counts)
-			#println(transitionrate_totals)
-			#exit()
 			println("HQ", modelparams.transitionrates)	
 			aatransitionrates = zeros(Float64, modelparams.alphabet, modelparams.alphabet)
 			for aa1=1:modelparams.alphabet
@@ -2836,7 +2270,7 @@ end
 
 using TraitAssociation
 
-function infer(;modelfile="model_h.15_learnrates.true.model", samplebranchlengths::Bool=false)
+function infer(;modelfile="model_h.5_learnrates.true.model", samplebranchlengths::Bool=false)
 	rng = MersenneTwister(10498012421321)
 	Random.seed!(1234)
 
@@ -2900,6 +2334,10 @@ function infer(;modelfile="model_h.15_learnrates.true.model", samplebranchlength
 	if length(blindnodenames) > 0
 		LGreconstruction_score = TraitAssociation.pathreconstruction(fastafile,newickfile,blindnodenames,1)
 		println("LGreconstruction_score ",LGreconstruction_score)
+	end
+
+	if scalebranchlengths
+		modelparams.scalingfactor = modelparams.branchscalingfactor		
 	end
 
 
@@ -2973,6 +2411,8 @@ function infer(;modelfile="model_h.15_learnrates.true.model", samplebranchlength
 				end
 			end
 			println("$(iter).1 Sampling branch lengths DONE")
+		elseif iter > 10
+			#proposescalingfactor(rng, nodelist, Int[col for col=1:numcols], modelparams)
 		end
 		
 		println("$(iter).2 Sampling sites START")

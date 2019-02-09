@@ -393,7 +393,8 @@ module CTMCs
 
 		#println("G",x0, " -> ", xt, " A", A)
 		count = 0
-		while true
+		success = true
+		while success
 			path = Int[x0]
 			times = Float64[0.0]
 			totalt = 0.0
@@ -406,11 +407,15 @@ module CTMCs
 			if count > 1000000
 				#println(extradata)
 				println("H",x0, " -> ", xt, " A", A)
+				success = false
+				break
 			end
 			while true
-				if count > 1000000
+				if count > 2000000
 					#println(extradata)
 					println("G",x0, " -> ", xt, " A", A,"\t",Q)
+					success = false
+					break
 				end
 
 				r = rand(rng)
@@ -430,7 +435,7 @@ module CTMCs
 		end
 		#println("H")
 
-		return path, times
+		return path, times, success
 	end
 
 	export removevirtualjumps
