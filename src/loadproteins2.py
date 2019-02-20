@@ -20,7 +20,7 @@ def muscle(fastafile):
     infile = os.path.abspath(fastafile)
     executable = os.path.abspath("../binaries/muscle3.8.31_i86win32.exe")
     print(executable)
-    cmd = "\"%s\" -in \"%s\" -out \"%s\"" % (executable, infile, infile+".muscle")
+    cmd = "\"%s\" -in \"%s\" -out \"%s.nwk\"" % (executable, infile, infile+".muscle")
     print(cmd)
     subprocess.run(cmd, shell=True)
     return infile+".muscle"
@@ -136,144 +136,128 @@ class AlignedProtein:
 alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 def loadfrompdb():
-    #folder = "../data/curated/hepacivirus_c_NS5B/"
-    #alignmentfiles = ["HCV_REF_2014_ns5b_PRO_selection.fasta"]
-    #folder = "../data/curated/SARS_coronavirus_protease/"
-    #alignmentfiles = []
-    #folder = "../data/curated/dengue_NS3/"
-    #alignmentfiles = ["regions.fst"]
-    #folder = "../data/curated/chikungunya_virus_nonstructural/"
-    #alignmentfiles = ["selection.fasta"]
-    #folder = "../data/curated/zika_virus_polyprotein/"
-    #alignmentfiles = ["selection.fasta"]
-    inpath = os.path.abspath("../data/curated/curated_rna/")
-    infiles = os.listdir(inpath)
-    for f in infiles:
-        if f.endswith(".select.fasta"):
-            folder = inpath
-            alignmentfiles = [inpath+"\\"+f]
-            prefix = inpath+"\\"+f[0:-13]
-            newickfile = prefix+".select.nwk"
-            newick_tree = open(newickfile,"r").readline()
-            print(newick_tree)
+    folder = "../data/hepacivirus_c/"
 
-            familyname = prefix
-            fastaoutfile = os.path.join(folder,"alignment.pdb.fas")
-            alignmentwriter = open(fastaoutfile,"w")
-           
-            for fastafile in alignmentfiles:
-                sequencealignment = AlignIO.read(open(os.path.join(folder, fastafile)), "fasta")
-                for record in sequencealignment:
-                    alignmentwriter.write(">"+record.id+"\n")
-                    alignmentwriter.write(str(record.seq))
-                    alignmentwriter.write("\n") 
+    fastaoutfile = os.path.join(folder,"alignment.pdb.fas")
+    alignmentwriter = open(fastaoutfile,"w")
 
-            pdbinfo = {}
+    #alignmentfiles = ["H1N1.fasta","H1N1_2.fasta"]
+    alignmentfiles = []
+    for fastafile in alignmentfiles:
+        sequencealignment = AlignIO.read(open(os.path.join(folder, fastafile)), "fasta")
+        for record in sequencealignment:
+            alignmentwriter.write(">"+record.id+"\n")
+            alignmentwriter.write(str(record.seq))
+            alignmentwriter.write("\n") 
 
-            for pdbname in os.listdir(folder):
-                if pdbname.endswith(".pdb"):
-                    pdbfile =  os.path.join(folder, pdbname)
-                    try:
-                        if os.path.exists(pdbfile):
-                            p = PDBParser()
-                            structure = p.get_structure('X', pdbfile)
-                            peptideindex = 0
-                            for model in structure:
-                                for chain in model:
-                                    ppb=PPBuilder()
-                                    alignedprotein = AlignedProtein()
-                                    for peptide in ppb.build_peptides(chain):
-                                        alignedprotein.sequence += str(peptide.get_sequence())
-                                    seqname = pdbname
-                                    if pdbname in pdbinfo:
-                                        seqname += "_"+pdbinfo[pdbname][1]                         
-                                    alignmentwriter.write(">"+seqname+"\n")
-                                    alignmentwriter.write(alignedprotein.sequence)
-                                    alignmentwriter.write("\n")
-                                    break
-                                break
-                    except Exception as e:
-                        print("err",e)
-            alignmentwriter.close()
-            
-            family = []
-            musclefile = os.path.join(folder, muscle(fastaoutfile))
-            alignment = AlignIO.read(open(musclefile), "fasta")
-            for recordindex, record in enumerate(alignment):
-                print(record.name)
-                if record.name.endswith(".pdb"):
-                    pdbname = record.name
-                    pdbfile =  os.path.join(folder, pdbname)
-                    try:
-                        if os.path.exists(pdbfile):
-                            p = PDBParser()
-                            structure = p.get_structure('X', pdbfile)
-                            peptideindex = 0
-                            for model in structure:
-                                for chain in model:
-                                    ppb=PPBuilder()
-                                    alignedprotein = AlignedProtein()
-                                    alignedprotein.name = str(record.id)
-                                    alignedprotein.aligned_sequence = str(record.seq)
-                                    for peptide in ppb.build_peptides(chain):
-                                        alignedprotein.sequence += str(peptide.get_sequence())
-                                        alignedprotein.phi_psi.extend(peptide.get_phi_psi_list())
-                                        alignedprotein.omega.extend(get_omega_list(peptide))
-                                        alignedprotein.bond_angles.extend(get_bond_angles_list(peptide))
-                                        alignedprotein.bond_lengths.extend(get_bond_lengths(peptide))
-                                    seqname = pdbname
-                                    if pdbname in pdbinfo:
-                                        seqname += "_"+pdbinfo[pdbname][1]
-                                    for pos in range(len(alignedprotein.phi_psi)):
-                                        if alignedprotein.phi_psi[pos][0] == None and alignedprotein.phi_psi[pos][1] == None:
-                                            alignedprotein.phi_psi[pos] = (-1000.0, 1000.0)
-                                        elif alignedprotein.phi_psi[pos][0] == None:
-                                            alignedprotein.phi_psi[pos] = (-1000.0, alignedprotein.phi_psi[pos][1])
-                                        elif alignedprotein.phi_psi[pos][1] == None:
-                                            alignedprotein.phi_psi[pos] = (alignedprotein.phi_psi[pos][0], -1000.0)
-                                    family.append(alignedprotein)
-                                    break # take just the first chai
-                                break
-                    except Exception as e:
-                        print("err",e)
-                else:
-                    alignedprotein = AlignedProtein()
-                    alignedprotein.name = str(record.id)
-                    alignedprotein.aligned_sequence = str(record.seq)
-                    alignedprotein.sequence =  alignedprotein.aligned_sequence.replace("-","")
-                    alignedprotein.phi_psi = [(-1000.0,-1000.0) for site in alignedprotein.sequence]
-                    alignedprotein.omega = [-1000.0 for site in alignedprotein.sequence]
-                    alignedprotein.bond_angles = [(-1000.0,-1000.0,-1000.0) for site in alignedprotein.sequence]
-                    alignedprotein.bond_lengths = [(-1000.0,-1000.0,-1000.0) for site in alignedprotein.sequence]
-                    family.append(alignedprotein)
+    pdbinfo = {}
+    """
+    pdbinfo["2yp2.pdb"] = ("A/FINLAND/486/2004", "2004", "H3N2")
+    pdbinfo["4kvn.pdb"] = ("A/Perth/16/2009 ", "04/07/2009", "H3N2")
+    pdbinfo["4mc5.pdb"] = ("A/flat-faced bat/Peru/033/2010", "2010","H18N11")
+    pdbinfo["4we8.pdb"] = ("A/SINGAPORE/H2011.447/2011", "06/12/2011", "H3N2")
+    pdbinfo["4wsr.pdb"] = ("A/CHICKEN/NEW YORK/14677-13/1998", "02/25/1998", "H6N2")
+    pdbinfo["5k9o_F.pdb"] = ("A/CALIFORNIA/04/2009", "2009", "H1N1")
+    pdbinfo["5xl8.pdb"] = ("A/DUCK/CZECHOSLOVAKIA/1956", "1956", "H4N6")
+    pdbinfo["6n41.pdb"] = ("A/NETHERLANDS/002P1/1951", "1951", "H1N1")
+    """
+    pdbinfo["3PHE"] = ("3PHE", "", "")
+    pdbinfo["4TXS"] = ("4TXS", "", "")
+    pdbinfo["4TY8"] = ("4TY8", "", "")
+    pdbinfo["4TY9"] = ("4TY9", "", "")
+    pdbinfo["4TYA"] = ("4TYA", "", "")
+    pdbinfo["4TYB"] = ("4TYB", "", "")    
 
-            alignedseqs = [protein.aligned_sequence for protein in family]
-            if len(family) > 0:
-                print(len(family))
-                print(alignedseqs)
-                print(countnongaps(alignedseqs))
-                fastafile = "%s_%d.fas" % (musclefile, len(family))
-                fastaout = open(fastafile, "w")
-                for alignedprotein in family:
-                    fastaout.write(">%s\n" % alignedprotein.name)
-                    alignedprotein.aligned_sequence = removeonlygaps(alignedprotein.aligned_sequence, alignedseqs)
-                    alignedprotein.aligned_phi_psi = insertgaps(alignedprotein.aligned_sequence, alignedprotein.phi_psi, gapvalue=(-1000.0, -1000.0))
-                    alignedprotein.aligned_omega = insertgaps(alignedprotein.aligned_sequence, alignedprotein.omega, gapvalue=-1000.0)
-                    alignedprotein.aligned_bond_angles = insertgaps(alignedprotein.aligned_sequence, alignedprotein.bond_angles, gapvalue=(-1000.0, -1000.0, -1000.0))
-                    alignedprotein.aligned_bond_lengths = insertgaps(alignedprotein.aligned_sequence, alignedprotein.bond_lengths, gapvalue=(-1000.0, -1000.0, -1000.0))
-                    fastaout.write(alignedprotein.aligned_sequence+"\n")                        
-                fastaout.close()
-                #newick_tree = fasttree_protein(musclefile)        
-                fout = open("%s_%d.fam" % (familyname, len(family)), "w")
-                #fout = open("%s_%d.fam" % (musclefile, len(family)), "w")
-                fout.write("{\n")
-                fout.write("\"newick_tree\": \"%s\",\n" % newick_tree)                    
-                fout.write("\"proteins\": [")
-                fout.write(",".join([alignedprotein.toJSON() for alignedprotein in family]))
-                fout.write("]\n")
+    for pdbname in os.listdir(folder):
+        if pdbname.endswith(".pdb"):
+            pdbfile =  os.path.join(folder, pdbname)
+            try:
+                if os.path.exists(pdbfile):
+                    p = PDBParser()
+                    structure = p.get_structure('X', pdbfile)
+                    peptideindex = 0
+                    for model in structure:
+                        for chain in model:
+                            if "_" not in pdbname or chain.id.upper() == pdbname[5]+"":
+                                #print(record.description)
+                                ppb=PPBuilder()
+                                alignedprotein = AlignedProtein()
+                                for peptide in ppb.build_peptides(chain):
+                                    alignedprotein.sequence += str(peptide.get_sequence())
+                                    alignedprotein.phi_psi.extend(peptide.get_phi_psi_list())
+                                    alignedprotein.omega.extend(get_omega_list(peptide))
+                                    alignedprotein.bond_angles.extend(get_bond_angles_list(peptide))
+                                    alignedprotein.bond_lengths.extend(get_bond_lengths(peptide))
+                                #alignedprotein.name = str(record.id)
+                                #alignedprotein.aligned_sequence = str(record.seq)
+                                seqname = pdbname
+                                if pdbname in pdbinfo:
+                                    seqname += "_"+pdbinfo[pdbname][1]
+                                #+"_"+pdbinfo[pdbname][2]                                    
+                                alignmentwriter.write(">"+seqname+"\n")
+                                alignmentwriter.write(alignedprotein.sequence)
+                                alignmentwriter.write("\n")
+            except Exception as e:
+                print("err",e)
+        
 
-                fout.write("}")
-                fout.flush()
+    family = []
+    for pdbname in os.listdir(folder):
+        if pdbname.endswith(".pdb"):
+            pdbfile =  os.path.join(folder, pdbname)
+            print(pdbfile)
+            try:
+                if os.path.exists(pdbfile):
+                    p = PDBParser()
+                    structure = p.get_structure('X', pdbfile)
+                    peptideindex = 0
+                    for model in structure:
+                        for chain in model:
+                            if "_" not in pdbname or chain.id.upper() == pdbname[5]+"":
+                                #print(record.description)
+                                ppb=PPBuilder()
+                                alignedprotein = AlignedProtein()
+                                for peptide in ppb.build_peptides(chain):
+                                    alignedprotein.sequence += str(peptide.get_sequence())
+                                    alignedprotein.phi_psi.extend(peptide.get_phi_psi_list())
+                                    alignedprotein.omega.extend(get_omega_list(peptide))
+                                    alignedprotein.bond_angles.extend(get_bond_angles_list(peptide))
+                                    alignedprotein.bond_lengths.extend(get_bond_lengths(peptide))
+                                #alignedprotein.name = str(record.id)
+                                #alignedprotein.aligned_sequence = str(record.seq)
+                                seqname = pdbname
+                                if pdbname in pdbinfo:
+                                    seqname += "_"+pdbinfo[pdbname][1]
+                                #+"_"+pdbinfo[pdbname][2]                                    
+                                alignmentwriter.write(">"+seqname+"\n")
+                                alignmentwriter.write(alignedprotein.sequence)
+                                alignmentwriter.write("\n")
+                                for pos in range(len(alignedprotein.phi_psi)):
+                                    if alignedprotein.phi_psi[pos][0] == None and alignedprotein.phi_psi[pos][1] == None:
+                                        alignedprotein.phi_psi[pos] = (-1000.0, 1000.0)
+                                    elif alignedprotein.phi_psi[pos][0] == None:
+                                        alignedprotein.phi_psi[pos] = (-1000.0, alignedprotein.phi_psi[pos][1])
+                                    elif alignedprotein.phi_psi[pos][1] == None:
+                                        alignedprotein.phi_psi[pos] = (alignedprotein.phi_psi[pos][0], -1000.0)
+                                #alignedprotein.aligned_phi_psi = insertgaps(record.seq, alignedprotein.phi_psi, gapvalue=(-1000.0, -1000.0))
+                                #alignedprotein.aligned_omega = insertgaps(record.seq, alignedprotein.omega, gapvalue=-1000.0)
+                                family.append(alignedprotein)
+                                break # take just the first chain
+            except Exception as e:
+                print("err",e)
+    alignmentwriter.close()
+    print(family)
+
+    newick_tree = fasttree_protein(fastaoutfile)
+    fout = open("../data/families/%s_%d.fam" % (alignmentfile, len(family)), "w")
+    fout.write("{\n")
+    fout.write("\"newick_tree\": \"%s\",\n" % newick_tree)                    
+    fout.write("\"proteins\": [")
+    fout.write(",".join([alignedprotein.toJSON() for alignedprotein in family]))
+    fout.write("]\n")
+
+    fout.write("}")
+    fout.flush()
 
 loadfrompdb()        
 
