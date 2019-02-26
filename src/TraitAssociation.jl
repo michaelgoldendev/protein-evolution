@@ -11,6 +11,7 @@ using NLopt
 using Formatting
 using Distributions
 using StatsBase
+using Statistics
 using ArgParse
 using CTMCs
 using JSON
@@ -1245,6 +1246,8 @@ function pathreconstruction(fastafile="",treefile="",blindnodenames::Array{Strin
     rates = discretizegamma(minx[2], 1.0/minx[2], numrates)
     #selcols = Int[143, 384, 274, 438, 136,402,335,287,152,198,214]
     selcols = 1:numcols
+    matchcounts = zeros(Float64, numsamples)
+    matchtotals = zeros(Float64, numsamples)
     for col in selcols
         jsondict[string("Column ", col)] = Dict{Any,Any}()
         jsondict[string("Column ", col)]["samples"] = Dict{Any,Any}()
@@ -1271,12 +1274,12 @@ function pathreconstruction(fastafile="",treefile="",blindnodenames::Array{Strin
                 end
             end=#
             if trueseq[col] != '-'
-                if aminoacids[sample[blank_nodeindex]] == trueseq[col]                    
-                    nummatches += 1.0   
+                if aminoacids[sample[blank_nodeindex]] == trueseq[col] 
+                    matchcounts[s] += 1.0
                 else                 
                    #println("Col $(col) sample $(aminoacids[sample[blank_nodeindex]]) $(trueseq[col]) $(nummatches/numtotal)")
                 end
-                numtotal += 1.0
+                matchtotals[s] += 1.0
             end
             #=
             println("node: ",sample[332])
@@ -1369,9 +1372,9 @@ function pathreconstruction(fastafile="",treefile="",blindnodenames::Array{Strin
 
 
     println(JSON.json(jsondict))=#
-
-    println(nummatches/numtotal)
-    return nummatches/numtotal
+    println(matchcounts./matchtotals)
+    println(mean(matchcounts./matchtotals))
+    return mean(matchcounts./matchtotals)
 end
 
 function getchar(path::Array{Int,1}, time::Array{Float64}, t::Float64)
