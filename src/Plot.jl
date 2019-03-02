@@ -93,7 +93,7 @@ end
 
 function parse_plotting_commandline()
     settings = ArgParseSettings()
-    settings.version = "0.1"
+    settings.version = version
     settings.add_version = true
 
     add_arg_group(settings, "plotting")

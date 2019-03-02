@@ -15,7 +15,7 @@ function infer(parsed_args=Dict{String,Any}())
 
 	#samplebranchlengths = parsed_args["samplebranchlengths"]
 	samplebranchlengths = false
-	
+	dosamplesiterates = true
 
 	blindscores = Dict{String,Array{Float64,1}}()
 	blindnodenames = parsed_args["blindproteins"] != nothing ? split(parsed_args["blindproteins"], r",|;") : String[]
@@ -87,7 +87,7 @@ function infer(parsed_args=Dict{String,Any}())
 
 
 
-	outputprefix = string(modelfile,".tree")
+	outputprefix = string("output/",basename(modelfile),".",basename(fastafile))
 
 	println("Initialisation finished.")
 
@@ -184,7 +184,7 @@ function infer(parsed_args=Dict{String,Any}())
 		for col in randcols
 			
 			#if iter % 2 == 0
-			a1,a2,a3,a4, accepted_hidden, accepted_aa = samplepaths(rng, col, proteins,nodelist, modelparams)
+			a1,a2,a3,a4, accepted_hidden, accepted_aa = samplepaths(rng, col, proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates)
 			if accepted_hidden
 				count_hidden_acceptance[col] += 1.0
 			end			
@@ -251,41 +251,41 @@ function infer(parsed_args=Dict{String,Any}())
 		end
 		println("$(iter).4 Calculating likelihoods DONE")	
 
-		#=
-		currentll = augmentedll
-		#=
-		currentll = 0.0
-		for col=1:numcols
-			currentll += felsensteinresample_aa(rng, proteins, nodelist, Int[col], col, modelparams, false)
-		end
-		=#
-		currentalpha = modelparams.rate_alpha
-		modelparams.rate_alpha += randn(rng)*0.75
-		if modelparams.rate_alpha > 0.0
-			modelparams.rates = discretizegamma(modelparams.rate_alpha, 1.0/modelparams.rate_alpha, modelparams.numrates)
-			reset_matrix_cache(modelparams)
-			proposedll = augmentedloglikelihood(nodelist, Int[col for col=1:numcols], modelparams)
+		if dosamplesiterates
+			currentll = augmentedll
 			#=
-			proposedll = 0.0
+			currentll = 0.0
 			for col=1:numcols
-				proposedll += felsensteinresample_aa(rng, proteins, nodelist, Int[col], col, modelparams, false)
-			end=#
+				currentll += felsensteinresample_aa(rng, proteins, nodelist, Int[col], col, modelparams, false)
+			end
+			=#
+			currentalpha = modelparams.rate_alpha
+			modelparams.rate_alpha += randn(rng)*0.75
+			if modelparams.rate_alpha > 0.0
+				modelparams.rates = discretizegamma(modelparams.rate_alpha, 1.0/modelparams.rate_alpha, modelparams.numrates)
+				reset_matrix_cache(modelparams)
+				proposedll = augmentedloglikelihood(nodelist, Int[col for col=1:numcols], modelparams)
+				#=
+				proposedll = 0.0
+				for col=1:numcols
+					proposedll += felsensteinresample_aa(rng, proteins, nodelist, Int[col], col, modelparams, false)
+				end=#
 
-			if exp(proposedll-currentll) > rand(rng)
-				augmentedll = proposedll
-				accepted_alpha += 1.0
+				if exp(proposedll-currentll) > rand(rng)
+					augmentedll = proposedll
+					accepted_alpha += 1.0
+				else
+					modelparams.rate_alpha = currentalpha
+					modelparams.rates = discretizegamma(modelparams.rate_alpha, 1.0/modelparams.rate_alpha, modelparams.numrates)
+					reset_matrix_cache(modelparams)
+				end
 			else
 				modelparams.rate_alpha = currentalpha
 				modelparams.rates = discretizegamma(modelparams.rate_alpha, 1.0/modelparams.rate_alpha, modelparams.numrates)
-				reset_matrix_cache(modelparams)
 			end
-		else
-			modelparams.rate_alpha = currentalpha
-			modelparams.rates = discretizegamma(modelparams.rate_alpha, 1.0/modelparams.rate_alpha, modelparams.numrates)
+			accepted_alpha_total += 1.0
+			println(modelparams.rate_alpha,"\t",modelparams.rates,"\t", accepted_alpha/accepted_alpha_total)
 		end
-		accepted_alpha_total += 1.0
-		println(modelparams.rate_alpha,"\t",modelparams.rates,"\t", accepted_alpha/accepted_alpha_total)
-		=#
 	
 		for node in nodelist
 			if !isroot(node)
@@ -380,14 +380,13 @@ end
 
 function parse_inference_commandline()
     settings = ArgParseSettings()
-    settings.version = "0.1"
+    settings.version = version
     settings.add_version = true
 
     add_arg_group(settings, "inference (prediction)")
     @add_arg_table settings begin
         "inference_model_file"
         	help = "specify model file to use for inference"
-        	dest_name = "inference_model_file"
           	arg_type = String
           	required = true
         "--alignment"

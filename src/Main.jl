@@ -1,3 +1,5 @@
+version = "0.1"
+
 using Distributions
 using LinearAlgebra
 using Serialization
@@ -1677,96 +1679,6 @@ function initialise_tree_aa(rng::AbstractRNG, modelparams::ModelParams, nodelist
 	end
 end
 
-function initialise_tree_aa2(rng::AbstractRNG, modelparams::ModelParams, nodelist::Array{TreeNode,1}, numcols::Int) 
-	root = nodelist[1]
-	reversenodelist = reverse(nodelist)
-	node_aa = zeros(Int,length(nodelist),numcols)	
-	node_h = zeros(Int,length(nodelist),numcols)
-	for node in reversenodelist
-		for col=1:numcols
-			if isleafnode(node)
-				node_aa[node.nodeindex,col] = rand(rng,1:modelparams.alphabet)
-				if 1 <= col <= length(node.data.protein.sites) && node.data.protein.sites[col].aa > 0
-					node_aa[node.nodeindex,col] = node.data.protein.sites[col].aa
-				end
-
-				v = zeros(Float64, modelparams.numhiddenstates)
-				for h=1:modelparams.numhiddenstates
-					v[h] = modelparams.hiddennodes[h].aa_node.probs[node_aa[node.nodeindex,col]]
-				end
-				node_h[node.nodeindex,col] = CommonUtils.sample(rng, v)
-			else
-				randchildindex = node.children[rand(1:length(node.children))].nodeindex
-				node_aa[node.nodeindex,col] = node_aa[randchildindex, col]
-				#randchildindex = node.children[rand(1:length(node.children))].nodeindex
-				node_h[node.nodeindex,col] = node_h[randchildindex, col]
-			end
-		end
-	end
-
-	paths = Array{Int,1}[]
-	times = Array{Float64,1}[]
-	for col=1:numcols
-		state = node_h[1,col]
-		push!(paths,Int[state,state])
-		push!(times,Float64[0.0, 1.0])
-	end	
-	aapaths = Array{Int,1}[]
-	aatimes = Array{Float64,1}[]
-	for col=1:numcols
-		aastate = node_aa[1,col]
-		push!(aapaths,Int[aastate,aastate])
-		push!(aatimes,Float64[0.0, 1.0])
-	end	
-	root.data.branchpath = BranchPath(paths,times)
-	root.data.aabranchpath = BranchPath(aapaths,aatimes)
-	ratespaths = Array{Int,1}[]
-	ratestimes = Array{Float64,1}[]
-	for col=1:numcols
-		push!(ratespaths, Int[div(modelparams.numrates,2)])
-		push!(ratestimes, Float64[0.0])
-	end
-	root.data.ratesbranchpath = BranchPath(ratespaths, ratestimes)
-	for node in nodelist
-		if !isroot(node)			
-			parentnode = get(node.parent)
-
-			paths = Array{Int,1}[]
-			times = Array{Float64,1}[]
-			for col=1:numcols
-				parentstate = node_h[parentnode.nodeindex,col]
-				nodestate = node_h[node.nodeindex,col]
-				V = getQandPt(modelparams, 0, 0, node_aa[parentnode.nodeindex,col], div(modelparams.numrates,2), 1.0)[1]
-				path,time, success = modifiedrejectionsampling(rng, V*max(0.01,node.branchlength), parentstate, nodestate, nothing)
-				push!(paths,path)
-				push!(times,time)
-			end
-
-			node.data.branchpath = BranchPath(paths,times)
-
-			aapaths = Array{Int,1}[]
-			aatimes = Array{Float64,1}[]
-			for col=1:numcols
-				parentaastate = node_aa[parentnode.nodeindex,col]
-				nodeaastate = node_aa[node.nodeindex,col]
-				Q = getAAandPt(modelparams, 0, 0, node_h[parentnode.nodeindex,col],div(modelparams.numrates,2), 1.0)[1]
-				aapath,aatime,success = modifiedrejectionsampling(rng, Q*max(0.01,node.branchlength), parentaastate, nodeaastate, nothing)
-				push!(aapaths,aapath)
-				push!(aatimes,aatime)
-			end
-			node.data.aabranchpath = BranchPath(aapaths,aatimes)
-
-			ratespaths = Array{Int,1}[]
-			ratestimes = Array{Float64,1}[]
-			for col=1:numcols
-				push!(ratespaths, Int[div(modelparams.numrates,2)])
-				push!(ratestimes, Float64[0.0])
-			end
-			node.data.ratesbranchpath = BranchPath(ratespaths, ratestimes)
-		end
-	end
-end
-
 function initialise_tree(rng::AbstractRNG, modelparams::ModelParams, inputroot::TreeNode, name_protein_dict::Dict{String,Tuple{Int64,Protein}}, numcols::Int; midpointroot::Bool=true)	
 	binarize!(inputroot)
 	nodelist = getnodelist(inputroot)
@@ -1846,32 +1758,6 @@ function training_example_from_json_family(rng::AbstractRNG, modelparams::ModelP
 	end
 
 	numcols = length(json_family["proteins"][1]["aligned_sequence"])
-	
-	#=
-	V = constructHiddenMatrix(modelparams, ones(Float64,modelparams.numhiddenstates), ones(Float64,modelparams.numhiddenstates))
-	paths = Array{Int,1}[]
-	times = Array{Float64,1}[]
-	for col=1:numcols
-		state = rand(rng,1:modelparams.numhiddenstates)
-		push!(paths,Int[state,state])
-		push!(times,Float64[0.0, 1.0])
-	end	
-	root.data = AugmentedNodeData(BranchPath(paths,times), 1)
-	for node in nodelist
-		if !isroot(node)
-			paths = Array{Int,1}[]
-			times = Array{Float64,1}[]
-			parentnode = get(node.parent)
-			for col=1:numcols
-				parentstate = parentnode.data.branchpath.paths[col][end]
-				nodestate = rand(rng,1:modelparams.numhiddenstates)
-				path,time = modifiedrejectionsampling(rng, V*0.5, parentstate, nodestate, nothing)
-				push!(paths,path)
-				push!(times,time)
-			end
-			node.data = AugmentedNodeData(BranchPath(paths,times), 1)
-		end
-	end=#
 
 	proteins = Protein[]
 	name_protein_dict = Dict{String,Tuple{Int,Protein}}()
@@ -2303,7 +2189,7 @@ function samplepaths4(rng::AbstractRNG, col::Int,proteins,nodelist::Array{TreeNo
 end
 
 # samplepaths_simultaneous
-function samplepaths(rng::AbstractRNG, col::Int,proteins,nodelist::Array{TreeNode,1}, modelparams::ModelParams, useoldsampling::Bool=false)
+function samplepaths(rng::AbstractRNG, col::Int,proteins,nodelist::Array{TreeNode,1}, modelparams::ModelParams, useoldsampling::Bool=false; dosamplesiterates::Bool=false)
 	numcols = length(nodelist[1].data.branchpath.paths)
 	cols = Int[]
 	selcol = 1
@@ -2394,7 +2280,10 @@ function samplepaths(rng::AbstractRNG, col::Int,proteins,nodelist::Array{TreeNod
 		end
 	end
 	accepted_hidden_total += 1.0
-	samplesiterates(rng, cols, col, nodelist, modelparams)
+
+	if dosamplesiterates
+		samplesiterates(rng, cols, col, nodelist, modelparams)
+	end
 
 	return accepted_hidden,accepted_hidden_total,accepted_aa,accepted_aa_total,hidden_accepted,aa_accepted
 end
