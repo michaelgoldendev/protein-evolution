@@ -1,3 +1,4 @@
+prog = "Protein sequence and structure evolution"
 version = "0.1"
 
 using Distributions
@@ -2031,7 +2032,6 @@ function rates_likelihood(trainingexamples, modelparams::ModelParams)
 end	
 
 function samplesiterates(rng::AbstractRNG, cols::Array{Int,1}, col::Int, nodelist::Array{TreeNode,1}, modelparams::ModelParams)
-	#=
 	likelihoods = zeros(Float64, modelparams.numrates)
 	for r=1:modelparams.numrates
 		setrates(nodelist, col, r)
@@ -2041,7 +2041,7 @@ function samplesiterates(rng::AbstractRNG, cols::Array{Int,1}, col::Int, nodelis
 	likelihoods = likelihoods.*modelparams.rate_freqs
 	likelihoods /= sum(likelihoods)
 	setrates(nodelist, col, CommonUtils.sample(rng,likelihoods))
-	return likelihoods=#
+	return likelihoods
 end		
 
 function samplepaths2(rng::AbstractRNG, col::Int,proteins,nodelist::Array{TreeNode,1}, modelparams::ModelParams)

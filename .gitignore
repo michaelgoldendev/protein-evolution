@@ -12,5 +12,7 @@ binaries/
 cache/
 data/
 obsolete/
+models/
+output/
 deps/deps.jl
 *.zip

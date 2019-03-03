@@ -1,0 +1,256 @@
+\documentclass[]{article}
+
+\usepackage[authoryear,sort]{cpl-natbib}
+\usepackage{url}
+\usepackage{svg}
+\usepackage{cuted}
+\usepackage{amsmath,stackengine}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{mathtools}
+
+\usepackage{multirow}
+\usepackage{ifthen}
+\usepackage{hyperref}
+\usepackage{xr}
+\usepackage[linesnumbered,lined,boxed,commentsnumbered]{algorithm2e}
+\usepackage{algpseudocode}
+%\usepackage{algorithmicx}
+\usepackage{listings}
+\usepackage{color} 
+\usepackage{amssymb}
+\usepackage{tabularx}
+\usepackage{booktabs} 
+\usepackage{colortbl} 
+\usepackage{pdflscape}
+\usepackage{longtable}
+\usepackage{caption}
+
+\usepackage{geometry}
+\newgeometry{
+	top=1in,
+	bottom=1in,
+	outer=1in,
+	inner=1in,
+}
+
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92} 
+\lstdefinestyle{mystyle}{
+	backgroundcolor=\color{backcolour},   
+	commentstyle=\color{codegreen},
+	keywordstyle=\color{magenta},
+	numberstyle=\tiny\color{codegray},
+	stringstyle=\color{codepurple},
+	basicstyle=\footnotesize,
+	breakatwhitespace=false,         
+	breaklines=true,                 
+	captionpos=b,                    
+	keepspaces=true,                 
+	numbers=left,                    
+	numbersep=5pt,                  
+	showspaces=false,                
+	showstringspaces=false,
+	showtabs=false,                  
+	tabsize=2
+} 
+\lstset{style=mystyle}
+
+
+%input macros (i.e. write your own macros file called mymacros.tex 
+%and uncomment the next line)
+%\include{mymacros}
+
+\lstdefinelanguage{Julia}%
+{morekeywords={abstract,break,case,catch,const,continue,do,else,elseif,%
+		end,export,false,for,function,immutable,import,importall,if,in,%
+		macro,module,otherwise,quote,return,switch,true,try,type,typealias,%
+		using,while},%
+	sensitive=true,%
+	alsoother={\$},%
+	morecomment=[l]\#,%
+	morecomment=[n]{\#=}{=\#},%
+	morestring=[s]{"}{"},%
+	morestring=[m]{'}{'},%
+}[keywords,comments,strings]%
+
+\usepackage{float}
+\newcommand{\noun}[1]{\textsc{#1}}
+\floatstyle{ruled}
+\newfloat{algorithm}{tbp}{loa}
+\providecommand{\algorithmname}{Algorithm}
+\floatname{algorithm}{\protect\algorithmname}
+
+
+%opening
+\title{Supplementary Material:\\Evolutionary analysis of base-pairing interactions in DNA and RNA secondary structures}
+\date{}
+\begin{document}
+	
+\let\oldthetable\thetable
+\renewcommand{\thetable}{S\oldthetable}
+
+\let\oldthefigure\thefigure
+\renewcommand{\thefigure}{S\oldthefigure}
+
+\let\oldthealgorithm\thealgorithm
+\renewcommand{\thealgorithm}{S\oldthealgorithm}
+
+%\let\oldthelstlisting\thelstlisting
+%\renewcommand{\thelstlisting}{S\oldthelstlisting}
+
+%\let\oldsection\section
+%\renewcommand{\section}{S\oldsection}
+
+\maketitle
+
+\section{Supplementary methods}
+
+\subsection{Stationarity and time-reversibility}
+%\lstinputlisting[language=Python,label=lst:musesymbolic,caption={Python script (\texttt{musesymbolic.py}) testing stationarity and time-reversibility of the extended Muse model.}]{code/musesymbolic.py}
+
+\subsection{Modelling site-to-site rate variation}\label{sec:sitetositevariation}
+In the M95 and extended M95 models, the substitution rate was assumed to be the same for each of the two nucleotide positions within a pair, as well as across all possible site pairs. However, it is well-established that the rate of substitution can vary across nucleotide positions and that failing to account for rate variability can lead to biased parameter estimates \citep{yang1996among}. Additionally, many of the datasets analysed in this thesis have coding regions, where it is expected that the third nucleotide position in each codon (the so-called `codon wobble position') will have relatively higher substitution rates associated with it, due to there being a lower chance of mutations modifying the encoded amino acid.
+
+To model variable substitution rates across sites, the gamma distributed sites rate approach of \citep{yang1993maximum, yang1994maximum} was implemented. The GTR model with gamma distributed sites, denoted GTR + $\Gamma$, is well-understood for single site substitution models, however, an extension to paired site models had not been previously described. The modified M95 paired site model with gamma distributed site rates, denoted M95 + $\Gamma$, is given below:
+
+\begin{landscape}
+	\small
+	\begin{longtable}{ccccccc}
+		\captionsetup{justification=centering}
+		\caption{\label{tab:rankingconsensus} Consensus structure ranking. 118 non-overlapping HIV consensus substructures ranked from highest to lowest z-score based on their degrees of coevolution within an alignment of HIV-1 subtype B sequences. Where the canonical structure was treated as unknown and a consensus structure predicted}\\
+		\toprule
+		Rank & Alignment position  & Mapped position & Length & Name and reference & Median & z-score\\	
+		\midrule
+		\endfirsthead
+		\toprule
+		Rank & Alignment position  & Mapped position & Length & Name and reference & Median & z-score\\
+		\midrule
+		\endhead
+		\rowcolor{black!20} 1 & 8240 - 8577 & 7256 - 7590 & 338 & Rev Response element (RRE, \citet{heaphy1990hiv, mandal2004gene}) & 5.64 & 6.53\tabularnewline
+		2 & 2202 - 2229 & 1645 - 1672 & 28 & Gag-pol frameshift \citep{chamorro1992rna} & 8.17 & 4.56\tabularnewline
+		\rowcolor{black!20} 3 & 1710 - 1845 & 1177 - 1312 & 136 &  & 6.44 & 4.50\tabularnewline
+		4 & 4751 - 4833 & 4134 - 4216 & 83 &  & 6.47 & 3.97\tabularnewline
+		\rowcolor{black!20} 5 & 4505 - 4709 & 3888 - 4092 & 205 &  & 5.22 & 3.21\tabularnewline
+		6 & 591 - 939 & 108 - 445 & 349 & 5' Untranslated region (5'UTR, \citet{siegfried2014rna}) & 5.38 & 3.16\tabularnewline
+		\rowcolor{black!20} 7 & 133 - 151 & NA & 19 &  & 6.85 & 2.94\tabularnewline
+		8 & 2564 - 2890 & 1947 - 2273 & 327 & Longest continuous helix \citep{siegfried2014rna} & 4.44 & 2.62\tabularnewline
+		\rowcolor{black!20} 9 & 9782 - 9800 & 8645 - 8663 & 19 &  & 6.92 & 2.55\tabularnewline
+		10 & 3612 - 3623 & 2995 - 3006 & 12 &  & 6.74 & 2.50\tabularnewline
+		\rowcolor{black!20} 11 & 5690 - 5720 & 5070 - 5100 & 31 &  & 5.76 & 2.43\tabularnewline
+		12 & 9873 - 9881 & 8736 - 8744 & 9 &  & 10.71 & 2.31\tabularnewline
+		\rowcolor{black!20} 13 & 5622 - 5642 & 5005 - 5025 & 21 &  & 7.22 & 2.26\tabularnewline
+		14 & 9733 - 9781 & 8597 - 8644 & 49 &  & 5.20 & 2.22\tabularnewline
+		\rowcolor{black!20} 15 & 10008 - 10020 & 8871 - 8883 & 13 &  & 7.39 & 2.00\tabularnewline
+		16 & 10061 - 10390 & NA & 330 & 3' Untranslated region (3'UTR, \citet{siegfried2014rna}) & 4.54 & 1.82\tabularnewline
+		\rowcolor{black!20} 17 & 7410 - 7425 & 6537 - 6552 & 16 &  & 5.65 & 1.78\tabularnewline
+		18 & 1185 - 1211 & NA & 27 &  & 5.63 & 1.76\tabularnewline
+		\rowcolor{black!20} 19 & 3538 - 3552 & 2921 - 2935 & 15 &  & 5.97 & 1.50\tabularnewline
+		20 & 8057 - 8214 & 7088 - 7230 & 158 &  & 4.77 & 1.49\tabularnewline
+		\rowcolor{black!20} 21 & 1080 - 1146 & 586 - 652 & 67 & 5' Untranslated region (5'UTR, \citet{siegfried2014rna}) & 6.49 & 1.45\tabularnewline
+		22 & 6627 - 6643 & 5966 - 5982 & 17 & SP stem (\citet{siegfried2014rna}) & 4.98 & 1.44\tabularnewline
+		\rowcolor{black!20} 23 & 3261 - 3268 & 2644 - 2651 & 8 &  & 5.79 & 1.28\tabularnewline
+		24 & 3577 - 3586 & 2960 - 2969 & 10 &  & 5.64 & 1.09\tabularnewline
+		\rowcolor{black!20} 25 & 7434 - 7468 & NA & 35 &  & 4.99 & 1.00\tabularnewline
+		26 & 105 - 118 & NA & 14 &  & 4.82 & 0.86\tabularnewline
+		\rowcolor{black!20} 27 & 9443 - 9464 & NA & 22 &  & 5.35 & 0.80\tabularnewline
+		28 & 7536 - 7648 & 6660 - 6766 & 113 &  & 4.63 & 0.77\tabularnewline
+		\rowcolor{black!20} 29 & 1866 - 1882 & 1333 - 1349 & 17 &  & 4.98 & 0.77\tabularnewline
+		30 & 4161 - 4187 & 3544 - 3570 & 27 &  & 4.41 & 0.66\tabularnewline
+		\rowcolor{black!20} 31 & 8005 - 8054 & 7036 - 7085 & 50 &  & 4.39 & 0.52\tabularnewline
+		32 & 3342 - 3393 & 2725 - 2776 & 52 &  & 3.98 & 0.52\tabularnewline
+		\rowcolor{black!20} 33 & 3270 - 3299 & 2653 - 2682 & 30 &  & 4.93 & 0.48\tabularnewline
+		34 & 1908 - 1920 & 1375 - 1387 & 13 &  & 4.28 & 0.28\tabularnewline
+		\rowcolor{black!20} 35 & 4306 - 4320 & 3689 - 3703 & 15 &  & 4.02 & 0.26\tabularnewline
+		36 & 953 - 961 & 459 - 467 & 9 & 5' Untranslated region (5'UTR, \citet{siegfried2014rna}) & 4.56 & 0.19\tabularnewline
+		\rowcolor{black!20} 37 & 1422 - 1707 & 889 - 1174 & 286 &  & 4.23 & 0.14\tabularnewline
+		38 & 419 - 476 & NA & 58 &  & 3.98 & 0.11\tabularnewline
+		\rowcolor{black!20} 39 & 7918 - 7923 & 6982 - 6987 & 6 &  & 4.48 & 0.06\tabularnewline
+		40 & 9895 - 9932 & 8758 - 8795 & 38 &  & 4.16 & 0.04\tabularnewline
+		\rowcolor{black!20} 41 & 381 - 397 & NA & 17 &  & 4.51 & -0.02\tabularnewline
+		42 & 3985 - 4015 & 3368 - 3398 & 31 &  & 4.01 & -0.04\tabularnewline
+		\rowcolor{black!20} 43 & 9135 - 9218 & 8127 - 8210 & 84 &  & 4.26 & -0.04\tabularnewline
+		44 & 8955 - 9069 & 7947 - 8061 & 115 &  & 4.04 & -0.04\tabularnewline
+		\rowcolor{black!20} 45 & 5835 - 6054 & 5215 - 5426 & 220 &  & 3.97 & -0.11\tabularnewline
+		46 & 1285 - 1308 & 752 - 775 & 24 &  & 4.05 & -0.27\tabularnewline
+		\rowcolor{black!20} 47 & 478 - 546 & NA & 69 & 5' Trans-activation response element (5' TAR, \citet{roy1990bulge}) & 4.16 & -0.50\tabularnewline
+		48 & 6204 - 6212 & 5573 - 5581 & 9 &  & 2.64 & -0.55\tabularnewline
+		\rowcolor{black!20} 49 & 9258 - 9266 & 8250 - 8258 & 9 &  & 3.12 & -0.55\tabularnewline
+		50 & 4031 - 4058 & 3414 - 3441 & 28 &  & 4.41 & -0.62\tabularnewline
+		\rowcolor{black!20} 51 & 5761 - 5769 & 5141 - 5149 & 9 &  & 3.22 & -0.70\tabularnewline
+		52 & 3588 - 3596 & 2971 - 2979 & 9 &  & 3.20 & -0.73\tabularnewline
+		\rowcolor{black!20} 53 & 9661 - 9672 & NA & 12 &  & 3.72 & -0.74\tabularnewline
+		54 & 3646 - 3655 & 3029 - 3038 & 10 &  & 3.40 & -0.76\tabularnewline
+		\rowcolor{black!20} 55 & 10021 - 10030 & 8884 - 8893 & 10 &  & 3.14 & -0.76\tabularnewline
+		56 & 3685 - 3817 & 3068 - 3200 & 133 &  & 3.29 & -0.77\tabularnewline
+		\rowcolor{black!20} 57 & 4862 - 4875 & 4245 - 4258 & 14 & Central polypurine tract (CPPT, \citet{siegfried2014rna}) & 3.65 & -0.78\tabularnewline
+		58 & 6092 - 6192 & 5464 - 5561 & 101 &  & 3.81 & -0.80\tabularnewline
+		\rowcolor{black!20} 59 & 1994 - 2002 & NA & 9 &  & 2.67 & -0.83\tabularnewline
+		60 & 7856 - 7875 & NA & 20 &  & 2.93 & -0.86\tabularnewline
+		\rowcolor{black!20} 61 & 4134 - 4145 & 3517 - 3528 & 12 &  & 3.23 & -0.86\tabularnewline
+		62 & 7987 - 8000 & 7018 - 7031 & 14 &  & 3.26 & -0.87\tabularnewline
+		\rowcolor{black!20} 63 & 9940 - 9986 & 8803 - 8849 & 47 &  & 3.09 & -0.87\tabularnewline
+		64 & 7687 - 7709 & 6805 - 6821 & 23 &  & 3.24 & -0.91\tabularnewline
+		\rowcolor{black!20} 65 & 3396 - 3536 & 2779 - 2919 & 141 &  & 3.60 & -0.98\tabularnewline
+		66 & 9080 - 9096 & 8072 - 8088 & 17 &  & 2.82 & -1.05\tabularnewline
+		\rowcolor{black!20} 67 & 5799 - 5834 & 5179 - 5214 & 36 &  & 4.06 & -1.06\tabularnewline
+		68 & 5566 - 5602 & 4949 - 4985 & 37 &  & 3.23 & -1.14\tabularnewline
+		\rowcolor{black!20} 69 & 6727 - 6875 & NA & 149 &  & 3.03 & -1.18\tabularnewline
+		70 & 2234 - 2563 & 1677 - 1946 & 330 & Gag-pol frameshift \citep{chamorro1992rna} & 3.68 & -1.21\tabularnewline
+		\rowcolor{black!20} 71 & 6068 - 6078 & 5440 - 5450 & 11 &  & 2.03 & -1.22\tabularnewline
+		72 & 6646 - 6659 & 5985 - 5998 & 14 & SP stem (\citet{siegfried2014rna}) & 3.13 & -1.23\tabularnewline
+		\rowcolor{black!20} 73 & 1895 - 1901 & 1362 - 1368 & 7 &  & 2.00 & -1.23\tabularnewline
+		74 & 6403 - 6443 & 5757 - 5788 & 41 &  & 3.05 & -1.24\tabularnewline
+		\rowcolor{black!20} 75 & 3867 - 3878 & 3250 - 3261 & 12 &  & 3.32 & -1.25\tabularnewline
+		76 & 7715 - 7729 & NA & 15 &  & 2.57 & -1.27\tabularnewline
+		\rowcolor{black!20} 77 & 6547 - 6583 & 5886 - 5922 & 37 & SP stem (\citet{siegfried2014rna}) & 3.26 & -1.27\tabularnewline
+		78 & 4440 - 4463 & 3823 - 3846 & 24 &  & 3.10 & -1.29\tabularnewline
+		\rowcolor{black!20} 79 & 1231 - 1263 & 704 - 730 & 33 &  & 2.93 & -1.29\tabularnewline
+		80 & 4084 - 4092 & 3467 - 3475 & 9 &  & 3.18 & -1.31\tabularnewline
+		\rowcolor{black!20} 81 & 1954 - 1976 & 1421 - 1443 & 23 &  & 3.42 & -1.34\tabularnewline
+		82 & 995 - 1026 & 501 - 532 & 32 & 5' Untranslated region (5'UTR, \citet{siegfried2014rna}) & 3.62 & -1.35\tabularnewline
+		\rowcolor{black!20} 83 & 7290 - 7298 & 6417 - 6425 & 9 &  & 1.74 & -1.36\tabularnewline
+		84 & 3166 - 3214 & 2549 - 2597 & 49 &  & 3.36 & -1.38\tabularnewline
+		\rowcolor{black!20} 85 & 3624 - 3641 & 3007 - 3024 & 18 &  & 2.44 & -1.38\tabularnewline
+		86 & 1314 - 1394 & 781 - 861 & 81 &  & 3.31 & -1.42\tabularnewline
+		\rowcolor{black!20} 87 & 7395 - 7409 & 6522 - 6536 & 15 &  & 1.32 & -1.52\tabularnewline
+		88 & 4390 - 4403 & 3773 - 3786 & 14 &  & 3.00 & -1.53\tabularnewline
+		\rowcolor{black!20} 89 & 5784 - 5792 & 5164 - 5172 & 9 &  & 2.19 & -1.59\tabularnewline
+		90 & 2030 - 2052 & 1482 - 1498 & 23 &  & 2.48 & -1.61\tabularnewline
+		\rowcolor{black!20} 91 & 2110 - 2197 & 1556 - 1640 & 88 & Gag-pol frameshift \citep{chamorro1992rna} & 3.73 & -1.69\tabularnewline
+		92 & 4466 - 4499 & 3849 - 3882 & 34 &  & 2.49 & -1.75\tabularnewline
+		\rowcolor{black!20} 93 & 4938 - 4962 & 4321 - 4345 & 25 & Central polypurine tract (CPPT, \citet{siegfried2014rna}) & 1.90 & -1.81\tabularnewline
+		94 & 7742 - 7759 & 6848 - 6862 & 18 &  & 2.70 & -1.84\tabularnewline
+		\rowcolor{black!20} 95 & 6590 - 6600 & 5929 - 5939 & 11 & SP stem (\citet{siegfried2014rna}) & 1.84 & -1.86\tabularnewline
+		96 & 9605 - 9637 & 8475 - 8507 & 33 &  & 2.21 & -1.89\tabularnewline
+		\rowcolor{black!20} 97 & 8805 - 8869 & 7800 - 7864 & 65 &  & 3.22 & -1.91\tabularnewline
+		98 & 1933 - 1953 & 1400 - 1420 & 21 &  & 1.99 & -2.02\tabularnewline
+		\rowcolor{black!20} 99 & 9098 - 9117 & 8090 - 8109 & 20 &  & 2.70 & -2.03\tabularnewline
+		100 & 8925 - 8942 & 7920 - 7937 & 18 &  & 1.97 & -2.07\tabularnewline
+		\rowcolor{black!20} 101 & 6461 - 6472 & 5806 - 5817 & 12 &  & 1.46 & -2.08\tabularnewline
+		102 & 2986 - 3113 & 2369 - 2496 & 128 &  & 3.09 & -2.11\tabularnewline
+		\rowcolor{black!20} 103 & 6504 - 6522 & 5846 - 5861 & 19 & SP stem (\citet{siegfried2014rna}) & 2.17 & -2.20\tabularnewline
+		104 & 9273 - 9354 & NA & 82 &  & 3.22 & -2.21\tabularnewline
+		\rowcolor{black!20} 105 & 3883 - 3922 & 3266 - 3305 & 40 &  & 2.65 & -2.28\tabularnewline
+		106 & 9564 - 9573 & 8434 - 8443 & 10 &  & 1.50 & -2.29\tabularnewline
+		\rowcolor{black!20} 107 & 7880 - 7898 & 6956 - 6962 & 19 &  & 2.26 & -2.32\tabularnewline
+		108 & 7028 - 7258 & 6245 - 6385 & 231 &  & 3.02 & -2.32\tabularnewline
+		\rowcolor{black!20} 109 & 9364 - 9398 & NA & 35 &  & 2.71 & -2.33\tabularnewline
+		110 & 5192 - 5541 & 4575 - 4924 & 350 &  & 3.69 & -2.34\tabularnewline
+		\rowcolor{black!20} 111 & 6284 - 6391 & 5638 - 5745 & 108 &  & 2.38 & -2.36\tabularnewline
+		112 & 7783 - 7822 & 6886 - 6925 & 40 &  & 2.53 & -2.42\tabularnewline
+		\rowcolor{black!20} 113 & 5114 - 5133 & 4497 - 4516 & 20 &  & 1.91 & -2.52\tabularnewline
+		114 & 9221 - 9238 & 8213 - 8230 & 18 &  & 2.39 & -2.60\tabularnewline
+		\rowcolor{black!20} 115 & 6885 - 6922 & NA & 38 &  & 1.99 & -2.67\tabularnewline
+		116 & 8580 - 8606 & 7593 - 7607 & 27 &  & 1.32 & -2.87\tabularnewline
+		\rowcolor{black!20} 117 & 8622 - 8762 & 7623 - 7757 & 141 &  & 2.61 & -2.92\tabularnewline
+		118 & 4991 - 5072 & 4374 - 4455 & 82 &  & 2.65 & -3.25\tabularnewline	
+	\end{longtable}
+\end{landscape}
+
+\bibliographystyle{natbib}%%%%natbib.sty
+\bibliography{refs}%%%refs.bib
+
+\end{document}

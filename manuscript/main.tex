@@ -1,0 +1,204 @@
+\newif\ifmbeformat
+\mbeformatfalse
+
+\ifmbeformat
+	\documentclass[nogrid]{MBE}%
+\else
+	\documentclass[twocolumn]{article}
+	\usepackage{geometry}
+	\newgeometry{
+		top=1in,
+		bottom=1in,
+		outer=1in,
+		inner=1in,
+	}
+	\usepackage{natbib}
+	\renewcommand{\baselinestretch}{1.25}		
+	\usepackage{authblk}
+\fi
+
+\usepackage[normalem]{ulem}
+\usepackage{xcolor} 
+\newcommand{\revch}[1]{{\color{blue} #1}}
+\newcommand{\revcom}[1]{{\color{orange} #1}}
+\newcommand{\revrem}[1]{{\color{red} \sout{#1}}}
+
+\usepackage{url}
+\usepackage{cuted}
+\usepackage{amsmath}
+\usepackage{subfig}
+%\usepackage{caption}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{caption}
+
+\usepackage{lipsum}
+\usepackage{enumerate}
+\usepackage{enumitem}
+%load any additional packages
+\usepackage{amssymb}
+%\usepackage{stackengine}
+%\stackMath
+\usepackage{amsfonts}
+\usepackage{mathtools}
+\usepackage{multirow}
+\usepackage{bibentry}
+%\usepackage{epstopdf} 
+%\usepackage{xr}
+%\usepackage[landscape,a4paper]{geometry}
+\usepackage{booktabs} 
+\usepackage{colortbl} 
+%\usepackage{xcolor} 
+%\usepackage{xfrac}
+%\newcommand{ra}[1]{renewcommand{arraystretch}{#1}}
+%\usepackage{pdflscape}
+%\usepackage{longtable}
+%\usepackage{stackrel}
+\usepackage{hyperref}
+%\usepackage{graphicx}
+%\usepackage{svg}
+\usepackage{setspace}
+%\usepackage{refcheck}
+
+%\usepackage{listings}
+%\usepackage{color} 
+
+\usepackage{xr}
+\externaldocument[supplementary-]{supplementary}
+
+
+\newif\iffigures
+\figurestrue
+
+\ifmbeformat
+\jshort{mst}
+
+\volname{}
+
+\jvolume{0}
+
+\jvol{}
+
+\jissue{0}
+
+\pubyear{2013}
+
+\mstype{Article}
+
+\artid{012}
+
+\access{Advance Access publication March 3, 2013}
+\fi
+
+\newcommand{\abstractext}{We present a probabilistic model of protein evolution, that captures several important features of protein sequence and structure. The key feature being  dependencies between neighbouring amino acid positions that are temporal in nature due to mutations that occur throughout the course of evolution. The model is trained on a large numbers of protein alignments and corresponding phylogenetic tree topologies that represent the evolutionary history of the aligned proteins. This yields a model that acts as rich prior distribution over protein evolution that can be used to perform several important inference tasks. One such task being Bayesian reconstruction of ancestral virus protein sequences, which we demonstrate to have better accuracy than competing methods. The model represents the complete backbone structure of each protein using an angle and bond length representation that realistically captures local features of protein structure. Such local structure evolution is modeled jointly with sequence, permitting ancestral structures to be reconstructed in a phylogenetically rigorous manner. Likewise, the model can perform homology modelling to predict the unknown local backbone structures of proteins using information from large numbers of related proteins.  The model is highly flexible with respect to the information that the user provides. Implying that arbitary combinations of protein sequences and structures can be used when performing various inference tasks.}
+
+\begin{document}
+
+\title{Reconstructing ancestral protein	sequences and structures}
+
+\ifmbeformat
+\author[Golden et al.]{Michael \surname{Golden},$^{\ast,1}$, Jotun Hein,$^{2}$ Thomas Hamerlyck,$^{3}$ and Oliver Pybus,$^{1}$}
+
+\address{
+$^{1}$Department of Zoology, University of Oxford, UK\\
+$^{2}$Department of Statistics, University of Oxford, UK\\
+$^{1}$Department of Computer Science, University of Copenhagen, Denmark\\
+}
+
+\history{Received 13 July 2017; reviews returned 26 November 2017; accepted 30 November 2017}
+
+\coresp{E-mail: golden@phylo.dev}
+
+%\datade{Protein families were obtained from the HOMSTRAD database.}
+
+\editor{Name Surname}
+
+\else
+\author[1]{Michael Golden}
+\author[2]{Jotun Hein}
+\author[3]{Thomas Hamelryck}
+\author[1]{Oliver Pybus}
+\affil[1]{Department of Zoology, University of Oxford, UK}
+\affil[2]{Department of Statistics, University of Oxford, UK}
+\affil[3]{Department of Computer Science, University of Copenhagen, Denmark}
+\fi
+
+
+\ifmbeformat
+\abstract{\abstractext}
+\keyword{Evolution, RNA secondary structure, DNA secondary structure, probabilistic model}
+\maketitle
+
+\else
+
+\onecolumn
+\maketitle
+\begin{abstract}
+\normalsize
+\abstractext
+\end{abstract}
+\twocolumn
+\fi
+
+
+
+\section{Introduction}
+The primary role of nucleic acid molecules, such as DNA (deoxyribonucleic acid) and RNA (ribonucleic acid), is encoding genetic information for storage and transfer. However, both types of molecules can form structures with additional functions \citep{mattick2003challenging}. DNA is ordinarily thought of as a double-stranded molecule forming the now iconic double helical configuration \citep{watson1953molecular}, although many viral genomes consist entirely of single-stranded DNA (ssDNA) or single-stranded RNA (ssRNA) molecules. Such single-stranded nucleic acid molecules are far less constrained than double-stranded nucleic acid molecules in the variety of structures that they can form. For example, the Rev response element (RRE) within the single-stranded HIV RNA genome plays a crucial role in the regulation of HIV virion expression by binding the HIV Rev protein to facilitate the transfer of HIV genomes from the nucleus to the cytoplasm where translation and virion packaging occur \citep{heaphy1990hiv,daugherty2010structural}.
+
+\subsubsection{The KH99 grammar}
+The KH99 SCFG \citep{knudsen1999rna} was chosen as a prior over secondary structures. The rules and associated probabilities are given as follows:
+\begin{equation}
+\mathcal{G}_{\text{KH99}} = \begin{array}{ccccccc}
+S & \rightarrow & \bullet & \text{or} & LS & \text{or} & (F)\\
+&  & 0.118 &  & 0.869 & & 0.014\\
+& & & & & \\
+L & \rightarrow & \bullet & \text{or} & (F) & & \\
+&  & 0.895 &  & 0.105 & & \\
+& & & & & \\
+F & \rightarrow & (F) & \text{or} & LS & & \\
+&  & 0.788 &  & 0.212  & &
+\end{array}
+\label{eq:kh99}
+\end{equation}
+Note that $S$ is the start symbol. 
+
+
+\begin{table*}
+	\captionsetup{justification=centering}
+	\caption{\label{tab:rankingshape} SHAPE structure ranking. Top 10 of 86 non-overlapping HIV NL4-3 substructures ranked from highest to lowest z-score based on the estimated degrees of coevolution within an alignment of HIV-1 subtype B sequences. Where the HIV NL4-3 SHAPE-MaP secondary structure was used as the canonical structure.}	
+	\begin{tabularx}{1.0\linewidth}{ccccccc}
+	\toprule
+	Rank & Alignment & NL4-3  & Length & Name & Median degree & z-score\\
+	& position & position &  &  & of coevolution &\\
+	\midrule
+	\rowcolor{black!20} 1 & 8233 - 8582 & 7249 - 7595 & 350 & Rev Response element (RRE) & 5.38 & 5.02\tabularnewline
+	2 & 2608 - 2943 & 1991 - 2326 & 336 & Longest continuous helix & 5.17 & 2.92\tabularnewline
+	\rowcolor{black!20} 3 & 10155 - 10383 & 8982 - 9170 & 229 & 3' Untranslated region (3'UTR) & 5.27 & 2.69\tabularnewline
+	4 & 588 - 838 & 105 - 344 & 251 & 5' Untranslated region (5'UTR) & 5.65 & 2.61\tabularnewline
+	\rowcolor{black!20} 5 & 9570 - 9584 & 8440 - 8454 & 15 &  & 5.91 & 2.29\tabularnewline
+	6 & 860 - 979 & 366 - 485 & 120 & 5' Untranslated region (5'UTR) & 5.54 & 2.28\tabularnewline
+	\rowcolor{black!20} 7 & 1710 - 1845 & 1177 - 1312 & 136 &  & 5.17 & 2.28\tabularnewline
+	8 & 2115 - 2301 & 1561 - 1711 & 187 & Gag-pol frameshift & 5.31 & 2.21\tabularnewline
+	\rowcolor{black!20} 9 & 1479 - 1490 & 946 - 957 & 12 &  & 5.85 & 2.04\tabularnewline
+	10 & 3886 - 3907 & 3269 - 3290 & 22 &  & 5.80 & 2.01\tabularnewline
+	\bottomrule
+	\end{tabularx}
+\end{table*}
+
+\section{Software availability}
+Julia code (compatible with Windows and Linux) is available at: \href{https://github.com/michaelgoldendev/MESSI}{https://github.com/michaelgoldendev/MESSI}
+
+\section{Acknowledgements}
+MG is supported by the ERC under the European Union’s Seventh Framework Programme (FP7/2007-2013)/ERC grant agreement no. 614725-PATHPHYLODYN. 
+
+\ifmbeformat
+\section{Supplementary material}
+Supplementary material is available  at Molecular Biology and Evolution
+online: \url{http://www.mbe.oxfordjournals.org/}
+\fi
+
+\bibliographystyle{natbib}%%%%natbib.sty
+\bibliography{refs}%%%refs.bib
+
+
+\end{document}

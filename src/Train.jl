@@ -108,18 +108,30 @@ function train(parsed_args=Dict{String,Any}())
 		for (proteins,nodelist,json_family,sequences) in trainingexamples
 			numcols = length(proteins[1])
 			
+			accepted = zeros(Int, numcols)
+			acceptance_threshold = 3
 			for i=1:samplesperiter
 				randcols = shuffle(rng, Int[i for i=1:numcols])
 				for col in randcols
-					a1,a2,a3,a4,hidden_accepted, aa_accepted = samplepaths(rng,col,proteins,nodelist, modelparams)
-					accepted_hidden += a1
-					accepted_hidden_total += a2
-					accepted_aa += a3
-					accepted_aa_total += a4
+					if accepted[col] < acceptance_threshold || i % 20 == 0 || (col > 1 && accepted[col-1] < acceptance_threshold) || (col < numcols && accepted[col+1] < acceptance_threshold) 
+						a1,a2,a3,a4, hidden_accepted, aa_accepted = samplepaths(rng,col,proteins,nodelist, modelparams)
+						accepted_hidden += a1
+						accepted_hidden_total += a2
+						accepted_aa += a3
+						accepted_aa_total += a4
+						if hidden_accepted
+							accepted[col] += 1
+						end						
+					end
+				end
+				min_accepted = minimum(accepted)
+				println("min_accepted ", min_accepted," out of ", i)
+				if min_accepted >= acceptance_threshold
+					break
 				end
 
 
-				if samplebranchlengths
+				if samplebranchlengths && (i <= acceptance_threshold || i % 10 == 0)
 					for node in nodelist
 						if !isroot(node)
 							t,propratio = proposebranchlength(rng, node, Int[col for col=1:numcols], modelparams)
@@ -434,6 +446,7 @@ end
 
 function parse_training_commandline()
     settings = ArgParseSettings()
+    settings.prog = prog
     settings.version = version
     settings.add_version = true
 
@@ -445,7 +458,7 @@ function parse_training_commandline()
          	required = true
          "--samplesperiter"
          	arg_type = Int
-         	default = 3
+         	default = 100
          "--trainingdir"
          	help = ""
         	arg_type = String

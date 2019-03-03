@@ -1,0 +1,55 @@
+\begin{thebibliography}{}
+
+\bibitem[Chamorro {\em et~al.}(1992)Chamorro, Parkin, and
+  Varmus]{chamorro1992rna}
+Chamorro, M., Parkin, N., and Varmus, H.~E. 1992.
+\newblock {An {RNA} pseudoknot and an optimal heptameric shift site are
+  required for highly efficient ribosomal frameshifting on a retroviral
+  messenger {RNA}}.
+\newblock {\em Proceedings of the National Academy of Sciences\/}, {89}(2):
+  713--717.
+
+\bibitem[Heaphy {\em et~al.}(1990)Heaphy, Dingwall, Ernberg, Gait, Green, Kern,
+  Lowe, Singh, and Skinner]{heaphy1990hiv}
+Heaphy, S., Dingwall, C., Ernberg, I., Gait, M.~J., Green, S.~M., Kern, J.,
+  Lowe, A.~D., Singh, M., and Skinner, M.~A. 1990.
+\newblock {{HIV-1} regulator of virion expression (Rev) protein binds to an
+  {RNA} stem-loop structure located within the {Rev} response element region}.
+\newblock {\em Cell\/}, {60}(4): 685--693.
+
+\bibitem[Mandal and Breaker(2004)Mandal and Breaker]{mandal2004gene}
+Mandal, M. and Breaker, R.~R. 2004.
+\newblock {Gene regulation by riboswitches}.
+\newblock {\em Nature Reviews Molecular Cell Biology\/}, {5}(6): 451--463.
+
+\bibitem[Roy {\em et~al.}(1990)Roy, Delling, Chen, Rosen, and
+  Sonenberg]{roy1990bulge}
+Roy, S., Delling, U., Chen, C., Rosen, C., and Sonenberg, N. 1990.
+\newblock {A bulge structure in {HIV-1} {TAR} {RNA} is required for Tat binding
+  and Tat-mediated trans-activation.}
+\newblock {\em Genes \& development\/}, {4}(8): 1365--1373.
+
+\bibitem[Siegfried {\em et~al.}(2014)Siegfried, Busan, Rice, Nelson, and
+  Weeks]{siegfried2014rna}
+Siegfried, N.~A., Busan, S., Rice, G.~M., Nelson, J.~A., and Weeks, K.~M. 2014.
+\newblock {RNA motif discovery by SHAPE and mutational profiling (SHAPE-MaP)}.
+\newblock {\em Nature methods\/}, {11}(9): 959--965.
+
+\bibitem[Yang(1993)Yang]{yang1993maximum}
+Yang, Z. 1993.
+\newblock {Maximum-likelihood estimation of phylogeny from DNA sequences when
+  substitution rates differ over sites.}
+\newblock {\em Molecular Biology and Evolution\/}, {10}(6): 1396--1401.
+
+\bibitem[Yang(1994)Yang]{yang1994maximum}
+Yang, Z. 1994.
+\newblock {Maximum likelihood phylogenetic estimation from {DNA} sequences with
+  variable rates over sites: approximate methods}.
+\newblock {\em Journal of Molecular evolution\/}, {39}(3): 306--314.
+
+\bibitem[Yang(1996)Yang]{yang1996among}
+Yang, Z. 1996.
+\newblock {Among-site rate variation and its impact on phylogenetic analyses}.
+\newblock {\em Trends in Ecology \& Evolution\/}, {11}(9): 367--372.
+
+\end{thebibliography}

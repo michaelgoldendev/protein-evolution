@@ -93,6 +93,7 @@ end
 
 function parse_plotting_commandline()
     settings = ArgParseSettings()
+    settings.prog = prog
     settings.version = version
     settings.add_version = true
 
