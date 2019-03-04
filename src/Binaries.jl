@@ -112,7 +112,7 @@ module Binaries
             muscle_alignment = open(cachefile) do file
                 read(file, String)
             end
-            muscle_alignment, cachefile
+            return muscle_alignment, cachefile
         else           
             if Sys.iswindows()
               muscle_windows = joinpath(@__DIR__,"..","binaries","muscle3.8.31_i86win32.exe")

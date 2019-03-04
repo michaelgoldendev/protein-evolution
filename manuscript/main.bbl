@@ -1,35 +1,9 @@
 \begin{thebibliography}{}
 
-\bibitem[Daugherty {\em et~al.}(2010)Daugherty, Liu, and
-  Frankel]{daugherty2010structural}
-Daugherty, M.~D., Liu, B., and Frankel, A.~D. 2010.
-\newblock {Structural basis for cooperative RNA binding and export complex
-  assembly by HIV Rev}.
-\newblock {\em Nature structural \& molecular biology\/}, {17}(11): 1337--1342.
-
-\bibitem[Heaphy {\em et~al.}(1990)Heaphy, Dingwall, Ernberg, Gait, Green, Kern,
-  Lowe, Singh, and Skinner]{heaphy1990hiv}
-Heaphy, S., Dingwall, C., Ernberg, I., Gait, M.~J., Green, S.~M., Kern, J.,
-  Lowe, A.~D., Singh, M., and Skinner, M.~A. 1990.
-\newblock {{HIV-1} regulator of virion expression (Rev) protein binds to an
-  {RNA} stem-loop structure located within the {Rev} response element region}.
-\newblock {\em Cell\/}, {60}(4): 685--693.
-
 \bibitem[Knudsen and Hein(1999)Knudsen and Hein]{knudsen1999rna}
 Knudsen, B. and Hein, J. 1999.
 \newblock {{RNA} secondary structure prediction using stochastic context-free
   grammars and evolutionary history.}
 \newblock {\em Bioinformatics\/}, {15}(6): 446--454.
-
-\bibitem[Mattick(2003)Mattick]{mattick2003challenging}
-Mattick, J.~S. 2003.
-\newblock {Challenging the dogma: the hidden layer of non-protein-coding {RNAs}
-  in complex organisms}.
-\newblock {\em Bioessays\/}, {25}(10): 930--939.
-
-\bibitem[Watson and Crick(1953)Watson and Crick]{watson1953molecular}
-Watson, J.~D. and Crick, F.~H. 1953.
-\newblock {Molecular structure of nucleic acids}.
-\newblock {\em Nature\/}, {171}(4356): 737--738.
 
 \end{thebibliography}

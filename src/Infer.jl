@@ -15,7 +15,7 @@ function infer(parsed_args=Dict{String,Any}())
 
 	#samplebranchlengths = parsed_args["samplebranchlengths"]
 	samplebranchlengths = false
-	dosamplesiterates = true
+	dosamplesiterates = false
 
 	blindscores = Dict{String,Array{Float64,1}}()
 	blindnodenames = parsed_args["blindproteins"] != nothing ? split(parsed_args["blindproteins"], r",|;") : String[]
@@ -78,10 +78,15 @@ function infer(parsed_args=Dict{String,Any}())
 	#newickfile=abspath("../data/test_data/westnile_dengue_selection.fasta.nwk")	
 	#blindnodenames = String["AEN02430.1"]
 
+	#fastafile = abspath("../data/test_data/maise_streak_virus_coat_protein_selection.fasta")
+	#newickfile = abspath("../data/test_data/maise_streak_virus_coat_protein_selection.rooted.nwk")	
+	#blindnodenames = String["ACF40553.1"]
+
+
 	proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, fastafile, newickfile=newickfile, blindnodenames=blindnodenames)
 	
 	if length(blindnodenames) > 0
-		LGreconstruction_score = TraitAssociation.pathreconstruction(fastafile,newickfile,blindnodenames,3)
+		LGreconstruction_score = TraitAssociation.pathreconstruction(fastafile,newickfile,blindnodenames,20)
 		println("LGreconstruction_score ",LGreconstruction_score)
 	end
 

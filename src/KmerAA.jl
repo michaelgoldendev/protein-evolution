@@ -560,9 +560,8 @@ end
 #fastafile = "C:\\Google Drive\\GitHub\\protein-evolution\\data\\curated\\bluetongue_virus_NS1\\viprbrc.fasta"
 #fastafile = "C:\\Google Drive\\GitHub\\protein-evolution\\data\\curated\\bluetongue_virus_NS2\\viprbrc.fasta"
 #fastafile = "C:\\Google Drive\\GitHub\\protein-evolution\\data\\curated\\bluetongue_virus_NS3\\viprbrc.fasta"
-fastafile = "C:\\Google Drive\\GitHub\\protein-evolution\\data\\curated\\H1N1_upto2005_HA\\viprbrc.fasta"
-
-
+#fastafile = "C:\\Google Drive\\GitHub\\protein-evolution\\data\\curated\\H1N1_upto2005_HA\\viprbrc.fasta"
+fastafile = "C:\\Google Drive\\GitHub\\protein-evolution\\data\\scratch\\maise_streak_virus_coat_protein\\maise_streak_virus_all.fasta"
 
 
 
@@ -582,7 +581,7 @@ FastaIO.FastaReader(fastafile) do fr
  seqindex = 1
  for (desc, seq) in fr
    len = length(seq)
-   if len >= 500 && count(c -> c == 'X', seq) == 0 
+   if len >= 0 && count(c -> c == 'X', seq) == 0 
      canonicalseq = replace(uppercase(seq), "-" => "")
      h = CommonUtils.sha256base36(canonicalseq)
      if !haskey(uniquedict, h)       
@@ -628,7 +627,7 @@ end
 close(outfile)
 
 musclealignment, musclealignmentfile = Binaries.muscle(alignfile)
-println(abspath(musclealignmentfile))
+println("alignment: ", abspath(musclealignmentfile))
 newick, dummy = Binaries.fasttreeaa(abspath(musclealignmentfile), branchsupport=true)
 inputroot = gettreefromnewick(newick)
 

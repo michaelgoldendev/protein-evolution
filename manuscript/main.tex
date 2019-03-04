@@ -59,7 +59,6 @@
 %\usepackage{svg}
 \usepackage{setspace}
 %\usepackage{refcheck}
-
 %\usepackage{listings}
 %\usepackage{color} 
 
@@ -90,7 +89,7 @@
 \access{Advance Access publication March 3, 2013}
 \fi
 
-\newcommand{\abstractext}{We present a probabilistic model of protein evolution, that captures several important features of protein sequence and structure. The key feature being  dependencies between neighbouring amino acid positions that are temporal in nature due to mutations that occur throughout the course of evolution. The model is trained on a large numbers of protein alignments and corresponding phylogenetic tree topologies that represent the evolutionary history of the aligned proteins. This yields a model that acts as rich prior distribution over protein evolution that can be used to perform several important inference tasks. One such task being Bayesian reconstruction of ancestral virus protein sequences, which we demonstrate to have better accuracy than competing methods. The model represents the complete backbone structure of each protein using an angle and bond length representation that realistically captures local features of protein structure. Such local structure evolution is modeled jointly with sequence, permitting ancestral structures to be reconstructed in a phylogenetically rigorous manner. Likewise, the model can perform homology modelling to predict the unknown local backbone structures of proteins using information from large numbers of related proteins.  The model is highly flexible with respect to the information that the user provides. Implying that arbitary combinations of protein sequences and structures can be used when performing various inference tasks.}
+\newcommand{\abstractext}{We present a probabilistic model of protein evolution that captures several important features of protein sequence and structure. The key feature being dependencies between neighbouring amino acid positions that are temporal in nature due to sequence mutations that occur during evolution. The model is trained on a large number of protein alignments and corresponding phylogenetic trees that represent the evolutionary history of the aligned proteins. This yields a model that acts as a rich prior distribution over protein evolution that can be used to perform several important inference tasks. One such task being Bayesian reconstruction of ancestral virus protein sequences, which we demonstrate to have better accuracy than competing methods. The model represents the complete backbone structure of each protein using an angle and bond length representation that realistically captures local features of protein structure. Such local structure evolution is modelled jointly with sequence, permitting ancestral structures to be reconstructed in a phylogenetically rigorous manner. Likewise, the model can perform homology modelling to predict the unknown local backbone structure of a known protein sequence using additional information from potentially large numbers of homologous proteins.  The model is highly flexible with respect to the information that the user can choose to provide, implying that arbitrary combinations of protein sequences and structures can be used when performing various inference tasks. The current model does not capture long-range dependencies that are necessary for accurate homology modelling and reconstruction of ancestral three-dimensional structures. However, it is ultimately expected to be combined with state-of-the-art machine-learning models of protein structure that account for these long-range structural dependencies, but that do not account for evolutionary information that can strongly inform predictions.}
 
 \begin{document}
 
@@ -102,7 +101,7 @@
 \address{
 $^{1}$Department of Zoology, University of Oxford, UK\\
 $^{2}$Department of Statistics, University of Oxford, UK\\
-$^{1}$Department of Computer Science, University of Copenhagen, Denmark\\
+$^{1}$Bioinformatics Centre, Section for Computational and RNA Biology, Department of Biology and Image Section, Department of Computer Science, University of Copenhagen\\
 }
 
 \history{Received 13 July 2017; reviews returned 26 November 2017; accepted 30 November 2017}
@@ -120,13 +119,13 @@ $^{1}$Department of Computer Science, University of Copenhagen, Denmark\\
 \author[1]{Oliver Pybus}
 \affil[1]{Department of Zoology, University of Oxford, UK}
 \affil[2]{Department of Statistics, University of Oxford, UK}
-\affil[3]{Department of Computer Science, University of Copenhagen, Denmark}
+\affil[3]{Bioinformatics Centre, Section for Computational and RNA Biology, Department of Biology and Image Section, Department of Computer Science, University of Copenhagen}
 \fi
 
 
 \ifmbeformat
 \abstract{\abstractext}
-\keyword{Evolution, RNA secondary structure, DNA secondary structure, probabilistic model}
+\keyword{Evolution, protein structure, probabilistic model}
 \maketitle
 
 \else
@@ -143,44 +142,47 @@ $^{1}$Department of Computer Science, University of Copenhagen, Denmark\\
 
 
 \section{Introduction}
-The primary role of nucleic acid molecules, such as DNA (deoxyribonucleic acid) and RNA (ribonucleic acid), is encoding genetic information for storage and transfer. However, both types of molecules can form structures with additional functions \citep{mattick2003challenging}. DNA is ordinarily thought of as a double-stranded molecule forming the now iconic double helical configuration \citep{watson1953molecular}, although many viral genomes consist entirely of single-stranded DNA (ssDNA) or single-stranded RNA (ssRNA) molecules. Such single-stranded nucleic acid molecules are far less constrained than double-stranded nucleic acid molecules in the variety of structures that they can form. For example, the Rev response element (RRE) within the single-stranded HIV RNA genome plays a crucial role in the regulation of HIV virion expression by binding the HIV Rev protein to facilitate the transfer of HIV genomes from the nucleus to the cytoplasm where translation and virion packaging occur \citep{heaphy1990hiv,daugherty2010structural}.
 
-\subsubsection{The KH99 grammar}
-The KH99 SCFG \citep{knudsen1999rna} was chosen as a prior over secondary structures. The rules and associated probabilities are given as follows:
+\section{Methods}
+
+\subsection{Model}
+
+\begin{figure*}
+	\centering
+	\includegraphics[width=2.0\columnwidth]{figures/model-structure-final.pdf}
+	\caption{Graphical description of the model architecture.}%
+	\label{fig:model-structure}%
+\end{figure*}
+
+\subsubsection{Hidden Markov model}
+The hidden Markov model is given by: $\Pi$
+
+\subsubsection{Rate matrix}
 \begin{equation}
-\mathcal{G}_{\text{KH99}} = \begin{array}{ccccccc}
-S & \rightarrow & \bullet & \text{or} & LS & \text{or} & (F)\\
-&  & 0.118 &  & 0.869 & & 0.014\\
-& & & & & \\
-L & \rightarrow & \bullet & \text{or} & (F) & & \\
-&  & 0.895 &  & 0.105 & & \\
-& & & & & \\
-F & \rightarrow & (F) & \text{or} & LS & & \\
-&  & 0.788 &  & 0.212  & &
-\end{array}
-\label{eq:kh99}
+M_{ab}=\begin{cases}
+\sqrt{\frac{\Pi(b)}{\Pi(a)}}Q_{a_{i}b_{i}}\pi^{h^{b}_{i}}_{aa^{b}_{i}} & \text{single amino acid difference at site $i$.}\\
+\sqrt{\frac{\Pi(b)}{\Pi(a)}}R_{a_{i}b_{i}}\pi^{h^{b}_{i}}_{aa^{b}_{i}} & \text{single hidden state difference at site $i$.}\\
+0 & \text{both hidden state and amino acid differences at site $i$.}\\
+0 & \text{differences at two or more sites.}\\
+-\underset{c\neq a}{\sum}M_{ac} & a=b
+\end{cases}
 \end{equation}
-Note that $S$ is the start symbol. 
+
+\subsubsection{Stationary distribution}
+The stationary distribution is given by $p(a)$.
+
+\section{Results}
 
 
 \begin{table*}
 	\captionsetup{justification=centering}
-	\caption{\label{tab:rankingshape} SHAPE structure ranking. Top 10 of 86 non-overlapping HIV NL4-3 substructures ranked from highest to lowest z-score based on the estimated degrees of coevolution within an alignment of HIV-1 subtype B sequences. Where the HIV NL4-3 SHAPE-MaP secondary structure was used as the canonical structure.}	
-	\begin{tabularx}{1.0\linewidth}{ccccccc}
+	\caption{\label{tab:sequencereconstruction} Ancestral sequence reconstruction benchmarks}	
+	\begin{tabularx}{1.0\linewidth}{ccccc}
 	\toprule
-	Rank & Alignment & NL4-3  & Length & Name & Median degree & z-score\\
-	& position & position &  &  & of coevolution &\\
+	Dataset & Our model & LG2008 & BEAST & ASR\\
 	\midrule
-	\rowcolor{black!20} 1 & 8233 - 8582 & 7249 - 7595 & 350 & Rev Response element (RRE) & 5.38 & 5.02\tabularnewline
-	2 & 2608 - 2943 & 1991 - 2326 & 336 & Longest continuous helix & 5.17 & 2.92\tabularnewline
-	\rowcolor{black!20} 3 & 10155 - 10383 & 8982 - 9170 & 229 & 3' Untranslated region (3'UTR) & 5.27 & 2.69\tabularnewline
-	4 & 588 - 838 & 105 - 344 & 251 & 5' Untranslated region (5'UTR) & 5.65 & 2.61\tabularnewline
-	\rowcolor{black!20} 5 & 9570 - 9584 & 8440 - 8454 & 15 &  & 5.91 & 2.29\tabularnewline
-	6 & 860 - 979 & 366 - 485 & 120 & 5' Untranslated region (5'UTR) & 5.54 & 2.28\tabularnewline
-	\rowcolor{black!20} 7 & 1710 - 1845 & 1177 - 1312 & 136 &  & 5.17 & 2.28\tabularnewline
-	8 & 2115 - 2301 & 1561 - 1711 & 187 & Gag-pol frameshift & 5.31 & 2.21\tabularnewline
-	\rowcolor{black!20} 9 & 1479 - 1490 & 946 - 957 & 12 &  & 5.85 & 2.04\tabularnewline
-	10 & 3886 - 3907 & 3269 - 3290 & 22 &  & 5.80 & 2.01\tabularnewline
+	\rowcolor{black!20} Influenza & 0.896 & 0.876 & 0.88 & 0.87\tabularnewline
+	HIV & 0.896 & 0.876 & 0.88 & 0.87\tabularnewline
 	\bottomrule
 	\end{tabularx}
 \end{table*}

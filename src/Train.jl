@@ -5,7 +5,8 @@ function train(parsed_args=Dict{String,Any}())
 	Random.seed!(rand(rng,UInt))
 
 	numhiddenstates = parsed_args["numhiddenstates"]
-	samplesperiter = parsed_args["samplesperiter"]
+	maxsamplesperiter = parsed_args["maxsamplesperiter"]
+	sitethreshold = parsed_args["sitethreshold"]
 
 
 	learnrates = true
@@ -19,7 +20,7 @@ function train(parsed_args=Dict{String,Any}())
 	maxloglikelihood = -Inf
 	noimprovement = 0
 
-	outputmodelname = string("_h.",modelparams.numhiddenstates,"_learnrates.",learnrates,".simultaneous.try")
+	outputmodelname = string("_h.",modelparams.numhiddenstates)
 	if independentsites
 		outputmodelname = string(outputmodelname,".independentsites")
 	end
@@ -108,12 +109,11 @@ function train(parsed_args=Dict{String,Any}())
 		for (proteins,nodelist,json_family,sequences) in trainingexamples
 			numcols = length(proteins[1])
 			
-			accepted = zeros(Int, numcols)
-			acceptance_threshold = 3
-			for i=1:samplesperiter
+			accepted = zeros(Int, numcols)			
+			for i=1:maxsamplesperiter
 				randcols = shuffle(rng, Int[i for i=1:numcols])
 				for col in randcols
-					if accepted[col] < acceptance_threshold || i % 20 == 0 || (col > 1 && accepted[col-1] < acceptance_threshold) || (col < numcols && accepted[col+1] < acceptance_threshold) 
+					if accepted[col] < sitethreshold || i % 20 == 0 || (col > 1 && accepted[col-1] < sitethreshold) || (col < numcols && accepted[col+1] < sitethreshold) 
 						a1,a2,a3,a4, hidden_accepted, aa_accepted = samplepaths(rng,col,proteins,nodelist, modelparams)
 						accepted_hidden += a1
 						accepted_hidden_total += a2
@@ -125,13 +125,13 @@ function train(parsed_args=Dict{String,Any}())
 					end
 				end
 				min_accepted = minimum(accepted)
-				println("min_accepted ", min_accepted," out of ", i)
-				if min_accepted >= acceptance_threshold
+				if min_accepted >= sitethreshold					
+					println("min_accepted ", min_accepted," out of ", i, " mean is ", mean(accepted))
 					break
 				end
 
 
-				if samplebranchlengths && (i <= acceptance_threshold || i % 10 == 0)
+				if samplebranchlengths && (i <= sitethreshold || i % 10 == 0)
 					for node in nodelist
 						if !isroot(node)
 							t,propratio = proposebranchlength(rng, node, Int[col for col=1:numcols], modelparams)
@@ -453,24 +453,28 @@ function parse_training_commandline()
     add_arg_group(settings, "training")
     @add_arg_table settings begin
         "numhiddenstates"
-        	help = "specify number oh hidden states"
+        	help = "train a model with this number of hidden states"
          	arg_type = Int
          	required = true
-         "--samplesperiter"
+         "--sitethreshold"
          	arg_type = Int
-         	default = 100
-         "--trainingdir"
-         	help = ""
+         	help = "the minimum number of successful site resamplings required at each protein site at each iteration (maximum number of attempts is MAXSAMPLESPERITER)"
+         	default = 3
+         "--maxsamplesperiter"
+         	arg_type = Int
+         	default = 500
+         "--trainingdirs"
+         	help = "comma-seperated list of directories that contain training instance files to be used for training"
         	arg_type = String
     	"--maxtraininginstances"
 		 	help = "train using only the first N training files"
 		 	arg_type = Int
     	"--samplebranchlengths"
-        	help = ""
+        	help = "sample branch lengths during training"
       	    arg_type = Bool
       	    default = true
      	"--independentsites"
-         	help = ""
+         	help = "ignores all neighbouring dependencies, just learns a mixture model"
           	action = :store_true
       	"--sequenceonly"
          	help = "use only amino acid characters as observations, ignores all structure observations"
