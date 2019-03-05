@@ -241,6 +241,7 @@ mutable struct ModelParams
 	branchscalingfactor::Float64
 	scalingfactor::Float64
 	usestructureobservations::Bool
+	hidden_conditional_on_aa::Bool
 
     function ModelParams(aminoacidQ::Array{Float64,2}, numhiddenstates::Int,mu::Float64=1.0,hiddenmu::Float64=1.0)
         initialprobs = ones(Float64, numhiddenstates)./numhiddenstates
@@ -265,7 +266,7 @@ mutable struct ModelParams
 		#rates = discretizegamma(rate_alpha,1.0/rate_alpha,numrates)
 		rates = ones(Float64,numrates)
 		rate_freqs = ones(Float64,numrates)/numrates
-        new(20,aminoacidQ,LGexchangeability, rate_alpha, numrates, rates,rate_freqs,numhiddenstates,initialprobs,transitioncounts,transitionprobs,transitionrates,hiddennodes,mu,hiddenmu,matrixcache,1.0,1.0,true)
+        new(20,aminoacidQ,LGexchangeability, rate_alpha, numrates, rates,rate_freqs,numhiddenstates,initialprobs,transitioncounts,transitionprobs,transitionrates,hiddennodes,mu,hiddenmu,matrixcache,1.0,1.0,true,true)
     end
 end
 
@@ -797,8 +798,12 @@ function felsensteinresample_aa(rng::AbstractRNG, proteins::Array{Protein,1}, no
 				end
 				likelihoods[nodeindex,node.data.protein.sites[aacol].aa] = 1.0
 			else
-				for a=1:modelparams.alphabet
-					likelihoods[nodeindex,a] = 1.0
+				if modelparams.hidden_conditional_on_aa
+					likelihoods[nodeindex,:] = observationlikelihood_aa(node.data.protein, aacol, node.data.branchpath.paths[aacol][end], modelparams)
+				else
+					for a=1:modelparams.alphabet
+						likelihoods[nodeindex,a] = 1.0
+					end
 				end
 			end
 			pop!(stack)
@@ -819,6 +824,9 @@ function felsensteinresample_aa(rng::AbstractRNG, proteins::Array{Protein,1}, no
 				lefttransprobs,Pmatrices_left,vs_left = felsensteinhelper_aa(nodelist[leftchildindex], cols, aacol, likelihoods[leftchildindex,:], modelparams)
 				righttransprobs,Pmatrices_right,vs_right = felsensteinhelper_aa(nodelist[rightchildindex], cols, aacol, likelihoods[rightchildindex,:], modelparams)
         		likelihoods[nodeindex, :] = (lefttransprobs*likelihoods[leftchildindex,:]).*(righttransprobs*likelihoods[rightchildindex,:])
+        		if modelparams.hidden_conditional_on_aa
+        			# TODO add something here!!!!
+        		end
 
         		m = maximum(likelihoods[nodeindex,:])
 				likelihoods[nodeindex,:] = likelihoods[nodeindex,:] ./ m
@@ -1317,18 +1325,32 @@ function constructHiddenMatrix(modelparams::ModelParams, prevh_hmm::Int, nexth_h
     return Q
 end
 
-function siteloglikelihood(site::SiteObservation, h::Int, modelparams::ModelParams)
+function siteloglikelihood(site::SiteObservation, h::Int, aa::Int, modelparams::ModelParams)
 	ll = 0.0
 	if modelparams.usestructureobservations
-		if site.phi > -100.0
-			ll += logpdf(modelparams.hiddennodes[h].phi_node.dist, site.phi)
+		if modelparams.hidden_conditional_on_aa
+			if site.phi > -100.0
+				ll += logpdf(modelparams.hiddennodes[h].phi_nodes[aa].dist, site.phi)
+			end
+			if site.omega > -100.0
+				ll += logpdf(modelparams.hiddennodes[h].omega_nodes[aa].dist, site.omega)
+			end
+			if site.psi > -100.0
+				ll += logpdf(modelparams.hiddennodes[h].psi_nodes[aa].dist, site.psi)
+			end
+		else
+			if site.phi > -100.0
+				ll += logpdf(modelparams.hiddennodes[h].phi_node.dist, site.phi)
+			end
+			if site.omega > -100.0
+				ll += logpdf(modelparams.hiddennodes[h].omega_node.dist, site.omega)
+			end
+			if site.psi > -100.0
+				ll += logpdf(modelparams.hiddennodes[h].psi_node.dist, site.psi)
+			end
 		end
-		if site.omega > -100.0
-			ll += logpdf(modelparams.hiddennodes[h].omega_node.dist, site.omega)
-		end
-		if site.psi > -100.0
-			ll += logpdf(modelparams.hiddennodes[h].psi_node.dist, site.psi)
-		end
+
+		
 		#=
 		if site.bond_angle1 > -100.0
 			ll += logpdf(modelparams.hiddennodes[h].bond_angle1_node.dist, site.bond_angle1)
@@ -1349,10 +1371,26 @@ end
 function observationlikelihood(protein::Protein, col::Int, modelparams::ModelParams)
 	if 1 <= col <= length(protein.sites)
 	    v = zeros(Float64, modelparams.numhiddenstates)
+	    Z = -Inf
 		for h=1:modelparams.numhiddenstates
-			v[h] = siteloglikelihood(protein.sites[col], h, modelparams)
+			v[h] = siteloglikelihood(protein.sites[col], h, protein.sites[col].aa, modelparams)
+			Z = CommonUtils.logsumexp(Z, v[h])
 		end
-		return exp.(v .- maximum(v))
+		return exp.(v .- Z)
+	else
+		return ones(Float64, modelparams.numhiddenstates)
+	end
+end
+
+function observationlikelihood_aa(protein::Protein, col::Int, h::Int, modelparams::ModelParams)
+	if 1 <= col <= length(protein.sites)
+	    v = zeros(Float64, modelparams.alphabet)
+	    Z = -Inf
+		for aa=1:modelparams.alphabet
+			v[aa] = siteloglikelihood(protein.sites[col], h, aa, modelparams)
+			Z = CommonUtils.logsumexp(Z, v[aa])
+		end
+		return exp.(v .- Z)
 	else
 		return ones(Float64, modelparams.numhiddenstates)
 	end
@@ -1364,7 +1402,7 @@ function observationloglikelihood(proteins::Array{Protein,1}, nodelist::Array{Tr
 	for node in nodelist
 		for col=1:min(length(node.data.branchpath.paths), length(node.data.protein))
 			h = node.data.branchpath.paths[col][end]				 
-			ll += siteloglikelihood(proteins[node.seqindex].sites[col], h, modelparams)
+			ll += siteloglikelihood(proteins[node.seqindex].sites[col], h, proteins[node.seqindex].sites[col].aa, modelparams)
 		end
 	end
 	return ll

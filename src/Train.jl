@@ -1,4 +1,5 @@
 include("Main.jl")
+using Printf
 
 function train(parsed_args=Dict{String,Any}()) 
 	rng = MersenneTwister(85649871544631)
@@ -34,7 +35,8 @@ function train(parsed_args=Dict{String,Any}())
 
 	trainingexamples = Tuple[]
 
-	family_directories = ["../data/curated/curated_rna/", "../data/selected_families/"]
+	#family_directories = ["../data/curated/curated_rna/", "../data/selected_families/"]
+	family_directories = ["../data/selected_families/", "../data/curated/curated_rna/"]
 	for family_dir in family_directories
 		family_files = filter(f -> endswith(f,".fam"), readdir(family_dir))
 		for family_file in family_files
@@ -194,6 +196,9 @@ function train(parsed_args=Dict{String,Any}())
 							push!(modelparams.hiddennodes[h].phi_node.data, site.phi)
 							push!(modelparams.hiddennodes[h].omega_node.data, site.omega)
 							push!(modelparams.hiddennodes[h].psi_node.data, site.psi)
+							push!(modelparams.hiddennodes[h].phi_nodes[site.aa].data, site.phi)
+							push!(modelparams.hiddennodes[h].omega_nodes[site.aa].data, site.omega)
+							push!(modelparams.hiddennodes[h].psi_nodes[site.aa].data, site.psi)
 							push!(modelparams.hiddennodes[h].bond_angle1_node.data, site.bond_angle1)
 							push!(modelparams.hiddennodes[h].bond_angle2_node.data, site.bond_angle2)
 							push!(modelparams.hiddennodes[h].bond_angle3_node.data, site.bond_angle3)
@@ -219,24 +224,31 @@ function train(parsed_args=Dict{String,Any}())
 		else
 			estimate_hidden_mixture(modelparams)
 		end
-		for h=1:modelparams.numhiddenstates
+
+		for h=1:modelparams.numhiddenstates			
 			estimate_categorical(modelparams.hiddennodes[h].aa_node, 1.0)
+			for aa=1:modelparams.alphabet
+				estimatevonmises(modelparams.hiddennodes[h].phi_nodes[aa])
+				estimatevonmises(modelparams.hiddennodes[h].psi_nodes[aa])
+				estimatevonmises(modelparams.hiddennodes[h].omega_nodes[aa])
+				println(iter,"\t",h,"\t",aminoacids[aa],"\t",@sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]),"\t",modelparams.hiddennodes[h].phi_nodes[aa].mu,"\t",modelparams.hiddennodes[h].phi_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].phi_nodes[aa].N)		
+				println(iter,"\t",h,"\t",aminoacids[aa],"\t",@sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]),"\t",modelparams.hiddennodes[h].psi_nodes[aa].mu,"\t",modelparams.hiddennodes[h].psi_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].psi_nodes[aa].N)
+				println(iter,"\t",h,"\t",aminoacids[aa],"\t",@sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]),"\t",modelparams.hiddennodes[h].omega_nodes[aa].mu,"\t",modelparams.hiddennodes[h].omega_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].omega_nodes[aa].N)				
+			end
+			
 			estimatevonmises(modelparams.hiddennodes[h].phi_node)
 			estimatevonmises(modelparams.hiddennodes[h].psi_node)
-			estimatevonmises(modelparams.hiddennodes[h].omega_node)
+			estimatevonmises(modelparams.hiddennodes[h].omega_node)			
 			estimatevonmises(modelparams.hiddennodes[h].bond_angle1_node)
 			estimatevonmises(modelparams.hiddennodes[h].bond_angle2_node)
 			estimatevonmises(modelparams.hiddennodes[h].bond_angle3_node)
-			estimate_multivariate_node(modelparams.hiddennodes[h].bond_lengths_node)
-			println(iter,"\t",h,"\t",modelparams.hiddennodes[h].phi_node.mu,"\t",modelparams.hiddennodes[h].phi_node.kappa,"\t",modelparams.hiddennodes[h].phi_node.N)		
-			println(iter,"\t",h,"\t",modelparams.hiddennodes[h].psi_node.mu,"\t",modelparams.hiddennodes[h].psi_node.kappa,"\t",modelparams.hiddennodes[h].psi_node.N)
-			println(iter,"\t",h,"\t",modelparams.hiddennodes[h].omega_node.mu,"\t",modelparams.hiddennodes[h].omega_node.kappa,"\t",modelparams.hiddennodes[h].omega_node.N)
 			println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle1_node.mu,"\t",modelparams.hiddennodes[h].bond_angle1_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle1_node.N)
 			println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle2_node.mu,"\t",modelparams.hiddennodes[h].bond_angle2_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle2_node.N)
 			println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle3_node.mu,"\t",modelparams.hiddennodes[h].bond_angle3_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle3_node.N)
 			println(iter,"\t",h,"\t", modelparams.hiddennodes[h].bond_lengths_node.mvn.μ)
+			estimate_multivariate_node(modelparams.hiddennodes[h].bond_lengths_node)
 			for aa=1:20
-				println(iter,"\t",h,"\t",aminoacids[aa],"\t",modelparams.hiddennodes[h].aa_node.probs[aa])
+				println(iter,"\t",h,"\t",aminoacids[aa],"\t", @sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]))
 			end			
 		end
 		

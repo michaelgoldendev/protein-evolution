@@ -2,6 +2,7 @@ module EMNodes
 	using Distributions
 	using Random
 	using LinearAlgebra
+	using NLopt
 
 	export SiteObservation
 	mutable struct SiteObservation
@@ -119,11 +120,12 @@ module EMNodes
 		kappa::Float64
 		dist::VonMises
 		data::Array{Float64,1}
+		kappa_prior::ContinuousUnivariateDistribution
 
 		function VonMisesNode()
 			mu = 0.0
 			kappa = 1e-5
-			new(0.0, 0.0, 0.0, mu, kappa, VonMises(mu, kappa), Float64[])
+			new(0.0, 0.0, 0.0, mu, kappa, VonMises(mu, kappa), Float64[], Exponential(2.0))
 		end
 	end
 
@@ -141,7 +143,6 @@ module EMNodes
 				end
 			end		
 		end
-		vonmises_node.data = Float64[]
 
 		if vonmises_node.N >= 2
 			rx = vonmises_node.rx
@@ -169,6 +170,36 @@ module EMNodes
 			vonmises_node.kappa = kappa
 			vonmises_node.dist = VonMises(mu, min(700.0, kappa))
 		end
+		optimizeprior(vonmises_node)
+		vonmises_node.data = Float64[]
+
+	end
+
+	function loglik_and_prior(vonmises_node::VonMisesNode, kappa::Float64)
+		loglik = loglikelihood(VonMises(vonmises_node.mu, kappa), vonmises_node.data) + logpdf(vonmises_node.kappa_prior, kappa)
+		#println(loglik,"\t",kappa)
+		return loglik
+	end
+
+	function optimizeprior(vonmises_node::VonMisesNode)
+		println("start value: ", vonmises_node.kappa, "\t", length(vonmises_node.data))
+		if length(vonmises_node.data) == 0.0
+			vonmises_node.kappa = 1e-5
+		else
+			opt = Opt(:LN_COBYLA,1)
+			localObjectiveFunction = ((param, grad) -> loglik_and_prior(vonmises_node, param[1]))
+			lower = ones(Float64, 1)*1e-5
+			upper = ones(Float64, 1)*700.0
+			lower_bounds!(opt, lower)
+			upper_bounds!(opt, upper)
+			xtol_rel!(opt,1e-5)
+			maxeval!(opt, 1000)
+			max_objective!(opt, localObjectiveFunction)
+			(minf,minx,ret) = optimize(opt, Float64[min(vonmises_node.kappa, 700.0)])
+			vonmises_node.kappa = minx[1]
+		end
+		vonmises_node.dist = VonMises(vonmises_node.mu, vonmises_node.kappa)
+		println("end value: ", vonmises_node.kappa)
 	end
 
 	export vonmisesrand
@@ -206,10 +237,16 @@ module EMNodes
 		bond_angle2_node::VonMisesNode
 		bond_angle3_node::VonMisesNode
 		bond_lengths_node::MultivariateNode
+		phi_nodes::Array{VonMisesNode,1}
+		psi_nodes::Array{VonMisesNode,1}
+		omega_nodes::Array{VonMisesNode,1}
 	    #aadist::Array{Float64,1}
 
 	    function HiddenNode()
-	        new(CategoricalNode(20),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(), MultivariateNode())
+	    	phi_nodes = VonMisesNode[VonMisesNode() for aa=1:20]
+	    	psi_nodes = VonMisesNode[VonMisesNode() for aa=1:20]
+	    	omega_nodes = VonMisesNode[VonMisesNode() for aa=1:20]
+	        new(CategoricalNode(20),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(), MultivariateNode(), phi_nodes, psi_nodes, omega_nodes)
 	    end
 	end
 end
