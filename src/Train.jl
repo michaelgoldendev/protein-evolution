@@ -1,5 +1,4 @@
 include("Main.jl")
-using Printf
 
 function train(parsed_args=Dict{String,Any}()) 
 	rng = MersenneTwister(85649871544631)
@@ -15,28 +14,50 @@ function train(parsed_args=Dict{String,Any}())
 	independentsites = parsed_args["independentsites"]
 	usestructureobservations = !parsed_args["sequenceonly"]
 	#family_dir = "../data/families/"
-	
+	dosamplesiterates = parsed_args["samplesiterates"]
+	uselgrates = parsed_args["uselgrates"]
 
 	modelparams = ModelParams(LGmatrix,numhiddenstates,1.0)	
 	maxloglikelihood = -Inf
 	noimprovement = 0
 
 	outputmodelname = string("_h.",modelparams.numhiddenstates)
+	outputmodelname = string(outputmodelname,".thresh",sitethreshold)
+	if dosamplesiterates
+		modelparams.rate_alpha = 0.5
+		modelparams.rates = discretizegamma(modelparams.rate_alpha, 1.0/modelparams.rate_alpha, modelparams.numrates)
+		outputmodelname = string(outputmodelname,".samplesiterates")
+	end
+	if uselgrates
+		outputmodelname = string(outputmodelname,".lgrates")
+	end
+	if !samplebranchlengths
+		outputmodelname = string(outputmodelname,".nobranchsampling")
+	end
 	if independentsites
 		outputmodelname = string(outputmodelname,".independentsites")
 	end
+
+	modelparams.usestructureobservations = usestructureobservations
+	modelparams.hidden_conditional_on_aa = parsed_args["angles-cond-aa"]
+	if modelparams.hidden_conditional_on_aa
+		outputmodelname = string(outputmodelname,".anglescondaa")
+	end 
+	modelparams.ratemode = parsed_args["ratemode"]
+	outputmodelname = string(outputmodelname,".ratemode", modelparams.ratemode)
+
 	modelfile = string("models/model", outputmodelname, ".model")
 	tracefile = string("models/trace", outputmodelname,".log")
 
 	if parsed_args["loadfromcache"]
 		modelparams = Serialization.deserialize(open(modelfile, "r"))
 	end
-	modelparams.usestructureobservations = usestructureobservations
+	
 
 	trainingexamples = Tuple[]
 
-	#family_directories = ["../data/curated/curated_rna/", "../data/selected_families/"]
-	family_directories = ["../data/selected_families/", "../data/curated/curated_rna/"]
+	family_directories = ["../data/curated/curated_rna/", "../data/selected_families/"]
+	#family_directories = ["../data/selected_families/", "../data/curated/curated_rna/"]
 	for family_dir in family_directories
 		family_files = filter(f -> endswith(f,".fam"), readdir(family_dir))
 		for family_file in family_files
@@ -70,13 +91,25 @@ function train(parsed_args=Dict{String,Any}())
 		end
 	end
 
+	
+	for i=1:5
+		for (proteins,nodelist,json_family,sequences) in trainingexamples
+			numcols = length(proteins[1])		
+		
+			randcols = shuffle(rng, Int[i for i=1:numcols])
+			for col in randcols
+				samplepaths_seperate_new(rng,col,proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates, accept_everything=true)
+			end
+		end
+	end 
+
 	for i=1:1
 		for (proteins,nodelist,json_family,sequences) in trainingexamples
 			numcols = length(proteins[1])		
 		
 			randcols = shuffle(rng, Int[i for i=1:numcols])
 			for col in randcols
-				samplepaths(rng,col,proteins,nodelist, modelparams)
+				samplepaths_seperate_new(rng,col,proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates)
 			end
 		end
 	end	
@@ -116,7 +149,7 @@ function train(parsed_args=Dict{String,Any}())
 				randcols = shuffle(rng, Int[i for i=1:numcols])
 				for col in randcols
 					if accepted[col] < sitethreshold || i % 20 == 0 || (col > 1 && accepted[col-1] < sitethreshold) || (col < numcols && accepted[col+1] < sitethreshold) 
-						a1,a2,a3,a4, hidden_accepted, aa_accepted = samplepaths(rng,col,proteins,nodelist, modelparams)
+						a1,a2,a3,a4, hidden_accepted, aa_accepted = samplepaths_seperate_new(rng,col,proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates)
 						accepted_hidden += a1
 						accepted_hidden_total += a2
 						accepted_aa += a3
@@ -226,27 +259,28 @@ function train(parsed_args=Dict{String,Any}())
 		end
 
 		for h=1:modelparams.numhiddenstates			
-			estimate_categorical(modelparams.hiddennodes[h].aa_node, 1.0)
-			for aa=1:modelparams.alphabet
-				estimatevonmises(modelparams.hiddennodes[h].phi_nodes[aa])
-				estimatevonmises(modelparams.hiddennodes[h].psi_nodes[aa])
-				estimatevonmises(modelparams.hiddennodes[h].omega_nodes[aa])
-				println(iter,"\t",h,"\t",aminoacids[aa],"\t",@sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]),"\t",modelparams.hiddennodes[h].phi_nodes[aa].mu,"\t",modelparams.hiddennodes[h].phi_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].phi_nodes[aa].N)		
-				println(iter,"\t",h,"\t",aminoacids[aa],"\t",@sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]),"\t",modelparams.hiddennodes[h].psi_nodes[aa].mu,"\t",modelparams.hiddennodes[h].psi_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].psi_nodes[aa].N)
-				println(iter,"\t",h,"\t",aminoacids[aa],"\t",@sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]),"\t",modelparams.hiddennodes[h].omega_nodes[aa].mu,"\t",modelparams.hiddennodes[h].omega_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].omega_nodes[aa].N)				
-			end
-			
+			estimate_categorical(modelparams.hiddennodes[h].aa_node, 1.0)		
 			estimatevonmises(modelparams.hiddennodes[h].phi_node)
 			estimatevonmises(modelparams.hiddennodes[h].psi_node)
 			estimatevonmises(modelparams.hiddennodes[h].omega_node)			
 			estimatevonmises(modelparams.hiddennodes[h].bond_angle1_node)
 			estimatevonmises(modelparams.hiddennodes[h].bond_angle2_node)
-			estimatevonmises(modelparams.hiddennodes[h].bond_angle3_node)
+			estimatevonmises(modelparams.hiddennodes[h].bond_angle3_node)			
 			println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle1_node.mu,"\t",modelparams.hiddennodes[h].bond_angle1_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle1_node.N)
 			println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle2_node.mu,"\t",modelparams.hiddennodes[h].bond_angle2_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle2_node.N)
 			println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle3_node.mu,"\t",modelparams.hiddennodes[h].bond_angle3_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle3_node.N)
 			println(iter,"\t",h,"\t", modelparams.hiddennodes[h].bond_lengths_node.mvn.μ)
 			estimate_multivariate_node(modelparams.hiddennodes[h].bond_lengths_node)
+			for aa=1:modelparams.alphabet
+				estimatevonmises(modelparams.hiddennodes[h].phi_nodes[aa])
+				estimatevonmises(modelparams.hiddennodes[h].psi_nodes[aa])
+				estimatevonmises(modelparams.hiddennodes[h].omega_nodes[aa])
+				if modelparams.hidden_conditional_on_aa
+					println(iter,"\t",h,"\t",aminoacids[aa],"\t",@sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]),"\t",modelparams.hiddennodes[h].phi_nodes[aa].mu,"\t",modelparams.hiddennodes[h].phi_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].phi_nodes[aa].N)		
+					println(iter,"\t",h,"\t",aminoacids[aa],"\t",@sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]),"\t",modelparams.hiddennodes[h].psi_nodes[aa].mu,"\t",modelparams.hiddennodes[h].psi_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].psi_nodes[aa].N)
+					println(iter,"\t",h,"\t",aminoacids[aa],"\t",@sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]),"\t",modelparams.hiddennodes[h].omega_nodes[aa].mu,"\t",modelparams.hiddennodes[h].omega_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].omega_nodes[aa].N)				
+				end
+			end
 			for aa=1:20
 				println(iter,"\t",h,"\t",aminoacids[aa],"\t", @sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]))
 			end			
@@ -400,7 +434,9 @@ function train(parsed_args=Dict{String,Any}())
 			end	
 			println("AQ",aatransitionrates)		
 			println("LG",[sum(LGexchangeability[aa,:]) for aa=1:20])
-			modelparams.aa_exchangeablities = aatransitionrates
+			if !uselgrates
+				modelparams.aa_exchangeablities = aatransitionrates
+			end
 
 			#modelparams.rates = rate_cat_events./rate_cat_times
 			#println("RATES ", modelparams.rates)
@@ -485,6 +521,15 @@ function parse_training_commandline()
         	help = "sample branch lengths during training"
       	    arg_type = Bool
       	    default = true
+      	"--samplesiterates"
+         	help = ""
+          	action = :store_true
+  	 	"--angles-cond-aa"
+         	help = "angles depend on amino acids"
+          	action = :store_true
+        "--ratemode"
+        	arg_type = Int
+         	default = 1
      	"--independentsites"
          	help = "ignores all neighbouring dependencies, just learns a mixture model"
           	action = :store_true
@@ -492,6 +537,9 @@ function parse_training_commandline()
          	help = "use only amino acid characters as observations, ignores all structure observations"
           	action = :store_true
       	"--loadfromcache"
+         	help = ""
+          	action = :store_true
+      	"--uselgrates"
          	help = ""
           	action = :store_true
 	        

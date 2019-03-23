@@ -9,20 +9,32 @@ function plot_nodes(modelfile)
 	nrows = 2
 	ncols = 3
 
+	hiddenfreqs = (modelparams.transitionprobs^100)[1,:]
+
 	for h=1:modelparams.numhiddenstates
 		fig = plt[:figure](figsize=(10, 6))
 		plt[:clf]
 		plt[:rc]("text", usetex=true)
 		plt[:rc]("font", family="serif")
 
-		plt[:suptitle]("Hidden state $(h)", fontsize=16)
+		plt[:suptitle](string("Hidden state $(h) (", @sprintf("%0.1f", hiddenfreqs[h]*100.0), "\\%)"), fontsize=16)
 
 		N = 500
 		mat = zeros(Float64, N, N)
-		for (i, x) in enumerate(range(-pi,stop=pi,length=N))
-			for (j, y) in enumerate(range(-pi,stop=pi,length=N))
-				mat[N-j+1,i] = pdf(modelparams.hiddennodes[h].phi_node.dist, x)
-				mat[N-j+1,i] *= pdf(modelparams.hiddennodes[h].psi_node.dist, y)
+		if modelparams.hidden_conditional_on_aa
+			for aa=1:20
+				for (i, x) in enumerate(range(-pi,stop=pi,length=N))
+					for (j, y) in enumerate(range(-pi,stop=pi,length=N))
+						mat[N-j+1,i] += pdf(modelparams.hiddennodes[h].phi_nodes[aa].dist, x)*pdf(modelparams.hiddennodes[h].psi_nodes[aa].dist, y)*modelparams.hiddennodes[h].aa_node.probs[aa]
+					end
+				end
+			end
+		else
+			for (i, x) in enumerate(range(-pi,stop=pi,length=N))
+				for (j, y) in enumerate(range(-pi,stop=pi,length=N))
+					mat[N-j+1,i] = pdf(modelparams.hiddennodes[h].phi_node.dist, x)
+					mat[N-j+1,i] *= pdf(modelparams.hiddennodes[h].psi_node.dist, y)
+				end
 			end
 		end
 		ax = plt[:subplot](nrows, ncols, 1, aspect="equal")
@@ -38,6 +50,14 @@ function plot_nodes(modelfile)
 		
 		ax = plt[:subplot](nrows, ncols, 2, aspect="auto")
 		x = range(-pi,stop=pi,length=N)
+		y = zeros(Float64, N)
+		if modelparams.hidden_conditional_on_aa
+			for aa=1:20
+				y = y .+ pdf.(modelparams.hiddennodes[h].omega_nodes[aa].dist, x)*modelparams.hiddennodes[h].aa_node.probs[aa]
+			end
+		else
+			y = pdf.(modelparams.hiddennodes[h].omega_node.dist, x)
+		end
 		y = pdf.(modelparams.hiddennodes[h].omega_node.dist, x)
 		ax[:plot](x, y, color="blue", linewidth=2.0, linestyle="-")
 		ax[:set_xlim](-pi, pi)

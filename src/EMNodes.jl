@@ -175,19 +175,20 @@ module EMNodes
 
 	end
 
-	function loglik_and_prior(vonmises_node::VonMisesNode, kappa::Float64)
-		loglik = loglikelihood(VonMises(vonmises_node.mu, kappa), vonmises_node.data) + logpdf(vonmises_node.kappa_prior, kappa)
+	function loglik_and_prior(vonmises_node::VonMisesNode, data::Array{Float64,1}, kappa::Float64)
+		loglik = loglikelihood(VonMises(vonmises_node.mu, kappa), data) + logpdf(vonmises_node.kappa_prior, kappa)
 		#println(loglik,"\t",kappa)
 		return loglik
 	end
 
 	function optimizeprior(vonmises_node::VonMisesNode)
-		println("start value: ", vonmises_node.kappa, "\t", length(vonmises_node.data))
-		if length(vonmises_node.data) == 0.0
+		println("start value: ", vonmises_node.kappa, "\t", vonmises_node.N)
+		if vonmises_node.N == 0
 			vonmises_node.kappa = 1e-5
 		else
 			opt = Opt(:LN_COBYLA,1)
-			localObjectiveFunction = ((param, grad) -> loglik_and_prior(vonmises_node, param[1]))
+			data = filter(x -> x > -100.0, vonmises_node.data)
+			localObjectiveFunction = ((param, grad) -> loglik_and_prior(vonmises_node, data, param[1]))
 			lower = ones(Float64, 1)*1e-5
 			upper = ones(Float64, 1)*700.0
 			lower_bounds!(opt, lower)

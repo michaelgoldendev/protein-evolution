@@ -241,8 +241,7 @@ where the sum runs over all possible hidden state sequences and can be calculate
 \end{comment}
 
 \subsubsection{Evolutionary model}
-Thus far we have only considered a single protein, in this section we outline how the evolution of multipole phylogenetically related proteins is modelled.
-
+Thus far we have only considered a single protein. In this section we outline how multiple phylogenetically related proteins are modelled evolutionarily. Following \citet{choi2008basing} we construct a rate matrix that represents changes between two sequences, $a$ and $b$, instead of character states, such as amino acids, as is typical of substitution models. Furthermore, each sequence position combines a hidden state ($h_i$), an amino acid ($aa_i$), and a set of structural observations ($x_i$), into a joint character state ($h^{s}_i,aa^{s}_i,x^{s}_i$), where $s$ refers to a particular sequence. The rate matrix is given as follows:
 \begin{equation}
 \label{eq:ratematrix}
 M_{ab}=\begin{cases}
@@ -264,16 +263,19 @@ M_{ab}=\begin{cases}
 \end{cases}
 \end{equation}
 
-where $S$ is a symmetric $20\times{20}$ amino acid exchangeability matrix, and $R$ is a symmetric $h\times{h}$ hidden state exchangeability matrix. 
+where $i$ is the position that differs between sequence $a$ and $b$, $S$ is a symmetric $20\times{20}$ amino acid exchangeability matrix, and $R$ is a symmetric $h\times{h}$ hidden state exchangeability matrix. The term, $\frac{\Pi(b)}{\Pi(a)}$, weights each hidden state or amino acid change, such that sequences are visited with probability given by it's probability under the hidden Markov model multiplied by the amino acid sequence probability. This gives an evolutionary model on amino acid sequences and protein structures that accounts for neighbouring dependencies between adjacent sites and introduces temporal evolutionary dependencies between proteins.
 
+The evolutionary dependencies between structures is introduced via the hidden states, thus avoiding having to directly implement an evolutionary process on structure, which is cumbersome given the continuous nature of the structural observations. We have previously developed a continuous diffusion process on angles for modelling protein dihedral angles, \citep{Garcia-Portugues:ads, Golden2017}, however,  protein backbone angles and bond lengths do not evolve in a continuous fashion, rather they are expected to 'jump' when changes occur. The hidden states capture this jump behaviour.
+ 
 Note that proteins $P_a$ and $P_b$ referred to in the ratio $\frac{\Pi(b)}{\Pi(a)}$ in Equation~\ref{eq:ratematrix} always differ at exactly one site, implying that at most three terms in Equation~\ref{eq:proteinlikelihood} need to be considered when computing the ratio. 
 
-Additionally note, although the summation in Equation~\ref{eq:ratematrix} appears to involve an exponential number of terms, most terms are equal to zero, except those that differ from $P_a$ at one position. Furthermore, an amino acid transition and a hidden state transition are not permitted to occur simulatenously, further reducing the number of terms that are summed ($19n$ amino acid terms, and $(h-1)n$ hidden state terms).
+Additionally note, although the summation in Equation~\ref{eq:ratematrix} appears to involve an exponential number of terms, most terms are equal to zero, except those that differ from $P_a$ at one position. Furthermore, an amino acid transition and a hidden state transition are not permitted to occur simulatenously, further reducing the number of terms that are summed ($19n$ amino acid terms plus $(h-1)n$ hidden state terms).
 
 
 \paragraph{Stationary probability of proteins}
 Following \citet{choi2008basing}, and by construction, the stationary probability of a protein $a$ is given by:
 \begin{equation}
+\label{eq:stationary_dist}
 p(P_a|\theta) = \frac{ \Pi(a) \underset{i}{\prod}\pi^{h^{a}_{i}}_{aa^{a}_{i}} }{ \sum_{k} \Pi(k) \underset{i}{\prod}\pi^{h^{k}_{i}}_{aa^{k}_{i}} } 
 \end{equation}
 
@@ -286,10 +288,10 @@ p(P_a|\theta)M_{ab} = p(P_b|\theta)M_{ba}
 
 
 \paragraph{Dataset likelihood}
-
 \begin{align}
-p(\mathcal{D}_d|\mathcal{B}_d,\Upsilon_{d},\theta)=\prod_{b \in \mathcal{B}_d} p\big(X_{b}^{i}\,|\,H_{b}^{i},S_{b}^{i},\theta\big) \times \notag\\ 
-\big[ e^{q_{last}t_{b}}\prod_{i\rightarrow j}q_{ii}e^{-q_{ii}(t_{b}-t_{b})}q_{ij}/q_{ii} \big]
+p(\mathcal{D}_d|\mathcal{T}_d,\theta)=\notag\\
+\prod_{b \in \mathcal{T}_d} p\big(X_{s}^{i}(t_{end})\,|\,H_{s}^{i}(t_{end}),S_{s}^{i}(t_{end}),\theta\big)\notag\\ 
+\times e^{M_{b_{n}}(t_{end}-t_{n})} \big[\prod_{k=1}^{n}  e^{-M_{b_{k}b_{k}}(t_{k}-t_{k-1})} M_{b_{k-1}b_{k}} \big]
 \end{align}
 
 \subsection{Model training}
@@ -301,7 +303,7 @@ Stochastic EM (StEM, \citet{gilks1995markov}) was used to train the model. StEM 
 
 Sampling was used in the E-step to sample branch paths and times. In other words, at iteration $k$ for each dataset, $d$, consisting of an aligned set of proteins, $\mathcal{D}_d$,  and a corresponding phylogenetic tree, $\mathcal{T}_d$, we draw samples, from the following joint-distribution:
 \begin{align*}
-Z_{d}^{(k)}\sim p(\mathcal{B}_d,\Upsilon_{d}|\mathcal{D}_d,\mathcal{T}_d,\Psi^{(k)}).
+Z_{d}^{(k)}\sim p(\mathcal{T}_d|\mathcal{D}_d,\Psi^{(k)}).
 \end{align*}
 
 In the M-step the samples from the previous E-step, were used to update the hidden node parameters ($\hat{\Psi}$) using efficient sufficient statistics (ESSs).

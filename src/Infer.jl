@@ -2,6 +2,63 @@ include("Main.jl")
 
 using TraitAssociation
 
+function transitionmatrix(sequences::Array{String,1}, curri::Int, nexti::Int)
+	transprobs = zeros(Float64,20,20)
+	for seq in sequences
+		aa1 = indexof(string(seq[curri]), aminoacids)
+		aa2 = indexof(string(seq[nexti]), aminoacids)
+		transprobs[aa1,aa2] += 1.0
+	end 
+	for aa=1:20
+		transprobs[aa,:] = transprobs[aa,:]/(sum(transprobs[aa,:]) .+ 1e-20)
+	end
+	return transprobs
+end
+
+function viterbi(sequences::Array{String,1})
+	numcols = length(sequences[1])
+	liks = zeros(Float64,numcols,20)
+	for seq in sequences
+		liks[1,indexof(string(seq[1]), aminoacids)] += 1.0
+	end
+	liks[1,:] = log.(liks[1,:]/sum(liks[1,:]))
+	maxindices = zeros(Int,numcols,20)
+
+	for nexti=2:numcols
+		curri = nexti-1
+		transprobs = log.(transitionmatrix(sequences, curri, nexti))
+		for nextaa=1:20
+			v = liks[curri,:] .+ transprobs[:,nextaa]
+			liks[nexti,nextaa], maxindices[nexti,nextaa] = findmax(v)
+		end
+	end
+	#println(maxindices)
+	lastaa = findmax(liks[numcols,:])[2]	
+	#println(lastaa)
+	maxseq = string(aminoacids[lastaa])
+	for col=numcols:-1:2
+		lastaa = maxindices[col,lastaa]
+		maxseq = string(aminoacids[lastaa], maxseq)
+		#println(col,"\t",lastaa)
+	end
+
+	#println(liks)
+	#rintln(transitionmatrix(sequences, 1, 2))
+	return maxseq
+end
+
+function calculatematch(realseq::String, predseq::String)
+	countmatches = 0.0
+	counttotal = 0.0
+    for (aa1,aa2) in zip(predseq,realseq)
+    	if aa1 == aa2
+    		countmatches += 1.0
+    	end
+    	counttotal += 1.0
+    end
+    return countmatches/counttotal
+end
+
 function infer(parsed_args=Dict{String,Any}())
 	rng = MersenneTwister(58498012421121)
 	Random.seed!(12345)
@@ -13,11 +70,11 @@ function infer(parsed_args=Dict{String,Any}())
 	modelparams = Serialization.deserialize(fin)
 	close(fin)
 
-	#samplebranchlengths = parsed_args["samplebranchlengths"]
-	samplebranchlengths = false
-	dosamplesiterates = false
+	samplebranchlengths = parsed_args["samplebranchlengths"]
+	dosamplesiterates = parsed_args["samplesiterates"]
 
 	blindscores = Dict{String,Array{Float64,1}}()
+	blindscores_current = Dict{String,Float64}()
 	blindnodenames = parsed_args["blindproteins"] != nothing ? split(parsed_args["blindproteins"], r",|;") : String[]
 	if length(blindnodenames) > 0
 		println("Blinding protein sequences and structures: ", join(blindnodenames, ", "))
@@ -25,6 +82,14 @@ function infer(parsed_args=Dict{String,Any}())
 
 	modelparams.scalingfactor = modelparams.branchscalingfactor
 	println("Scaling factor: ", modelparams.scalingfactor)
+
+	modelparams.numrates = 20
+	if dosamplesiterates
+		modelparams.rate_alpha = 0.25
+		modelparams.rates = discretizegamma(modelparams.rate_alpha, 1.0/modelparams.rate_alpha, modelparams.numrates)
+		modelparams.rate_freqs = ones(Float64,modelparams.numrates)/modelparams.numrates		
+		reset_matrix_cache(modelparams)
+	end
 
 	#=
 	family_dir = "../data/families/"
@@ -57,17 +122,18 @@ function infer(parsed_args=Dict{String,Any}())
 	#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/hiv/curated6.fasta"), newickfile=abspath("../data/hiv/curated6.nwk"), blindnodenames=blindnodenames)
 	
 	
-	fastafile = abspath("../data/influenza_a/HA/selection3.fasta")
-	newickfile= abspath("../data/influenza_a/HA/selection3.fasta.nwk")	
+	#fastafile = abspath("../data/influenza_a/HA/selection3.fasta")
+	#newickfile= abspath("../data/influenza_a/HA/selection3.fasta.nwk")	
 	#newickfile= abspath("tree.mean.branch.consensus.nwk")		
-	blindnodenames = String["6n41.pdb_1951"]
+	#blindnodenames = String["6n41.pdb_1951"]
+	#modelparams.rate_alpha = 0.153
 	#blindnodenames = String[]
 
 	
-	#fastafile = abspath("../data/hiv/curated6.fasta")
-	#newickfile=abspath("../data/hiv/curated6.nwk")	
+	fastafile = abspath("../data/hiv/curated6.fasta")
+	newickfile=abspath("../data/hiv/curated6.nwk")	
 	#newickfile=abspath("tree.mean.branch.consensus.nwk")	
-	#blindnodenames = String["B.US.1978.SF4.KJ704795"]
+	blindnodenames = String["B.US.1978.SF4.KJ704795"]
 	#blindnodenames = String[]
 
 	#fastafile = abspath("../data/test_data/hiv_pol_selection.fasta")
@@ -75,7 +141,7 @@ function infer(parsed_args=Dict{String,Any}())
 	#blindnodenames = String["CPZ.GA.1988.GAB1.X52154"]
 
 	#fastafile = abspath("../data/test_data/westnile_dengue_selection.fasta")
-	#newickfile=abspath("../data/test_data/westnile_dengue_selection.fasta.nwk")	
+	#newickfile=abspath("../data/test_data/westnile_dengue_selection.fasta.nwk")
 	#blindnodenames = String["AEN02430.1"]
 
 	#fastafile = abspath("../data/test_data/maise_streak_virus_coat_protein_selection.fasta")
@@ -86,7 +152,7 @@ function infer(parsed_args=Dict{String,Any}())
 	proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, fastafile, newickfile=newickfile, blindnodenames=blindnodenames)
 	
 	if length(blindnodenames) > 0
-		LGreconstruction_score = TraitAssociation.pathreconstruction(fastafile,newickfile,blindnodenames,20)
+		LGreconstruction_score = TraitAssociation.pathreconstruction(fastafile,newickfile,blindnodenames,modelparams.numrates)
 		println("LGreconstruction_score ",LGreconstruction_score)
 	end
 
@@ -106,9 +172,16 @@ function infer(parsed_args=Dict{String,Any}())
 	numcols = length(proteins[1])
 	mcmcwriter = open("$(outputprefix).log", "w")
 	treewriter = open("$(outputprefix).mcmc.log", "w")
-	print(mcmcwriter, "iter\ttotalll\tpathll\tsequencell\tobservationll\tscalingfactor")
+	print(mcmcwriter, "iter\ttotalll\tpathll\tsequencell\tobservationll\tscalingfactor\talpha")
+
+	blindseq_writers = Dict{String,Any}()
 	for blindnodename in blindnodenames
 		print(mcmcwriter,"\t",blindnodename)
+		blindseq_writers[blindnodename] = open(string("$(outputprefix).", blindnodename,".fasta"), "w")
+	end
+	for blindnodename in blindnodenames
+		print(mcmcwriter,"\t",string("majorityseq:", blindnodename))
+		print(mcmcwriter,"\t",string("viterbi:", blindnodename))
 	end
 	for node in nodelist
 		if !isroot(node)
@@ -147,8 +220,11 @@ function infer(parsed_args=Dict{String,Any}())
 		end
 	end
 	println(mcmcwriter)
+	
+	majority = Dict{String, Array{String,1}}()
 	for node in nodelist
 		if node.name in blindnodenames
+			majority[node.name] = String[]
 			node.data.fixbranchlength = true
 			if !isnull(node.parent)
 				get(node.parent).data.fixbranchlength = true
@@ -163,6 +239,10 @@ function infer(parsed_args=Dict{String,Any}())
 	reset_matrix_cache(modelparams)
 	count_hidden_acceptance = zeros(Int, numcols)
 	count_hidden_total = zeros(Int, numcols)
+
+	maxaugmentedll = -Inf
+	blindscoresatmax = Float64[]
+	ratetotals = zeros(Float64, numcols)
 	for iter=1:10000
 
 		if samplebranchlengths
@@ -179,7 +259,9 @@ function infer(parsed_args=Dict{String,Any}())
 				end
 			end
 			println("$(iter).1 Sampling branch lengths DONE")
-		elseif iter > 10 && parsed_args["samplescalingfactor"]
+		end
+
+		if iter > 10 && parsed_args["samplescalingfactor"]
 			proposescalingfactor(rng, nodelist, Int[col for col=1:numcols], modelparams)
 			reset_matrix_cache(modelparams)
 		end
@@ -188,15 +270,25 @@ function infer(parsed_args=Dict{String,Any}())
 		randcols = shuffle(rng, Int[i for i=1:numcols])
 		for col in randcols
 			
-			#if iter % 2 == 0
-			a1,a2,a3,a4, accepted_hidden, accepted_aa = samplepaths(rng, col, proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates)
-			if accepted_hidden
-				count_hidden_acceptance[col] += 1.0
-			end			
-			count_hidden_total[col] += 1.0
-			#else
+			
+			#=
+			if iter % 2 == 0
+				a1,a2,a3,a4, accepted_hidden, accepted_aa = samplepaths_simultaneous(rng, col, proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates, accept_everything=(iter<=3))
+				#a1,a2,a3,a4, accepted_hidden, accepted_aa = samplepaths(rng, col, proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates, accept_everything=(iter<=3))
+				if accepted_hidden
+					count_hidden_acceptance[col] += 1.0
+				end			
+				count_hidden_total[col] += 1.0
+			else=#
+				#a1,a2,a3,a4, accepted_hidden, accepted_aa = samplepaths_simultaneous(rng, col, proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates, accept_everything=(iter<=3))
+				a1,a2,a3,a4, accepted_hidden, accepted_aa = samplepaths_seperate_new(rng, col, proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates, accept_everything=(iter<=3))
+				if accepted_hidden
+					count_hidden_acceptance[col] += 1.0
+				end			
+				count_hidden_total[col] += 1.0
+				
 				#samplepaths(rng, col, proteins,nodelist, modelparams)
-			#eend
+			#end
 			#samplepaths(rng, col, proteins,nodelist, modelparams)
 			#samplepaths_seperate(rng, col, proteins,nodelist, modelparams)
 			#felsensteinresample(rng, proteins, nodelist, col, cols, col, modelparams)
@@ -209,25 +301,59 @@ function infer(parsed_args=Dict{String,Any}())
 		println("$(iter).3 Sampling blind nodes START")
 		@time begin
 			for selnode in nodelist
-				if selnode.name in blindnodenames					
-					countmatches = 0.0
-					counttotal = 0.0
+				if selnode.name in blindnodenames
+					#=
+					for col=1:numcols	
+						 aa = selnode.data.aabranchpath[col][end]
+						 majority[col,aa] += 1.0
+					end
+					
+					mlseq = ""
+					for col=1:numcols
+						h = selnode.data.branchpath[col][end]
+						aa = findmax(modelparams.hiddennodes[h].aa_node.probs)
+						mlseq = string(mlseq, aminoacids[aa])
+					end=#
+
 					println(selnode.name)		
 					alignedsequence = sequences[selnode.seqindex]
 					sequence, phi_psi, omega, bond_angles, bond_lengths = protein_to_lists(sampletreenode(rng, selnode, modelparams, alignedsequence))
+					println(blindseq_writers[selnode.name], ">sample$(iter)")
+					println(blindseq_writers[selnode.name], sequence)
+					flush(blindseq_writers[selnode.name])
+					majorityseq = ""
+					viterbiseq = ""					
+					sampledseq = ""
+					if iter % 1 == 0
+						for col=1:numcols
+							if  alignedsequence[col] != '-'
+								sampledseq = string(sampledseq, aminoacids[selnode.data.aabranchpath.paths[col][end]])
+							end
+						end
+						push!(majority[selnode.name], sampledseq)
+						startindex = max(1, div(length(majority[selnode.name]),3))
+						seqs = majority[selnode.name][startindex:end]
+						
+						for col=1:length(sampledseq)
+							aacount = zeros(Int,20)
+							for seq in seqs
+								aacount[CommonUtils.indexof(string(seq[col]),aminoacids)] += 1
+							end
+							majorityseq = string(majorityseq, aminoacids[findmax(aacount)[2]])
+						end
+						viterbiseq = viterbi(seqs)
+					end
+
+					
+
 				    inputsequence = replace(alignedsequence, "-" => "")
-				    for (aa1,aa2) in zip(sequence,inputsequence)
-				    	if aa1 == aa2
-				    		countmatches += 1.0
-				    	end
-				    	counttotal += 1.0
-				    	#println(iter,"\t",aa1,"\t",aa2,"\t",countmatches/counttotal)
-				    end
 				    blindscoresarray = get(blindscores, selnode.name, Float64[])
-				    push!(blindscoresarray, countmatches/counttotal)
+				    push!(blindscoresarray, calculatematch(inputsequence,sampledseq))
 				    blindscores[selnode.name] = blindscoresarray
+				    blindscores_current[string("majorityseq:",selnode.name)] = calculatematch(inputsequence,majorityseq)
+				    blindscores_current[string("viterbi:",selnode.name)] = calculatematch(inputsequence,viterbiseq)
 				    println(blindscoresarray)
-				    println(mean(blindscoresarray[max(1,div(length(blindscoresarray),2)):end]))
+				    println(mean(blindscoresarray[max(1,div(length(blindscoresarray),3)):end]))
 				end
 			end
 		end
@@ -241,10 +367,20 @@ function infer(parsed_args=Dict{String,Any}())
 			sequencell += felsensteinresample_aa(rng, proteins, nodelist, Int[col], col, modelparams, false)
 		end
 		observationll = observationloglikelihood(proteins, nodelist, modelparams)
-		print(mcmcwriter, iter-1,"\t",augmentedll+observationll,"\t",augmentedll,"\t",sequencell,"\t",observationll,"\t",modelparams.scalingfactor)
+		print(mcmcwriter, iter-1,"\t",augmentedll+observationll,"\t",augmentedll,"\t",sequencell,"\t",observationll,"\t",modelparams.scalingfactor, "\t", modelparams.rate_alpha)
 		for blindnodename in blindnodenames
 			print(mcmcwriter,"\t",blindscores[blindnodename][end])
 		end
+		for blindnodename in blindnodenames
+			print(mcmcwriter,"\t",blindscores_current[string("majorityseq:",blindnodename)])
+			print(mcmcwriter,"\t",blindscores_current[string("viterbi:",blindnodename)])
+		end
+		if augmentedll > maxaugmentedll
+			maxaugmentedll = augmentedll
+			blindscoresatmax = Float64[blindscores[blindnodename][end] for blindnodename in blindnodenames]
+		end
+		println("maxll","\t",blindscoresatmax,"\t", maxaugmentedll)
+
 		for node in nodelist
 			if !isroot(node)				
 				cached_branchlengths = get(branchlength_cache, node.nodeindex, Float64[])
@@ -257,39 +393,58 @@ function infer(parsed_args=Dict{String,Any}())
 		println("$(iter).4 Calculating likelihoods DONE")	
 
 		if dosamplesiterates
-			currentll = augmentedll
 			#=
-			currentll = 0.0
-			for col=1:numcols
-				currentll += felsensteinresample_aa(rng, proteins, nodelist, Int[col], col, modelparams, false)
-			end
-			=#
-			currentalpha = modelparams.rate_alpha
-			modelparams.rate_alpha += randn(rng)*0.75
-			if modelparams.rate_alpha > 0.0
-				modelparams.rates = discretizegamma(modelparams.rate_alpha, 1.0/modelparams.rate_alpha, modelparams.numrates)
-				reset_matrix_cache(modelparams)
-				proposedll = augmentedloglikelihood(nodelist, Int[col for col=1:numcols], modelparams)
+			for z=1:4
+				currentll = augmentedll
 				#=
-				proposedll = 0.0
+				currentll = 0.0
 				for col=1:numcols
-					proposedll += felsensteinresample_aa(rng, proteins, nodelist, Int[col], col, modelparams, false)
-				end=#
+					currentll += felsensteinresample_aa(rng, proteins, nodelist, Int[col], col, modelparams, false)
+				end
+				=#
+				currentalpha = modelparams.rate_alpha
+				modelparams.rate_alpha += randn(rng)*0.20
+				if modelparams.rate_alpha > 0.0
+					modelparams.rates = discretizegamma(modelparams.rate_alpha, 1.0/modelparams.rate_alpha, modelparams.numrates)
+					reset_matrix_cache(modelparams)
+					proposedll = augmentedloglikelihood(nodelist, Int[col for col=1:numcols], modelparams)
+					#=
+					proposedll = 0.0
+					for col=1:numcols
+						proposedll += felsensteinresample_aa(rng, proteins, nodelist, Int[col], col, modelparams, false)
+					end=#
 
-				if exp(proposedll-currentll) > rand(rng)
-					augmentedll = proposedll
-					accepted_alpha += 1.0
+					if exp(proposedll-currentll) > rand(rng)
+						augmentedll = proposedll
+						accepted_alpha += 1.0
+					else
+						modelparams.rate_alpha = currentalpha
+						modelparams.rates = discretizegamma(modelparams.rate_alpha, 1.0/modelparams.rate_alpha, modelparams.numrates)
+						reset_matrix_cache(modelparams)
+					end
 				else
 					modelparams.rate_alpha = currentalpha
 					modelparams.rates = discretizegamma(modelparams.rate_alpha, 1.0/modelparams.rate_alpha, modelparams.numrates)
-					reset_matrix_cache(modelparams)
 				end
-			else
-				modelparams.rate_alpha = currentalpha
-				modelparams.rates = discretizegamma(modelparams.rate_alpha, 1.0/modelparams.rate_alpha, modelparams.numrates)
+				accepted_alpha_total += 1.0
+				println(modelparams.rate_alpha,"\t",modelparams.rates,"\tacceptance: ", accepted_alpha/accepted_alpha_total)
+
+				for col=1:numcols
+					cols = Int[]
+					selcol = 1
+					if col > 1
+						push!(cols,col-1)
+						selcol = 2
+					end
+					push!(cols,col)
+					if col < numcols
+						push!(cols,col+1)
+					end
+					samplesiterates(rng, cols, col, nodelist, modelparams)
+				end
+				augmentedll = augmentedloglikelihood(nodelist, Int[col for col=1:numcols], modelparams)
 			end
-			accepted_alpha_total += 1.0
-			println(modelparams.rate_alpha,"\t",modelparams.rates,"\t", accepted_alpha/accepted_alpha_total)
+			=#
 		end
 	
 		for node in nodelist
@@ -378,6 +533,15 @@ function infer(parsed_args=Dict{String,Any}())
 		end
 		println(consensustreewriter, getnewick(outputnodelist[1]))
 		close(consensustreewriter)
+
+		if dosamplesiterates
+			for col=1:numcols
+				ratecat = nodelist[1].data.ratesbranchpath.paths[col][end]
+				ratetotals[col] += modelparams.rates[ratecat]
+			end
+
+			println("rates: ",ratetotals./iter)
+		end
 	end
 	close(mcmcwriter)
 	close(treewriter)
@@ -406,10 +570,12 @@ function parse_inference_commandline()
         	arg_type = String        
         "--samplebranchlengths"
         	help = ""
-      	    arg_type = Bool
-      	    default = true
+      	    action = :store_true
         "--samplescalingfactor"
         	help = "keep relative branch lengths fixed, but sample tree scaling factor"
+          	action = :store_true
+        "--samplesiterates"
+        	help = ""
           	action = :store_true
     end
 

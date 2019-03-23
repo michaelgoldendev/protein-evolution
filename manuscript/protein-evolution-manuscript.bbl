@@ -1,0 +1,38 @@
+\begin{thebibliography}{}
+
+\bibitem[Choi {\em et~al.}(2008)Choi, Redelings, and Thorne]{choi2008basing}
+Choi, S.~C., Redelings, B.~D., and Thorne, J.~L. 2008.
+\newblock {Basing population genetic inferences and models of molecular
+  evolution upon desired stationary distributions of DNA or protein sequences}.
+\newblock {\em Philosophical Transactions of the Royal Society B: Biological
+  Sciences\/}, {363}(1512): 3931--3939.
+
+\bibitem[Garc{\'i}a-Portugu{\'e}s {\em et~al.}(2018)Garc{\'i}a-Portugu{\'e}s,
+  Golden, S{\o}rensen, Mardia, Hamelryck, and Hein]{Garcia-Portugues:ads}
+Garc{\'i}a-Portugu{\'e}s, E., Golden, M., S{\o}rensen, M., Mardia, K.~V.,
+  Hamelryck, T., and Hein, J. 2018.
+\newblock {Toroidal diffusions and protein structure inference}.
+\newblock In C.~Ley and T.~Verdebout, editors, {\em {Applied Directional
+  Statistics: Modern Methods and Case Studies}\/}. Chapman and Hall/CRC.
+
+\bibitem[Gilks {\em et~al.}(1995)Gilks, Richardson, and
+  Spiegelhalter]{gilks1995markov}
+Gilks, W.~R., Richardson, S., and Spiegelhalter, D. 1995.
+\newblock {\em {Markov chain Monte Carlo in practice}\/}.
+\newblock CRC press.
+
+\bibitem[Golden {\em et~al.}(2017)Golden, Garc{\'i}a-Portugu{\'e}s,
+  S{\o}rensen, Mardia, Hamelryck, and Hein]{Golden2017}
+Golden, M., Garc{\'i}a-Portugu{\'e}s, E., S{\o}rensen, M., Mardia, K.~V.,
+  Hamelryck, T., and Hein, J. 2017.
+\newblock {A generative angular model of protein structure evolution}.
+\newblock {\em Molecular Biology and Evolution\/}, {34}: msx137.
+
+\bibitem[Parsons {\em et~al.}(2005)Parsons, Holmes, Rojas, Tsai, and
+  Strauss]{Parsons2005}
+Parsons, J., Holmes, J.~B., Rojas, J.~M., Tsai, J., and Strauss, C.~E. 2005.
+\newblock Practical conversion from torsion space to cartesian space for in
+  silico protein synthesis.
+\newblock {\em Journal of computational chemistry\/}, {26}(10): 1063--1068.
+
+\end{thebibliography}

@@ -1,9 +1,0 @@
-\begin{thebibliography}{}
-
-\bibitem[Knudsen and Hein(1999)Knudsen and Hein]{knudsen1999rna}
-Knudsen, B. and Hein, J. 1999.
-\newblock {{RNA} secondary structure prediction using stochastic context-free
-  grammars and evolutionary history.}
-\newblock {\em Bioinformatics\/}, {15}(6): 446--454.
-
-\end{thebibliography}
