@@ -16,6 +16,7 @@ function train(parsed_args=Dict{String,Any}())
 	#family_dir = "../data/families/"
 	dosamplesiterates = parsed_args["samplesiterates"]
 	uselgrates = parsed_args["uselgrates"]
+	hiddenaascaling = parsed_args["hiddenaascaling"]
 
 	modelparams = ModelParams(LGmatrix,numhiddenstates,1.0)	
 	maxloglikelihood = -Inf
@@ -30,6 +31,11 @@ function train(parsed_args=Dict{String,Any}())
 	end
 	if uselgrates
 		outputmodelname = string(outputmodelname,".lgrates")
+	end
+	if hiddenaascaling
+		outputmodelname = string(outputmodelname,".hiddenaascaling")
+	else
+		outputmodelname = string(outputmodelname,".nohiddenaascaling")
 	end
 	if !samplebranchlengths
 		outputmodelname = string(outputmodelname,".nobranchsampling")
@@ -51,6 +57,14 @@ function train(parsed_args=Dict{String,Any}())
 
 	if parsed_args["loadfromcache"]
 		modelparams = Serialization.deserialize(open(modelfile, "r"))
+	end
+
+	if modelparams.numhiddenstates == 1
+		fout = open(modelfile, "w")
+		reset_matrix_cache(modelparams)
+		Serialization.serialize(fout, modelparams)
+		close(fout)
+		exit()
 	end
 	
 
@@ -90,7 +104,6 @@ function train(parsed_args=Dict{String,Any}())
 			end
 		end
 	end
-
 	
 	for i=1:5
 		for (proteins,nodelist,json_family,sequences) in trainingexamples
@@ -118,7 +131,6 @@ function train(parsed_args=Dict{String,Any}())
 	println(logwriter, "iter\tll\taall\tstructurell\tpathll")
 	for iter=1:10000
 		reset_matrix_cache(modelparams)
-		
 		transitionrate_counts = ones(Float64, modelparams.numhiddenstates, modelparams.numhiddenstates)*0.01
 		transitionrate_totals = ones(Float64, modelparams.numhiddenstates, modelparams.numhiddenstates)*0.001
 		for h=1:modelparams.numhiddenstates
@@ -143,7 +155,6 @@ function train(parsed_args=Dict{String,Any}())
 		accepted_aa_total = 0.0
 		for (proteins,nodelist,json_family,sequences) in trainingexamples
 			numcols = length(proteins[1])
-			
 			accepted = zeros(Int, numcols)			
 			for i=1:maxsamplesperiter
 				randcols = shuffle(rng, Int[i for i=1:numcols])
@@ -346,9 +357,61 @@ function train(parsed_args=Dict{String,Any}())
 			println("RATES ", modelparams.rates)
 		end=#
 
-		aatransitions = 0
-		hiddentransitions = 0
+		aahiddentransitionsrates = zeros(Float64, modelparams.numhiddenstates)
+		aahiddentransition_events = zeros(Float64, modelparams.numhiddenstates)
 		if learnrates
+			if hiddenaascaling
+				for (proteins,nodelist,json_family,sequences) in trainingexamples
+					numcols = length(proteins[1])
+					inputcols =  Int[col for col=1:numcols]
+					for col in inputcols
+						cols = Int[col]
+						selcol = 1
+
+						for node in nodelist
+							if !isroot(node)
+								
+								multi_iter = MultiBranchPathIterator(BranchPathIterator[BranchPathIterator(node.data.branchpath,cols), BranchPathIterator(node.data.aabranchpath,Int[col])])
+								hiddeniter = multi_iter.branchpathiterators[1]
+								aaiter = multi_iter.branchpathiterators[2]
+								for it in multi_iter
+									dt = (multi_iter.currtime-multi_iter.prevtime)
+									
+									changecol = selcol
+
+									for aa=1:modelparams.alphabet
+										thisaa = aaiter.prevstates[1]
+										if thisaa != aa
+											aaentry = getaaentry(modelparams, get(hiddeniter.prevstates, changecol-1, 0), get(hiddeniter.prevstates, changecol+1, 0), hiddeniter.prevstates[changecol], thisaa, aa, node.data.ratesbranchpath.paths[col][end])
+											h = hiddeniter.prevstates[changecol]
+											aahiddentransitionsrates[h] += aaentry*dt*node.branchlength/modelparams.aarates[h]
+										end
+									end
+
+									changecol = 0
+									if multi_iter.branchpathindex == 1
+										changecol = hiddeniter.mincol
+									else
+										changecol = aaiter.mincol
+									end
+									if multi_iter.branchpathindex == 1 && hiddeniter.mincol == selcol
+										
+									else multi_iter.branchpathindex == 2
+										h = hiddeniter.prevstates[1]
+										aahiddentransition_events[h] += 1.0
+									end
+								end
+							end
+						end
+					end
+				end
+				modelparams.aarates = aahiddentransitionsrates./aahiddentransition_events
+				modelparams.aarates /= mean(modelparams.aarates)
+			end
+			println("AARATES", modelparams.aarates)
+
+			aatransitions = 0
+			hiddentransitions = 0
 			for (proteins,nodelist,json_family,sequences) in trainingexamples
 				numcols = length(proteins[1])
 				inputcols =  Int[col for col=1:numcols]
@@ -463,6 +526,10 @@ function train(parsed_args=Dict{String,Any}())
 			end
 		end
 		modelparams.aa_exchangeablities *= modelparams.branchscalingfactor
+		scaleaarates = mean(modelparams.aarates)
+		modelparams.aarates /= scaleaarates
+		modelparams.aa_exchangeablities *= scaleaarates
+
 		modelparams.transitionrates *= modelparams.branchscalingfactor
 		modelparams.branchscalingfactor = 1.0
 
@@ -542,6 +609,10 @@ function parse_training_commandline()
       	"--uselgrates"
          	help = ""
           	action = :store_true
+      	"--hiddenaascaling"
+         	help = ""
+      	    arg_type = Bool
+      	    default = true
 	        
     end
     return parse_args(settings)

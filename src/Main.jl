@@ -12,7 +12,7 @@ using MolecularEvolution
 
 push!(LOAD_PATH,@__DIR__)
 using EMNodes
-using PDBBuilder
+using Backbone
 
 using Binaries
 using BranchPaths
@@ -73,39 +73,6 @@ function nodedistances(nodelist::Array{TreeNode,1})
 
 	return mindistmatrix
 end
-
-#=
-function root(node::TreeNode)
-	parents = []
-	current = node
-	while !isnull(current.parent)
-		current = get(current.parent)
-		push!(parents, current)
-	end
-	println([p.nodeindex for p in parents])
-
-	bottom = parents[end]
-	while length(parents) > 0
-		pop!(parents)
-		println("A",[b.nodeindex for b in bottom])
-		println("B",bottom.nodeindex,"\t",parents[end].nodeindex)		
-		exit()
-		leftchild = bottom.children[1]
-		push!(leftchild.children,bottom)		
-		bottom.children = bottom.children[2:end]
-
-
-		bottom.parent = leftchild
-		newroot = TreeNode(0.1, "dummy$(length(parents))")
-		push!(newroot.children,leftchild.children[1])
-		push!(newroot.children,leftchild)
-		leftchild.children[1].parent = Nullable{TreeNode}(newroot)
-		leftchild.parent = Nullable{TreeNode}(newroot)
-		leftchild.children = leftchild.children[2:end]
-		bottom = newroot
-	end
-	return bottom
-end=#
 
 function reorient(node, new_parent, new_branch_length)
     newchildren = TreeNode[]
@@ -185,8 +152,6 @@ function midpoint_root(nodelistin::Array{TreeNode,1})
 	end
 
 	return newroot
-	#root(newroot)
-
 end
 
 function testprint(node::TreeNode, seen::Array{Int,1}=Int[])
@@ -244,6 +209,7 @@ mutable struct ModelParams
 	usestructureobservations::Bool
 	hidden_conditional_on_aa::Bool
 	ratemode::Int
+	aarates::Array{Float64,1}
 
     function ModelParams(aminoacidQ::Array{Float64,2}, numhiddenstates::Int,mu::Float64=1.0,hiddenmu::Float64=1.0)
         initialprobs = ones(Float64, numhiddenstates)./numhiddenstates
@@ -260,15 +226,16 @@ mutable struct ModelParams
         end
 		hiddennodes = HiddenNode[]
 		for h=1:numhiddenstates
-			push!(hiddennodes, HiddenNode())
+			push!(hiddennodes, HiddenNode(LGfreqs))
 		end
-		matrixcache = Dict{Tuple{Int,Int,Int}, Tuple{Array{Float64,2},Array{Complex{Float64},2},Array{Complex{Float64},1},Array{Complex{Float64},2}}}()
+		println("AAFreqs",hiddennodes[1].aa_node.probs)
+		matrixcache = Dict{Tuple{Int,Int,Int,Int}, Tuple{Array{Float64,2},Array{Complex{Float64},2},Array{Complex{Float64},1},Array{Complex{Float64},2}}}()
 		numrates = 10
 		rate_alpha = 0.5
 		#rates = discretizegamma(rate_alpha,1.0/rate_alpha,numrates)
 		rates = ones(Float64,numrates)
 		rate_freqs = ones(Float64,numrates)/numrates
-        new(20,aminoacidQ,LGexchangeability, rate_alpha, numrates, rates,rate_freqs,numhiddenstates,initialprobs,transitioncounts,transitionprobs,transitionrates,hiddennodes,mu,hiddenmu,matrixcache,1.0,1.0,true,true,1)
+        new(20,aminoacidQ,LGexchangeability, rate_alpha, numrates, rates,rate_freqs,numhiddenstates,initialprobs,transitioncounts,transitionprobs,transitionrates,hiddennodes,mu,hiddenmu,matrixcache,1.0,1.0,true,true,1, ones(Float64,numhiddenstates))
     end
 end
 
@@ -342,7 +309,7 @@ function reset_matrix_cache(modelparams::ModelParams)
 	println("RESET: CACHE HITS $(countcachehits) / $(countcachehits+countcachemisses) ($(countcachehits / (countcachehits+countcachemisses)))")
 	countcachemisses = 0
 	countcachehits = 0
-	modelparams.matrixcache = Dict{Tuple{Int,Int}, Tuple{Array{Float64,2},Array{Complex{Float64},2},Array{Complex{Float64},1},Array{Complex{Float64},2}}}()
+	modelparams.matrixcache = Dict{Tuple{Int,Int,Int,Int}, Tuple{Array{Float64,2},Array{Complex{Float64},2},Array{Complex{Float64},1},Array{Complex{Float64},2}}}()
 end
 
 
@@ -351,10 +318,10 @@ function getAAandPt(modelparams::ModelParams, prev_hmm::Int, next_hmm::Int, h::I
 	global countcachemisses
 	global countcachehits
 
-	key = (-1,-1,h,rate)
+	key = (-1,-1,h,0)
 	if !haskey(modelparams.matrixcache, key)		
 		countcachemisses += 1
-		Q = constructAAMatrix(modelparams, prev_hmm, next_hmm, h, rate)
+		Q = constructAAMatrix(modelparams, prev_hmm, next_hmm, h)
 		
 		
 		decomposition = eigen(Q)
@@ -370,10 +337,13 @@ function getAAandPt(modelparams::ModelParams, prev_hmm::Int, next_hmm::Int, h::I
 	
 	Q,V,D,Vi = modelparams.matrixcache[key]
 
+	sitescale = modelparams.rates[rate]
+	Q *= sitescale
+
 	if t < 0.0
 		return Q, Q
 	else
-		return Q, absmat(real(V*Diagonal(exp.(D*t))*Vi))
+		return Q, absmat(real(V*Diagonal(exp.(D*t*sitescale))*Vi))
 	end
 end
 
@@ -382,11 +352,11 @@ function getQandPt(modelparams::ModelParams, prevh::Int, nexth::Int, aa::Int, ra
 	global countcachemisses
 	global countcachehits
 
-	key = (prevh, nexth, aa,rate)
+	key = (-1,prevh, nexth, aa)
 	if !haskey(modelparams.matrixcache, key)		
 		countcachemisses += 1
 
-		Q = constructHiddenMatrix(modelparams, prevh, nexth, aa, rate)
+		Q = constructHiddenMatrix(modelparams, prevh, nexth, aa)
 		
 		
 		decomposition = eigen(Q)
@@ -400,12 +370,16 @@ function getQandPt(modelparams::ModelParams, prevh::Int, nexth::Int, aa::Int, ra
 		countcachehits += 1
 	end
 	
+	
 	Q,V,D,Vi = modelparams.matrixcache[key]
+
+	sitescale = modelparams.rates[rate]
+	Q *= sitescale
 
 	if t < 0.0
 		return Q, Q
 	else
-		return Q, absmat(real(V*Diagonal(exp.(D*t))*Vi))
+		return Q, absmat(real(V*Diagonal(exp.(D*t*sitescale))*Vi))
 	end
 end
 
@@ -413,7 +387,7 @@ function getJointPt(modelparams::ModelParams, prev_hmm::Int, next_hmm::Int, t::F
 	global countcachemisses
 	global countcachehits
 
-	key = (-2,-2,prev_hmm,next_hmm)
+	key = (-2,-2, prev_hmm,next_hmm)
 	if !haskey(modelparams.matrixcache, key)		
 		countcachemisses += 1
 		Q = constructJointMatrix(modelparams, prev_hmm, next_hmm)
@@ -1624,50 +1598,30 @@ function gethiddeninitialprobs(modelparams::ModelParams, prevh::Int, nexth::Int,
 	freqs /= sum(freqs)
 end
 
-function getaaentry(modelparams::ModelParams, prevh_hmm::Int, nexth_hmm::Int, h::Int, prevaa::Int, curraa::Int, rate::Int)
+function getaaentry(modelparams::ModelParams, prevh_hmm::Int, nexth_hmm::Int, h::Int, prevaa::Int, curraa::Int, sitescale::Float64)
 	if prevaa != curraa
-		#=
-		prevprob = 1.0
-		if prevh_hmm != 0
-			prevprob = modelparams.transitionprobs[prevh_hmm,h]
-		end
-		nextprob = 1.0
-		if nexth_hmm != 0
-			nextprob = modelparams.transitionprobs[h,nexth_hmm]
-		end
-		return modelparams.mu*prevprob*nextprob*modelparams.aa_exchangeablities[prevaa,curraa]*modelparams.hiddennodes[h].aa_node.probs[curraa]
-		=#
-		
 		if modelparams.ratemode == 1
-			return modelparams.rates[rate]*modelparams.scalingfactor*modelparams.mu*modelparams.aa_exchangeablities[prevaa,curraa]*modelparams.hiddennodes[h].aa_node.probs[curraa]
+			return modelparams.aarates[h]*sitescale*modelparams.scalingfactor*modelparams.mu*modelparams.aa_exchangeablities[prevaa,curraa]*modelparams.hiddennodes[h].aa_node.probs[curraa]
 		elseif modelparams.ratemode == 2
-			return 0.05*modelparams.rates[rate]*modelparams.scalingfactor*modelparams.mu*modelparams.aa_exchangeablities[prevaa,curraa]*sqrt(modelparams.hiddennodes[h].aa_node.probs[curraa]/modelparams.hiddennodes[h].aa_node.probs[prevaa])
+			return 0.05*modelparams.aarates[h]*sitescale*modelparams.scalingfactor*modelparams.mu*modelparams.aa_exchangeablities[prevaa,curraa]*sqrt(modelparams.hiddennodes[h].aa_node.probs[curraa]/modelparams.hiddennodes[h].aa_node.probs[prevaa])
 		end
 	else
 		q = 0.0
 		for aa=1:modelparams.alphabet
 			if aa != prevaa
-				q -= getaaentry(modelparams,prevh_hmm,nexth_hmm, h, prevaa, aa)
+				q -= getaaentry(modelparams,prevh_hmm,nexth_hmm, h, prevaa, aa, sitescale)
 			end
 		end
 		return q
 	end
 end
 
-function gethiddenentry(modelparams::ModelParams, prevh_hmm::Int, nexth_hmm::Int, prevh::Int, currh::Int, aa::Int, rate::Int)
+function getaaentry(modelparams::ModelParams, prevh_hmm::Int, nexth_hmm::Int, h::Int, prevaa::Int, curraa::Int, rate::Int)
+	return getaaentry(modelparams, prevh_hmm, nexth_hmm, h, prevaa, curraa, modelparams.rates[rate])
+end
+
+function gethiddenentry(modelparams::ModelParams, prevh_hmm::Int, nexth_hmm::Int, prevh::Int, currh::Int, aa::Int, sitescale::Float64)
 	if prevh != currh
-		#=
-		prevprob = 1.0
-		if prevh_hmm != 0
-			prevprob = modelparams.transitionprobs[prevh_hmm,currh]
-		end
-		nextprob = 1.0
-		if nexth_hmm != 0
-			nextprob = modelparams.transitionprobs[currh,nexth_hmm]
-		end
-		return modelparams.hiddenmu*prevprob*nextprob*modelparams.transitionrates[prevh,currh]*modelparams.hiddennodes[currh].aa_node.probs[aa]
-		=#
-		
 		prevprob = 1.0
 		prevprob2 = 1.0
 		if prevh_hmm != 0
@@ -1681,20 +1635,24 @@ function gethiddenentry(modelparams::ModelParams, prevh_hmm::Int, nexth_hmm::Int
 			nextprob2 = modelparams.transitionprobs[prevh,nexth_hmm]
 		end
 		if modelparams.ratemode == 1
-			return modelparams.rates[rate]*modelparams.scalingfactor*sqrt((prevprob*nextprob)/(prevprob2*nextprob2))*modelparams.hiddenmu*modelparams.transitionrates[prevh,currh]*modelparams.hiddennodes[currh].aa_node.probs[aa]
+			return sitescale*modelparams.scalingfactor*sqrt((prevprob*nextprob)/(prevprob2*nextprob2))*modelparams.hiddenmu*modelparams.transitionrates[prevh,currh]*modelparams.hiddennodes[currh].aa_node.probs[aa]
 			#return modelparams.scalingfactor*sqrt((prevprob*nextprob)/(prevprob2*nextprob2))*modelparams.hiddenmu*modelparams.transitionrates[prevh,currh]*modelparams.hiddennodes[currh].aa_node.probs[aa]
 		elseif modelparams.ratemode == 2
-			return 0.05*modelparams.rates[rate]*modelparams.scalingfactor*sqrt((prevprob*nextprob)/(prevprob2*nextprob2))*modelparams.hiddenmu*modelparams.transitionrates[prevh,currh]*sqrt(modelparams.hiddennodes[currh].aa_node.probs[aa]/modelparams.hiddennodes[prevh].aa_node.probs[aa])
+			return 0.05*sitescale*modelparams.scalingfactor*sqrt((prevprob*nextprob)/(prevprob2*nextprob2))*modelparams.hiddenmu*modelparams.transitionrates[prevh,currh]*sqrt(modelparams.hiddennodes[currh].aa_node.probs[aa]/modelparams.hiddennodes[prevh].aa_node.probs[aa])
 		end
 	else
 		q = 0.0
 		for h=1:modelparams.numhiddenstates
 			if h != prevh
-				q -= gethiddenentry(modelparams, prevh_hmm, nexth_hmm, prevh, h, aa)
+				q -= gethiddenentry(modelparams, prevh_hmm, nexth_hmm, prevh, h, aa, sitescale)
 			end
 		end
 		return q
 	end
+end 
+
+function gethiddenentry(modelparams::ModelParams, prevh_hmm::Int, nexth_hmm::Int, prevh::Int, currh::Int, aa::Int, rate::Int)
+	return gethiddenentry(modelparams, prevh_hmm, nexth_hmm, prevh, currh, aa, modelparams.rates[rate])
 end
 
 function entry(modelparams::ModelParams, prevh_hmm::Int, nexth_hmm::Int, prevh::Int, currh::Int, prevaa::Int, curraa::Int, prevrate::Int, currrate::Int)
@@ -1739,12 +1697,12 @@ function constructJointMatrix(modelparams::ModelParams, prevh_hmm::Int, nexth_hm
 end
 
 
-function constructAAMatrix(modelparams::ModelParams, prevh_hmm::Int, nexth_hmm::Int, h::Int, rate::Int)
+function constructAAMatrix(modelparams::ModelParams, prevh_hmm::Int, nexth_hmm::Int, h::Int, sitescale::Float64=1.0)
 	Q = zeros(Float64, modelparams.alphabet, modelparams.alphabet)
 	for aa1=1:modelparams.alphabet
         for aa2=1:modelparams.alphabet
 			if aa1 != aa2
-				Q[aa1,aa2] = getaaentry(modelparams, prevh_hmm, nexth_hmm, h, aa1, aa2, rate)
+				Q[aa1,aa2] = getaaentry(modelparams, prevh_hmm, nexth_hmm, h, aa1, aa2, sitescale)
 				Q[aa1,aa1] -= Q[aa1,aa2]
 			end
 		end
@@ -1753,12 +1711,12 @@ function constructAAMatrix(modelparams::ModelParams, prevh_hmm::Int, nexth_hmm::
     return Q
 end
 
-function constructHiddenMatrix(modelparams::ModelParams, prevh_hmm::Int, nexth_hmm::Int, aa::Int, rate::Int)
+function constructHiddenMatrix(modelparams::ModelParams, prevh_hmm::Int, nexth_hmm::Int, aa::Int, sitescale::Float64=1.0)
 	Q = zeros(Float64, modelparams.numhiddenstates, modelparams.numhiddenstates)
 	for h1=1:modelparams.numhiddenstates
         for h2=1:modelparams.numhiddenstates
 			if h1 != h2
-				Q[h1,h2] = gethiddenentry(modelparams, prevh_hmm, nexth_hmm, h1, h2, aa, rate)
+				Q[h1,h2] = gethiddenentry(modelparams, prevh_hmm, nexth_hmm, h1, h2, aa, sitescale)
 				Q[h1,h1] -= Q[h1,h2]
 			end
 		end
@@ -2143,12 +2101,17 @@ function initialise_tree_aa(rng::AbstractRNG, modelparams::ModelParams, nodelist
 			paths = Array{Int,1}[]
 			times = Array{Float64,1}[]
 			for col=1:numcols
-				parentstate = node_h[parentnode.nodeindex,col]
-				nodestate = node_h[node.nodeindex,col]
-				V = getQandPt(modelparams, 0, 0, node_aa[parentnode.nodeindex,col], closest, 1.0)[1]
-				path,time, success = modifiedrejectionsampling(rng, V*max(0.01,node.branchlength), parentstate, nodestate, nothing)
-				push!(paths,path)
-				push!(times,time)
+				if modelparams.numhiddenstates == 1					
+					push!(paths,Int[1])
+					push!(times,Float64[0.0])
+				else
+					parentstate = node_h[parentnode.nodeindex,col]
+					nodestate = node_h[node.nodeindex,col]
+					V = getQandPt(modelparams, 0, 0, node_aa[parentnode.nodeindex,col], closest, 1.0)[1]
+					path,time, success = modifiedrejectionsampling(rng, V*max(0.01,node.branchlength), parentstate, nodestate, nothing)
+					push!(paths,path)
+					push!(times,time)
+				end
 			end
 
 			node.data.branchpath = BranchPath(paths,times)
@@ -2420,6 +2383,63 @@ function proposescalingfactor(rng::AbstractRNG, nodelist::Array{TreeNode,1}, inp
 	println(alpha,"\t",beta)
 	println("SCALING ",modelparams.scalingfactor,"\t",scalingfactor)
 	modelparams.scalingfactor = scalingfactor
+	return propratio
+end
+
+function maxscalingfactor(rng::AbstractRNG, nodelist::Array{TreeNode,1}, inputcols::Array{Int,1}, modelparams::ModelParams)
+	exitrate = 0.0
+	N = 0.0
+	for node in nodelist 
+		if !isroot(node)
+			numcols = length(inputcols)
+			for col in inputcols
+				cols = Int[]
+				selcol = 1
+				if col > 1
+					push!(cols,col-1)
+					selcol = 2
+				end
+				push!(cols,col)
+				if col < numcols
+					push!(cols,col+1)
+				end
+
+				multi_iter = MultiBranchPathIterator(BranchPathIterator[BranchPathIterator(node.data.branchpath,cols), BranchPathIterator(node.data.aabranchpath,Int[col])])
+				hiddeniter = multi_iter.branchpathiterators[1]
+				aaiter = multi_iter.branchpathiterators[2]
+				#ratesiter = multi_iter.branchpathiterators[3]
+				for it in multi_iter
+					dt = (multi_iter.currtime-multi_iter.prevtime)
+					
+					changecol = selcol
+					Qii = entry(modelparams, get(hiddeniter.prevstates, changecol-1, 0), get(hiddeniter.prevstates, changecol+1, 0), hiddeniter.prevstates[changecol], hiddeniter.prevstates[changecol], aaiter.prevstates[1], aaiter.prevstates[1], node.data.ratesbranchpath.paths[col][end], node.data.ratesbranchpath.paths[col][end])
+					exitrate +=  Qii*dt*node.branchlength
+
+					changecol = 0
+					if multi_iter.branchpathindex == 1
+						changecol = hiddeniter.mincol
+						if changecol == selcol
+							N += 1.0
+						end
+					elseif multi_iter.branchpathindex == 2
+						changecol = aaiter.mincol
+						N += 1.0
+					end
+
+					
+				end
+			end
+		end
+	end
+	alpha = N+1.0
+	beta = -exitrate/modelparams.scalingfactor
+
+	dist = Gamma(alpha, 1.0/beta)	
+	scalingfactor = rand(dist)
+	propratio = logpdf(dist, modelparams.scalingfactor)-logpdf(dist,scalingfactor)
+	println(alpha,"\t",beta)
+	println("SCALING ",modelparams.scalingfactor,"\t",scalingfactor)
+	modelparams.scalingfactor = alpha/beta
 	return propratio
 end
 
@@ -2717,12 +2737,9 @@ function samplepaths_simultaneous(rng::AbstractRNG, col::Int,proteins,nodelist::
 	tempaapath = Array{Int,1}[copy(node.data.aabranchpath.paths[col]) for node in nodelist]
 	tempaatimes = Array{Float64,1}[copy(node.data.aabranchpath.times[col]) for node in nodelist]	
 	site1 = augmentedloglikelihood(nodelist, cols, modelparams)
-	#println("backwardsampling")
 	cont = felsensteinresample(rng, proteins, nodelist, col, cols,col, modelparams)	
-	#cont = felsensteinresample(rng, proteins, nodelist, col, cols,col, modelparams,true,true)	
 	if cont
 		cont = felsensteinresample_aa(rng, proteins, nodelist, cols,col, modelparams)
-		#cont = felsensteinresample_aa(rng, proteins, nodelist, cols,col, modelparams, true, true)
 	end
 
 	site2 = 0.0
@@ -2942,24 +2959,28 @@ function samplepaths_seperate_new(rng::AbstractRNG, col::Int,proteins,nodelist::
 	accepted_hidden_total = 0.0
 	accepted_aa = 0.0
 	accepted_aa_total = 0.0
-	
-	temppath = Array{Int,1}[copy(node.data.branchpath.paths[col]) for node in nodelist]
-	temptimes = Array{Float64,1}[copy(node.data.branchpath.times[col]) for node in nodelist]
-	site1 = augmentedloglikelihood(nodelist, cols, modelparams)	
-	cont = felsensteinresample(rng, proteins, nodelist, col, cols,col, modelparams)
-	prop1 = hidden_proposal_likelihood(nodelist, col, modelparams, temppath, temptimes)
-	site2 = augmentedloglikelihood(nodelist, cols, modelparams)	
-	prop2 = hidden_proposal_likelihood(nodelist, col, modelparams)
-	if cont && exp((site2-site1)+(prop1-prop2)) > rand(rng)
+	if modelparams.numhiddenstates == 1
 		accepted_hidden += 1.0
 		hidden_accepted = true
 	else
-		if accept_everything && cont
-
+		temppath = Array{Int,1}[copy(node.data.branchpath.paths[col]) for node in nodelist]
+		temptimes = Array{Float64,1}[copy(node.data.branchpath.times[col]) for node in nodelist]
+		site1 = augmentedloglikelihood(nodelist, cols, modelparams)	
+		cont = felsensteinresample(rng, proteins, nodelist, col, cols,col, modelparams)
+		prop1 = hidden_proposal_likelihood(nodelist, col, modelparams, temppath, temptimes)
+		site2 = augmentedloglikelihood(nodelist, cols, modelparams)	
+		prop2 = hidden_proposal_likelihood(nodelist, col, modelparams)
+		if cont && exp((site2-site1)+(prop1-prop2)) > rand(rng)
+			accepted_hidden += 1.0
+			hidden_accepted = true
 		else
-			for (index,node) in enumerate(nodelist)
-				node.data.branchpath.paths[col] = copy(temppath[index])
-				node.data.branchpath.times[col] = copy(temptimes[index])
+			if accept_everything && cont
+
+			else
+				for (index,node) in enumerate(nodelist)
+					node.data.branchpath.paths[col] = copy(temppath[index])
+					node.data.branchpath.times[col] = copy(temptimes[index])
+				end
 			end
 		end
 	end

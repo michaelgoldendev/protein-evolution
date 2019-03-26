@@ -56,8 +56,9 @@ module EMNodes
 		counts::Array{Float64,1}
 		alphas::Array{Float64,1}
 
-		function CategoricalNode(numcats::Int)
-			new(numcats, ones(Float64,numcats)/numcats, ones(Float64, numcats)*0.1, ones(Float64,numcats))
+		function CategoricalNode(freqs::Array{Float64,1})
+			numcats = length(freqs)
+			new(numcats, freqs, ones(Float64, numcats)*0.1, ones(Float64,numcats))
 		end
 	end
 
@@ -243,11 +244,11 @@ module EMNodes
 		omega_nodes::Array{VonMisesNode,1}
 	    #aadist::Array{Float64,1}
 
-	    function HiddenNode()
+	    function HiddenNode(aafreqs::Array{Float64}=ones(Float64,20)*0.05)
 	    	phi_nodes = VonMisesNode[VonMisesNode() for aa=1:20]
 	    	psi_nodes = VonMisesNode[VonMisesNode() for aa=1:20]
 	    	omega_nodes = VonMisesNode[VonMisesNode() for aa=1:20]
-	        new(CategoricalNode(20),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(), MultivariateNode(), phi_nodes, psi_nodes, omega_nodes)
+	        new(CategoricalNode(aafreqs),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(), MultivariateNode(), phi_nodes, psi_nodes, omega_nodes)
 	    end
 	end
 end

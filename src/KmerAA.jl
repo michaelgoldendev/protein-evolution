@@ -8,12 +8,7 @@ push!(LOAD_PATH,@__DIR__)
 using Binaries
 using CommonUtils
 
-aminoacids = "ACDEFGHIKLMNPQRSTVWY"
-nucmapping = Dict()
-alphabet = length(aminoacids)
-for a=1:alphabet
-  nucmapping[aminoacids[a]] = a
-end
+include("KmerAACommon.jl")
 
 function binarize!(tree::TreeNode)
     nodes = getnodelist(tree)
@@ -173,37 +168,7 @@ function midpoint_root(nodelistin::Array{TreeNode,1})
 
 end
 
-function kmertoindex(kmer::AbstractString)
-  len = length(kmer)
-  nuc = get(nucmapping,kmer[1], 0)
-  if nuc == 0
-    return -1
-  end
-  index = nuc-1
-  for pos=2:len
-    index *= alphabet
-    nuc = get(nucmapping,kmer[pos], 0)
-    if nuc == 0
-      return -1
-    end
-    index += nuc-1
-  end
-  return index+1
-end
 
-function freqvector(sequence::AbstractString, k::Int)
-  sequence2 = replace(sequence,"-" => "")
-  f = zeros(Float64,alphabet^k)
-  for startpos=1:length(sequence2)-k+1
-    endpos = startpos+k-1
-    kmer = sequence2[startpos:endpos]
-    index = kmertoindex(kmer)
-    if index >= 0
-      f[index] += 1
-    end
-  end
-  return f/sum(f)
-end
 
 
 function euclidean(f1::Array{Float64,1},f2::Array{Float64,1})
@@ -240,23 +205,7 @@ function score(distmatrix::Array{Float64,2}, sel::Array{Int,1}, z::Int=0)
   return dist
 end
 
-function bintovec(bin::Array{Int, 1})
-  sel = Int[]
-  for i=1:length(bin)
-    if bin[i] > 0
-      push!(sel, i)
-    end
-  end
-  return sel
-end
 
-function vectobin(sel::Array{Int,1}, numseqs::Int)
-  bin = zeros(Int,numseqs)
-  for s in sel
-    bin[s] = 1
-  end
-  return bin
-end
 
 function greedyselection(distmatrix::Array{Float64,2}, seln::Int)
   len = size(distmatrix,1)

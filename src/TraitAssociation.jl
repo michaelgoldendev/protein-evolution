@@ -1087,7 +1087,7 @@ function discretizegamma(shape::Float64, scale::Float64, numcategories::Int)
   end
 end
 
-function aa_alignmentloglikelihood(nodelist::Array{TreeNode,1}, numcols::Int, data::Array{Float64,3},subcolumnrefs::Array{Int,2}, mu::Float64, shape::Float64, numcats::Int)
+function aa_alignmentloglikelihood(nodelist::Array{TreeNode,1}, numcols::Int, data::Array{Float64,3},subcolumnrefs::Array{Int,2}, mu::Float64, shape::Float64, numcats::Int, R::Array{Float64,2}=LGmatrix, freqs::Array{Float64,1}=LGfreqs)
     try
         rates = discretizegamma(shape, 1.0/shape, numcats)
         #println(rates)
@@ -1096,8 +1096,7 @@ function aa_alignmentloglikelihood(nodelist::Array{TreeNode,1}, numcols::Int, da
         cat = 1
         for rate in rates
             logprob = log(1.0/numcats)
-            freqs = LGfreqs
-            Q = mu*LGmatrix*rate
+            Q = mu*R*rate
             likelihoods = ones(Float64, length(nodelist), numcols, 20)*-Inf
             transprobs = gettransprobmatrices(nodelist, Q)
             logm = zeros(Float64, numcols, length(nodelist))
@@ -1109,7 +1108,6 @@ function aa_alignmentloglikelihood(nodelist::Array{TreeNode,1}, numcols::Int, da
             end
             cat += 1
         end
-        #println(mu,"\t",shape,"\t",sum(siteloglikelihoods))
         for col=1:numcols
             siteloglikelihoodsconditionals[col,:] = exp.(siteloglikelihoodsconditionals[col,:].-siteloglikelihoods[col])
         end
@@ -1119,10 +1117,10 @@ function aa_alignmentloglikelihood(nodelist::Array{TreeNode,1}, numcols::Int, da
    end
 end
 
-function optimizealignmentlikelihood(nodelist::Array{TreeNode,1}, numcols::Int, data::Array{Float64,3},subcolumnrefs::Array{Int,2}, mu::Float64, shape::Float64, numcats::Int)
+function optimizealignmentlikelihood(nodelist::Array{TreeNode,1}, numcols::Int, data::Array{Float64,3},subcolumnrefs::Array{Int,2}, mu::Float64, shape::Float64, numcats::Int, R::Array{Float64,2}=LGmatrix, freqs::Array{Float64,1}=LGfreqs)
     maxoptiter = 2000
     opt = Opt(:LN_COBYLA, 2)
-    localObjectiveFunction = ((param, grad) -> aa_alignmentloglikelihood(nodelist, numcols, data, subcolumnrefs, param[1], param[2], numcats)[1])
+    localObjectiveFunction = ((param, grad) -> aa_alignmentloglikelihood(nodelist, numcols, data, subcolumnrefs, param[1], param[2], numcats, R, freqs)[1])
     lower = ones(Float64, 2)*1e-3
     upper = ones(Float64, 2)*1e3
     lower_bounds!(opt, lower)
@@ -1135,8 +1133,94 @@ function optimizealignmentlikelihood(nodelist::Array{TreeNode,1}, numcols::Int, 
 end
 
 
+function find_mu_and_alpha(fastafile="",treefile="",blindnodenames::Array{String,1}=String[],numrates::Int=10, R::Array{Float64,2}=LGmatrix, freqs::Array{Float64,1}=LGfreqs)
+    rng = MersenneTwister(2184104820249809)
+    parsed_args = nothing
+    if fastafile == "" || treefile == ""
+        parsed_args = parse_commandline()
+        fastafile = parsed_args["alignment"]
+        treefile = parsed_args["tree"]
+    end
 
-function pathreconstruction(fastafile="",treefile="",blindnodenames::Array{String,1}=String[],numrates::Int=10)
+
+    zup = 1
+
+    prioritycolumns = Int[]
+    sequences = AbstractString[]
+    names = AbstractString[]
+    FastaIO.FastaReader(fastafile) do fr
+        for (desc, seq) in fr
+            push!(names,desc)
+            push!(sequences, seq)
+        end
+    end
+    numseqs = length(sequences)
+    numcols = length(sequences[1])
+    seqnametoindex = Dict{AbstractString,Int}()
+    len = 0
+    seqindex = 1
+    for (taxon,sequence) in zip(names, sequences)
+        len = length(sequence)
+        seqnametoindex[taxon] = seqindex
+        seqindex += 1
+    end
+
+    newickin = open(treefile,"r")
+    newickstring = strip(readlines(newickin)[1])
+    close(newickin)
+    doroottree = false
+    root = gettreefromnewick(newickstring)
+    if doroottree
+         root = roottree(gettreefromnewick(newickstring), 1)
+    end
+    nodelist = getnodelist(root)
+    for node in nodelist
+        if node.branchlength <= 1e-4
+            node.branchlength = 1e-4
+        end
+    end
+    seqnametonodeindex = Dict{AbstractString,Int}()
+    nodeindex = 1
+    for node in nodelist
+        node.nodeindex = nodeindex
+        if node.name != ""
+            seqnametonodeindex[node.name] = node.nodeindex
+        else
+            node.name = string("[",node.nodeindex,"]")
+        end
+        nodeindex += 1
+    end
+    seqindextonodeindex = zeros(Int,length(sequences))
+    seqindex = 1
+    blank_nodeindex = 0
+    blank_seqindex = 0
+    for (taxon,sequence) in zip(names, sequences)
+         if taxon in blindnodenames
+            blank_seqindex = seqindex
+            blank_nodeindex = seqnametonodeindex[taxon]
+            println(blank_seqindex,"\t",blank_nodeindex)
+        end
+
+        seqindextonodeindex[seqindex] = seqnametonodeindex[taxon]
+        nodelist[seqnametonodeindex[taxon]].seqindex = seqindex
+        seqindex += 1
+    end
+    jsondict = Dict{Any,Any}()
+
+    aadata,subcolumnrefs = getaadata(nodelist,seqindextonodeindex,sequences)
+    for col=1:numcols
+        aadata[blank_seqindex,col,:] = ones(Float64,20)
+    end
+    trueseq = deepcopy(sequences[blank_seqindex])
+    sequences[blank_seqindex] = repeat("-", numcols)
+    nummatches = 1e-10
+    numtotal = 1e-10
+
+    minf, minx = optimizealignmentlikelihood(nodelist, numcols, aadata, subcolumnrefs, 0.188721, 0.123624, numrates, R, freqs)
+    return minx[1],minx[2]
+end
+
+function pathreconstruction(fastafile="",treefile="",blindnodenames::Array{String,1}=String[],numrates::Int=10, R::Array{Float64,2}=LGmatrix, freqs::Array{Float64,1}=LGfreqs, mu::Float64=-1.0,alpha::Float64=-1.0)
     rng = MersenneTwister(2184104820249809)
     parsed_args = nothing
     if fastafile == "" || treefile == ""
@@ -1240,9 +1324,16 @@ function pathreconstruction(fastafile="",treefile="",blindnodenames::Array{Strin
     nummatches = 1e-10
     numtotal = 1e-10
 
-    minf, minx = optimizealignmentlikelihood(nodelist, numcols, aadata, subcolumnrefs, 0.188721, 0.123624, numrates)
-    println(minf,"\t",minx)
-    maxll, siteloglikelihoodsconditionals = aa_alignmentloglikelihood(nodelist, numcols, aadata, subcolumnrefs, minx[1], minx[2],numrates)
+    minx = Float64[]
+    if mu == -1.0
+        minf, minx = optimizealignmentlikelihood(nodelist, numcols, aadata, subcolumnrefs, 0.188721, 0.123624, numrates, R, freqs)
+        println(minf,"\t",minx)
+    else
+        minx = Float64[mu,alpha]
+    end
+
+
+    maxll, siteloglikelihoodsconditionals = aa_alignmentloglikelihood(nodelist, numcols, aadata, subcolumnrefs, minx[1], minx[2],numrates,R,freqs)
     rates = discretizegamma(minx[2], 1.0/minx[2], numrates)
     #selcols = Int[143, 384, 274, 438, 136,402,335,287,152,198,214]
     selcols = 1:numcols
@@ -1374,7 +1465,7 @@ function pathreconstruction(fastafile="",treefile="",blindnodenames::Array{Strin
     println(JSON.json(jsondict))=#
     println(matchcounts./matchtotals)
     println(mean(matchcounts./matchtotals))
-    return mean(matchcounts./matchtotals)
+    return mean(matchcounts./matchtotals), minx[1], minx[2]
 end
 
 function getchar(path::Array{Int,1}, time::Array{Float64}, t::Float64)
