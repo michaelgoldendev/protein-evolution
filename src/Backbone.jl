@@ -1,7 +1,8 @@
-module PDBBuilder
+module Backbone
     using LinearAlgebra
     using Formatting
     using DataStructures
+    using BioStructures
 
     push!(LOAD_PATH,@__DIR__)
     using Binaries
@@ -247,9 +248,73 @@ module PDBBuilder
         end
         return chain
     end
+
+    export backbone_from_pdb_chain
+    function backbone_from_pdb_chain(chain)
+        residues = []
+        for resid in resids(chain)
+            res = chain[resid]
+            if !ishetero(res)
+                push!(residues, res)
+            end
+        end
+
+        currresnumber = 1
+        pos = 1
+        while pos <= length(residues)
+            thisresnumber = resnumber(residues[pos])
+
+            aa = "X"
+            omega = -1000.0
+            phi = -1000.0
+            psi = -1000.0
+            a1 = -1000.0
+            a2 = -1000.0
+            a3 = -1000.0
+            b1 = -1000.0
+            b2 = -1000.0
+            b3 = -1000.0
+
+            if currresnumber == thisresnumber
+                prevresi = nothing
+                currresi = residues[pos]
+                nextresi = nothing
+                if pos > 1 && resnumber(residues[pos-1])+1 == resnumber(residues[pos])
+                    prevresi = residues[pos-1]
+                end
+                if pos < length(residues) && resnumber(residues[pos])+1 == resnumber(residues[pos+1])
+                    nextresi = residues[pos+1]
+                end
+
+                if prevresi != nothing
+                    omega = dihedralangle(prevresi["CA"], prevresi["C"], currresi["N"], currresi["CA"])
+                    phi = dihedralangle(prevresi["C"], currresi["N"], currresi["CA"], currresi["C"])
+
+                    a1 = bondangle(prevresi["CA"], prevresi["C"], currresi["N"])
+                    a2 = bondangle(prevresi["C"], currresi["N"], currresi["CA"])
+                    b1 = sqrt(sqdistance(currresi["N"], prevresi["C"]))
+                end     
+                a3 = bondangle(currresi["N"], currresi["CA"], currresi["C"])
+                b2 = sqrt(sqdistance(currresi["CA"], currresi["N"]))
+                b3 = sqrt(sqdistance(currresi["C"], currresi["CA"]))
+                if nextresi != nothing 
+                    psi  = dihedralangle(currresi["N"], currresi["CA"], currresi["C"], nextresi["N"])
+                end
+                threeletter = resname(currresi)
+                aa = three_to_one[threeletter]                                      
+                pos += 1
+                println(aa,"\t",currresnumber,"\t", omega, "\t", phi, "\t", psi,"\t",a1,"\t",a2,"\t",a3,"\t",b1,"\t",b2,"\t",b3)
+            else
+                #println(aa,"\t",currresnumber,"\t",pos,"\t", omega, "\t", phi, "\t", psi,"\t",a1,"\t",a2,"\t",a3,"\t",b1,"\t",b2,"\t",b3)
+            end
+            
+            currresnumber += 1
+        end
+    end
 end
 
-#using PDBBuilder
+#using Backbone
+using BioStructures
 #=
 using JSON
 
@@ -263,3 +328,21 @@ chain = PDBBuilder.build_structure_from_angles(polypeptide, use_input_bond_angle
 fout = open("actual-bond-angles.pdb", "w")
 PDBBuilder.writepdb(fout, chain)
 close(fout)=#
+
+pdbdir = abspath("../data/pdbs/")
+pdbname = "6n41"
+pdbfile = downloadpdb(pdbname, pdb_dir=pdbdir)
+structure = read(pdbfile, PDB)
+model = structure[1]
+chainids = collect(keys(model.chains))
+sort!(chainids)
+firstchain = model[chainids[1]]
+
+#=
+structure = read("../data/pdbs/pdb1a0i.ent", PDB)
+model = structure[1]
+chainids = collect(keys(model.chains))
+sort!(chainids)
+firstchain = model[chainids[1]]
+println(firstchain)=#
+Backbone.backbone_from_pdb_chain(firstchain)

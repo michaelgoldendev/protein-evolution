@@ -209,7 +209,7 @@ with mean vector, $\mathbf{\mu}$, of length 3 and a $3 \times 3$ covariance matr
 \label{eq:bond_density}
 (b_{i}^{(1)}, b_{i}^{(2)}, b_{i}^{(3)})  \sim \text{MVN}\big(\mu(H_a^{i}),\,\Sigma(H_a^{i})\big)
 \end{equation}
-Note that the values of the three bond angles and three bond lengths are all largely invariant, implying that the values can be reasonably fixed. However, we opted to treat them as random variables so that the model gives a complete probabilistic description of the protein backbone structure.
+Note that the values of the three bond angles and three bond lengths are all largely invariant, implying that the values can be reasonably fixed. However, we opted to treat them as random variables so that the model gives a complete probabilistic description of a protein backbone structure.
 
 \paragraph{Structural likelihood}
 The likelihood of a structural observation, $p\big(X_{a}^{i}\,|\,H_{a}^{i},S_{a}^{i},\theta\big)$, at site $i$ conditional on the hidden state, $H^{i}_a$, and amino acid, $S^{i}_a$, is given by a product of the densities in Equations~\ref{eq:dihedral_density}, \ref{eq:angle_density}, and \ref{eq:bond_density}.
