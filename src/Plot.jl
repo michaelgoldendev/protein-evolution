@@ -184,12 +184,11 @@ function plotstructuresamples()
 
 			k = Float64[modelparams.hiddennodes[h].phi_nodes[aa].kappa, modelparams.hiddennodes[h].psi_nodes[aa].kappa, 0.0]
 			mu = Float64[modelparams.hiddennodes[h].phi_nodes[aa].mu, modelparams.hiddennodes[h].psi_nodes[aa].mu]
-			#bv = BivariateVonMisesDist(k, mu)
 
 			for (i, x) in enumerate(range(-pi,stop=pi,length=N))
 				for (j, y) in enumerate(range(-pi,stop=pi,length=N))
-					mat[N-j+1,i] += pdf(modelparams.hiddennodes[h].phi_nodes[aa].dist, x)*pdf(modelparams.hiddennodes[h].psi_nodes[aa].dist, y)*modelparams.hiddennodes[h].aa_node.probs[aa]
-					#mat[N-j+1,i] += BivariateVonMises.pdf(bv, Float64[x,y])
+					#mat[N-j+1,i] += pdf(modelparams.hiddennodes[h].phi_nodes[aa].dist, x)*pdf(modelparams.hiddennodes[h].psi_nodes[aa].dist, y)*modelparams.hiddennodes[h].aa_node.probs[aa]
+					mat[N-j+1,i] += BivariateVonMises.pdf(modelparams.hiddennodes[h].phipsi_nodes[aa], Float64[x,y])
 				end
 			end
 		end
@@ -258,8 +257,9 @@ end
 #plot_nodes("models/model_h.10.thresh2.hiddenaascaling.anglescondaa.ratemode1.model")
 #plot_nodes("models/model_h.11.thresh2.hiddenaascaling.anglescondaa.ratemode1.model")
 #plot_nodes("models/model_h.10.thresh2.rerun.hiddenaascaling.anglescondaa.ratemode1.model")
+plot_nodes("models/model_h.12.thresh2.rerun.hiddenaascaling.anglescondaa.ratemode1.model")
 #plot_nodes("models/model_h.15.thresh2.rerun.hiddenaascaling.anglescondaa.ratemode1.model")
 
 
 
-plotstructuresamples()
+#plotstructuresamples()

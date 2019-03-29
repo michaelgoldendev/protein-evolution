@@ -12,6 +12,7 @@ using MolecularEvolution
 
 push!(LOAD_PATH,@__DIR__)
 using EMNodes
+using BivariateVonMises
 using Backbone
 
 using Binaries
@@ -1775,8 +1776,15 @@ function siteloglikelihood(site::SiteObservation, h::Int, aa::Int, modelparams::
 	if modelparams.usestructureobservations
 		if modelparams.hidden_conditional_on_aa
 			if aa > 0
-				if site.phi > -100.0
-					ll += logpdf(modelparams.hiddennodes[h].phi_nodes[aa].dist, site.phi)
+				if site.phi > -100.0 && site.psi > -100
+					ll += BivariateVonMises.logpdf(modelparams.hiddennodes[h].phipsi_nodes[aa], Float64[site.phi, site.psi])
+				else
+					if site.phi > -100.0
+						ll += logpdf(modelparams.hiddennodes[h].phi_nodes[aa].dist, site.phi)
+					end
+					if site.psi > -100.0
+						ll += logpdf(modelparams.hiddennodes[h].psi_nodes[aa].dist, site.psi)
+					end
 				end
 				if site.omega > -100.0
 					ll += logpdf(modelparams.hiddennodes[h].omega_nodes[aa].dist, site.omega)
@@ -1788,28 +1796,37 @@ function siteloglikelihood(site::SiteObservation, h::Int, aa::Int, modelparams::
 				sumll = -Inf
 				for aa=1:modelparams.alphabet
 					temp = 0.0
-					if site.phi > -100.0
-						temp += logpdf(modelparams.hiddennodes[h].phi_nodes[aa].dist, site.phi)
+					if site.phi > -100.0 && site.psi > -100
+						temp += BivariateVonMises.logpdf(modelparams.hiddennodes[h].phipsi_nodes[aa], Float64[site.phi, site.psi])
+					else
+						if site.phi > -100.0
+							temp += logpdf(modelparams.hiddennodes[h].phi_nodes[aa].dist, site.phi)
+						end
+						if site.psi > -100.0
+							temp += logpdf(modelparams.hiddennodes[h].psi_nodes[aa].dist, site.psi)
+						end
 					end
 					if site.omega > -100.0
 						temp += logpdf(modelparams.hiddennodes[h].omega_nodes[aa].dist, site.omega)
 					end
-					if site.psi > -100.0
-						temp += logpdf(modelparams.hiddennodes[h].psi_nodes[aa].dist, site.psi)
-					end
+					
 					sumll = logsumexp(sumll, log(modelparams.hiddennodes[h].aa_node.probs[aa])+temp)
 				end
 				ll += sumll
 			end
 		else
-			if site.phi > -100.0
-				ll += logpdf(modelparams.hiddennodes[h].phi_node.dist, site.phi)
-			end
+			if site.phi > -100.0 && site.psi > -100
+				ll += BivariateVonMises.logpdf(modelparams.hiddennodes[h].phipsi_node, Float64[site.phi, site.psi])
+			else
+				if site.phi > -100.0
+					ll += logpdf(modelparams.hiddennodes[h].phi_node.dist, site.phi)
+				end				
+				if site.psi > -100.0
+					ll += logpdf(modelparams.hiddennodes[h].psi_node.dist, site.psi)
+				end
+			end			
 			if site.omega > -100.0
 				ll += logpdf(modelparams.hiddennodes[h].omega_node.dist, site.omega)
-			end
-			if site.psi > -100.0
-				ll += logpdf(modelparams.hiddennodes[h].psi_node.dist, site.psi)
 			end
 		end
 

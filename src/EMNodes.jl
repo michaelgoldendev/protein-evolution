@@ -4,6 +4,9 @@ module EMNodes
 	using LinearAlgebra
 	using NLopt
 
+	push!(LOAD_PATH,@__DIR__)
+	using BivariateVonMises
+
 	export SiteObservation
 	mutable struct SiteObservation
 		h::Int
@@ -234,6 +237,7 @@ module EMNodes
 		aa_node::CategoricalNode
 		phi_node::VonMisesNode
 		psi_node::VonMisesNode
+		phipsi_node::BivariateVonMisesNode
 		omega_node::VonMisesNode
 		bond_angle1_node::VonMisesNode
 		bond_angle2_node::VonMisesNode
@@ -241,14 +245,16 @@ module EMNodes
 		bond_lengths_node::MultivariateNode
 		phi_nodes::Array{VonMisesNode,1}
 		psi_nodes::Array{VonMisesNode,1}
+		phipsi_nodes::Array{BivariateVonMisesNode,1}
 		omega_nodes::Array{VonMisesNode,1}
 	    #aadist::Array{Float64,1}
 
 	    function HiddenNode(aafreqs::Array{Float64}=ones(Float64,20)*0.05)
 	    	phi_nodes = VonMisesNode[VonMisesNode() for aa=1:20]
 	    	psi_nodes = VonMisesNode[VonMisesNode() for aa=1:20]
+	    	phipsi_nodes = BivariateVonMisesNode[BivariateVonMisesNode() for aa=1:20]
 	    	omega_nodes = VonMisesNode[VonMisesNode() for aa=1:20]
-	        new(CategoricalNode(aafreqs),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(), MultivariateNode(), phi_nodes, psi_nodes, omega_nodes)
+	        new(CategoricalNode(aafreqs),VonMisesNode(),VonMisesNode(),BivariateVonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(), MultivariateNode(), phi_nodes, psi_nodes, phipsi_nodes, omega_nodes)
 	    end
 	end
 end
