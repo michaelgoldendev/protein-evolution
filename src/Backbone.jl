@@ -249,8 +249,14 @@ module Backbone
         return chain
     end
 
-    export backbone_from_pdb_chain
-    function backbone_from_pdb_chain(chain)
+    export backbone_angles_and_bond_lengths_from_pdb
+    function backbone_angles_and_bond_lengths_from_pdb(chain)
+        sequence = ""
+        phi_psi_list = Tuple{Float64,Float64}[]
+        omega_list = Float64[]
+        bond_angles_list = Tuple{Float64,Float64,Float64}[]
+        bond_lengths_list = Tuple{Float64,Float64,Float64}[]
+
         residues = []
         for resid in resids(chain)
             res = chain[resid]
@@ -259,7 +265,7 @@ module Backbone
             end
         end
 
-        currresnumber = 1
+        currresnumber = min(1, resnumber(residues[1]))
         pos = 1
         while pos <= length(residues)
             thisresnumber = resnumber(residues[pos])
@@ -275,7 +281,16 @@ module Backbone
             b2 = -1000.0
             b3 = -1000.0
 
-            if currresnumber == thisresnumber
+            while currresnumber < thisresnumber && resid(residues[pos]) == string(thisresnumber)
+                sequence = string(sequence, "X")
+                push!(phi_psi_list, (-1000.0,-1000.0))
+                push!(omega_list, -1000.0)
+                push!(bond_angles_list, (-1000.0,-1000.0,-1000.0))
+                push!(bond_lengths_list, (-1000.0,-1000.0,-1000.0))
+                currresnumber += 1
+            end
+
+            if resid(residues[pos]) == string(thisresnumber)
                 prevresi = nothing
                 currresi = residues[pos]
                 nextresi = nothing
@@ -287,32 +302,61 @@ module Backbone
                 end
 
                 if prevresi != nothing
-                    omega = dihedralangle(prevresi["CA"], prevresi["C"], currresi["N"], currresi["CA"])
-                    phi = dihedralangle(prevresi["C"], currresi["N"], currresi["CA"], currresi["C"])
-
-                    a1 = bondangle(prevresi["CA"], prevresi["C"], currresi["N"])
-                    a2 = bondangle(prevresi["C"], currresi["N"], currresi["CA"])
-                    b1 = sqrt(sqdistance(currresi["N"], prevresi["C"]))
-                end     
-                a3 = bondangle(currresi["N"], currresi["CA"], currresi["C"])
-                b2 = sqrt(sqdistance(currresi["CA"], currresi["N"]))
-                b3 = sqrt(sqdistance(currresi["C"], currresi["CA"]))
+                    if in("CA", atomnames(prevresi)) && in("C", atomnames(prevresi)) && in("N", atomnames(currresi)) && in("CA", atomnames(currresi))
+                        omega = dihedralangle(prevresi["CA"], prevresi["C"], currresi["N"], currresi["CA"])
+                    end
+                    if in("C", atomnames(prevresi)) && in("N", atomnames(currresi)) && in("CA", atomnames(currresi)) && in("C", atomnames(currresi))
+                        phi = dihedralangle(prevresi["C"], currresi["N"], currresi["CA"], currresi["C"])
+                    end
+                    if in("CA", atomnames(prevresi)) && in("C", atomnames(prevresi)) && in("N", atomnames(currresi))
+                        a1 = bondangle(prevresi["CA"], prevresi["C"], currresi["N"])
+                    end
+                    if in("C", atomnames(prevresi)) && in("N", atomnames(currresi)) && in("CA", atomnames(currresi))
+                        a2 = bondangle(prevresi["C"], currresi["N"], currresi["CA"])
+                    end
+                    if in("N", atomnames(currresi)) && in("C", atomnames(prevresi))
+                        b1 = sqrt(sqdistance(currresi["N"], prevresi["C"]))
+                    end
+                end
+                if in("N", atomnames(currresi)) && in("CA", atomnames(currresi)) && in("C", atomnames(currresi))
+                    a3 = bondangle(currresi["N"], currresi["CA"], currresi["C"])
+                end
+                if in("CA", atomnames(currresi)) && in("N", atomnames(currresi))
+                    b2 = sqrt(sqdistance(currresi["CA"], currresi["N"]))
+                end
+                if in("C", atomnames(currresi)) && in("CA", atomnames(currresi))
+                    b3 = sqrt(sqdistance(currresi["C"], currresi["CA"]))
+                end
                 if nextresi != nothing 
-                    psi  = dihedralangle(currresi["N"], currresi["CA"], currresi["C"], nextresi["N"])
+                    if in("N", atomnames(currresi)) && in("CA", atomnames(currresi)) && in("C", atomnames(currresi)) && in("N", atomnames(nextresi))
+                        psi  = dihedralangle(currresi["N"], currresi["CA"], currresi["C"], nextresi["N"])
+                    end
                 end
                 threeletter = resname(currresi)
-                aa = three_to_one[threeletter]                                      
-                pos += 1
-                println(aa,"\t",currresnumber,"\t", omega, "\t", phi, "\t", psi,"\t",a1,"\t",a2,"\t",a3,"\t",b1,"\t",b2,"\t",b3)
-            else
-                #println(aa,"\t",currresnumber,"\t",pos,"\t", omega, "\t", phi, "\t", psi,"\t",a1,"\t",a2,"\t",a3,"\t",b1,"\t",b2,"\t",b3)
+                aa = three_to_one[threeletter]
+
+                sequence = string(sequence, aa)
+                push!(phi_psi_list, (phi,psi))
+                push!(omega_list, omega)
+                push!(bond_angles_list, (a1,a2,a3))
+                push!(bond_lengths_list, (b1,b2,b3))
+
+                #println(aa,"\t",currresnumber,"\t", omega, "\t", phi, "\t", psi,"\t",a1,"\t",a2,"\t",a3,"\t",b1,"\t",b2,"\t",b3)V
+                currresnumber += 1                
             end
-            
-            currresnumber += 1
+            pos += 1
         end
+
+        dict = Dict{String,Any}()
+        dict["sequence"] = sequence
+        dict["phi_psi"] = phi_psi_list
+        dict["omega"] = omega_list
+        dict["bond_angles"] = bond_angles_list
+        dict["bond_lengths"] = bond_lengths_list
+        return dict
     end
 end
-
+#=
 #using Backbone
 using BioStructures
 #=
@@ -345,4 +389,5 @@ chainids = collect(keys(model.chains))
 sort!(chainids)
 firstchain = model[chainids[1]]
 println(firstchain)=#
-Backbone.backbone_from_pdb_chain(firstchain)
+dict = Backbone.backbone_angles_and_bond_lengths_from_pdb(firstchain)
+println(dict)=#

@@ -123,10 +123,10 @@ module EMNodes
 		data::Array{Float64,1}
 		kappa_prior::ContinuousUnivariateDistribution
 
-		function VonMisesNode()
+		function VonMisesNode(kappa_prior_exp_rate::Float64=2.0)
 			mu = 0.0
 			kappa = 1e-5
-			new(0.0, 0.0, 0.0, mu, kappa, VonMises(mu, kappa), Float64[], Exponential(2.0))
+			new(0.0, 0.0, 0.0, mu, kappa, VonMises(mu, kappa), Float64[], Exponential(kappa_prior_exp_rate))
 		end
 	end
 

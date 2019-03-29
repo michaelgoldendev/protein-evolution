@@ -5,17 +5,22 @@ for a=1:alphabet
   aamapping[aminoacids[a]] = a
 end
 
+fastaamapping = zeros(Int,26)
+for (index,aa) in enumerate(aminoacids)
+  fastaamapping[Int(aa)-64] = index
+end
+
 
 function kmertoindex(kmer::AbstractString)
   len = length(kmer)
-  nuc = get(aamapping,kmer[1], 0)
+  nuc = fastaamapping[Int(kmer[1])-64]
   if nuc == 0
     return -1
   end
   index = nuc-1
   for pos=2:len
     index *= alphabet
-    nuc = get(aamapping,kmer[pos], 0)
+    nuc = fastaamapping[Int(kmer[pos])-64]
     if nuc == 0
       return -1
     end
@@ -24,7 +29,7 @@ function kmertoindex(kmer::AbstractString)
   return index+1
 end
 
-function freqvector(sequence::AbstractString, k::Int)
+function freqvector(sequence::AbstractString, k::Int, normalised::Bool=true)
   sequence2 = replace(sequence,"-" => "")
   f = zeros(Float64,alphabet^k)
   for startpos=1:length(sequence2)-k+1
@@ -35,7 +40,31 @@ function freqvector(sequence::AbstractString, k::Int)
       f[index] += 1
     end
   end
-  return f/sum(f)
+
+  if normalised
+    return f/sum(f)
+  else
+    return f
+  end
+end
+
+function freqvectorint(sequence::AbstractString, k::Int)
+  f = zeros(Int,alphabet^k)
+  for startpos=1:length(sequence)-k+1
+    endpos = startpos+k-1
+    kmer = sequence[startpos:endpos]
+    index = kmertoindex(kmer)
+    if index >= 0
+      f[index] += 1
+    end
+  end
+  return f
+end
+
+
+
+function euclidean(f1::Array{Float64,1},f2::Array{Float64,1})
+  return sqrt(mean([(v1-v2)^2.0 for (v1,v2) in zip(f1,f2)]))
 end
 
 function bintovec(bin::Array{Int, 1})

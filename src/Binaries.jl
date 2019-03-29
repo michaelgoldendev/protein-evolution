@@ -46,7 +46,7 @@ module Binaries
         cachefile = joinpath(cachepath, string(CommonUtils.sha256base36(fastastring), ".fasttreeaa.nwk"))
         if isfile(cachefile)
             newickstring = open(cachefile) do file
-                read(file, String)
+                strip(read(file, String))
             end
             newickstring, cachefile
         else
@@ -110,16 +110,16 @@ module Binaries
         cachefile = joinpath(cachepath, string(CommonUtils.sha256base36(fastastring), ".muscle.fas"))
         if isfile(cachefile)
             muscle_alignment = open(cachefile) do file
-                read(file, String)
+                strip(read(file, String))
             end
             return muscle_alignment, cachefile
         else           
             if Sys.iswindows()
               muscle_windows = joinpath(@__DIR__,"..","binaries","muscle3.8.31_i86win32.exe")
-              muscle_alignment = read(`$muscle_windows -in $alignmentfile -out $cachefile`, String)
-              #fout = open(cachefile, "w")
-              #print(fout, strip(muscle_alignment))
-              #close(fout)
+              read(`$muscle_windows -in $alignmentfile -out $cachefile`, String)
+              muscle_alignment = open(cachefile) do file
+                read(file, String)
+              end
               return muscle_alignment, cachefile
             else
               return "",""

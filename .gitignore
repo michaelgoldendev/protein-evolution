@@ -16,3 +16,9 @@ models/
 output/
 deps/deps.jl
 *.zip
+*.elf
+*.ini
+*.json
+*.gml
+*.txt
+*.lgz

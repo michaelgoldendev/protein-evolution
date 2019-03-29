@@ -31,6 +31,72 @@ using ArgParse
 secondarystructure = "HBEGITSC"
 aminoacids = "ACDEFGHIKLMNPQRSTVWY"
 
+mutable struct ModelParams
+    alphabet::Int
+    aminoacidQ::Array{Float64,2}
+    aa_exchangeablities::Array{Float64,2}
+    rate_alpha::Float64
+    numrates::Int
+    rates::Array{Float64,1}
+    rate_freqs::Array{Float64,1}
+    numhiddenstates::Int
+    initialprobs::Array{Float64,1}
+    transitioncounts::Array{Float64,2}
+    transitionprobs::Array{Float64,2}
+    transitionrates::Array{Float64,2}
+	hiddennodes::Array{HiddenNode,1}
+	mu::Float64
+	hiddenmu::Float64
+	matrixcache::Dict{Tuple{Int,Int,Int,Int}, Tuple{Array{Float64,2},Array{Complex{Float64},2},Array{Complex{Float64},1},Array{Complex{Float64},2}}}
+	branchscalingfactor::Float64
+	scalingfactor::Float64
+	usestructureobservations::Bool
+	hidden_conditional_on_aa::Bool
+	ratemode::Int
+	aarates::Array{Float64,1}
+
+    function ModelParams(aminoacidQ::Array{Float64,2}, numhiddenstates::Int,mu::Float64=1.0,hiddenmu::Float64=1.0)
+        initialprobs = ones(Float64, numhiddenstates)./numhiddenstates
+        transitioncounts = ones(Float64, numhiddenstates, numhiddenstates)*0.1
+        transitionprobs = ones(Float64, numhiddenstates, numhiddenstates)./numhiddenstates
+        transitionrates = ones(Float64, numhiddenstates, numhiddenstates)
+        for h1=1:numhiddenstates
+            transitionrates[h1,h1] = 0.0
+            for h2=1:numhiddenstates
+                if h1 != h2
+                    transitionrates[h1,h1] -= transitionrates[h1,h2]
+                end
+            end
+        end
+		hiddennodes = HiddenNode[]
+		for h=1:numhiddenstates
+			push!(hiddennodes, HiddenNode(LGfreqs))
+		end
+		println("AAFreqs",hiddennodes[1].aa_node.probs)
+		matrixcache = Dict{Tuple{Int,Int,Int,Int}, Tuple{Array{Float64,2},Array{Complex{Float64},2},Array{Complex{Float64},1},Array{Complex{Float64},2}}}()
+		numrates = 10
+		rate_alpha = 0.5
+		#rates = discretizegamma(rate_alpha,1.0/rate_alpha,numrates)
+		rates = ones(Float64,numrates)
+		rate_freqs = ones(Float64,numrates)/numrates
+        new(20,aminoacidQ,LGexchangeability, rate_alpha, numrates, rates,rate_freqs,numhiddenstates,initialprobs,transitioncounts,transitionprobs,transitionrates,hiddennodes,mu,hiddenmu,matrixcache,1.0,1.0,true,true,1, ones(Float64,numhiddenstates))
+    end
+end
+
+mutable struct Sample 
+	name::String
+	aasamples::Array{Array{Int,1},1}
+	hiddensamples::Array{Array{Int,1},1}
+	json_family::Dict{String,Any}
+	modelparams::ModelParams
+
+	function Sample(name::String, modelparams::ModelParams)
+		new(name, Int[], Int[], Dict{String,Any}(), modelparams)
+	end
+end
+
+
+
 function binarize!(tree::TreeNode)
     nodes = getnodelist(tree)
     counter = 0
@@ -187,57 +253,7 @@ function discretizegamma(shape::Float64, scale::Float64, numcategories::Int)
 end
 
 
-mutable struct ModelParams
-    alphabet::Int
-    aminoacidQ::Array{Float64,2}
-    aa_exchangeablities::Array{Float64,2}
-    rate_alpha::Float64
-    numrates::Int
-    rates::Array{Float64,1}
-    rate_freqs::Array{Float64,1}
-    numhiddenstates::Int
-    initialprobs::Array{Float64,1}
-    transitioncounts::Array{Float64,2}
-    transitionprobs::Array{Float64,2}
-    transitionrates::Array{Float64,2}
-	hiddennodes::Array{HiddenNode,1}
-	mu::Float64
-	hiddenmu::Float64
-	matrixcache::Dict{Tuple{Int,Int,Int,Int}, Tuple{Array{Float64,2},Array{Complex{Float64},2},Array{Complex{Float64},1},Array{Complex{Float64},2}}}
-	branchscalingfactor::Float64
-	scalingfactor::Float64
-	usestructureobservations::Bool
-	hidden_conditional_on_aa::Bool
-	ratemode::Int
-	aarates::Array{Float64,1}
 
-    function ModelParams(aminoacidQ::Array{Float64,2}, numhiddenstates::Int,mu::Float64=1.0,hiddenmu::Float64=1.0)
-        initialprobs = ones(Float64, numhiddenstates)./numhiddenstates
-        transitioncounts = ones(Float64, numhiddenstates, numhiddenstates)*0.1
-        transitionprobs = ones(Float64, numhiddenstates, numhiddenstates)./numhiddenstates
-        transitionrates = ones(Float64, numhiddenstates, numhiddenstates)
-        for h1=1:numhiddenstates
-            transitionrates[h1,h1] = 0.0
-            for h2=1:numhiddenstates
-                if h1 != h2
-                    transitionrates[h1,h1] -= transitionrates[h1,h2]
-                end
-            end
-        end
-		hiddennodes = HiddenNode[]
-		for h=1:numhiddenstates
-			push!(hiddennodes, HiddenNode(LGfreqs))
-		end
-		println("AAFreqs",hiddennodes[1].aa_node.probs)
-		matrixcache = Dict{Tuple{Int,Int,Int,Int}, Tuple{Array{Float64,2},Array{Complex{Float64},2},Array{Complex{Float64},1},Array{Complex{Float64},2}}}()
-		numrates = 10
-		rate_alpha = 0.5
-		#rates = discretizegamma(rate_alpha,1.0/rate_alpha,numrates)
-		rates = ones(Float64,numrates)
-		rate_freqs = ones(Float64,numrates)/numrates
-        new(20,aminoacidQ,LGexchangeability, rate_alpha, numrates, rates,rate_freqs,numhiddenstates,initialprobs,transitioncounts,transitionprobs,transitionrates,hiddennodes,mu,hiddenmu,matrixcache,1.0,1.0,true,true,1, ones(Float64,numhiddenstates))
-    end
-end
 
 function estimate_hidden_transition_probs(modelparams::ModelParams)
 	freqs = zeros(Float64,modelparams.numhiddenstates)
@@ -1725,18 +1741,65 @@ function constructHiddenMatrix(modelparams::ModelParams, prevh_hmm::Int, nexth_h
     return Q
 end
 
+function samplesingle(rng::AbstractRNG, node::TreeNode, modelparams::ModelParams)
+	""" use backwardsampling to efficiently sample a tree consisting of a single node """
+	numcols = length(node.data.protein.sites)
+	logliks = ones(Float64, numcols, modelparams.numhiddenstates)*-Inf	
+	for h=1:modelparams.numhiddenstates
+		logliks[1,h] = siteloglikelihood(node.data.protein.sites[1], h, node.data.protein.sites[1].aa, modelparams)
+	end
+	for col=2:numcols
+		for prevh=1:modelparams.numhiddenstates
+			for h=1:modelparams.numhiddenstates
+				ll = siteloglikelihood(node.data.protein.sites[col], h, node.data.protein.sites[col].aa, modelparams)
+				logliks[col,h] = logsumexp(logliks[col,h], logliks[col-1,prevh] + log(modelparams.transitionprobs[prevh,h]) + ll)
+			end
+		end
+	end
+
+	col = numcols
+	sampledstates = zeros(Int, numcols)
+	sampledstates[col] = CommonUtils.sample(rng, exp.(logliks[col,:].-maximum(logliks[col,:])))
+	while col > 1
+		col -= 1
+		sampledstates[col] = CommonUtils.sample(rng, exp.(logliks[col,:].-maximum(logliks[col,:])).*modelparams.transitionprobs[:,sampledstates[col+1]])
+	end
+
+	for col=1:numcols
+		node.data.branchpath.paths[col][end] = sampledstates[col]
+	end	
+end
+
 function siteloglikelihood(site::SiteObservation, h::Int, aa::Int, modelparams::ModelParams)
 	ll = 0.0
 	if modelparams.usestructureobservations
 		if modelparams.hidden_conditional_on_aa
-			if site.phi > -100.0
-				ll += logpdf(modelparams.hiddennodes[h].phi_nodes[aa].dist, site.phi)
-			end
-			if site.omega > -100.0
-				ll += logpdf(modelparams.hiddennodes[h].omega_nodes[aa].dist, site.omega)
-			end
-			if site.psi > -100.0
-				ll += logpdf(modelparams.hiddennodes[h].psi_nodes[aa].dist, site.psi)
+			if aa > 0
+				if site.phi > -100.0
+					ll += logpdf(modelparams.hiddennodes[h].phi_nodes[aa].dist, site.phi)
+				end
+				if site.omega > -100.0
+					ll += logpdf(modelparams.hiddennodes[h].omega_nodes[aa].dist, site.omega)
+				end
+				if site.psi > -100.0
+					ll += logpdf(modelparams.hiddennodes[h].psi_nodes[aa].dist, site.psi)
+				end
+			else
+				sumll = -Inf
+				for aa=1:modelparams.alphabet
+					temp = 0.0
+					if site.phi > -100.0
+						temp += logpdf(modelparams.hiddennodes[h].phi_nodes[aa].dist, site.phi)
+					end
+					if site.omega > -100.0
+						temp += logpdf(modelparams.hiddennodes[h].omega_nodes[aa].dist, site.omega)
+					end
+					if site.psi > -100.0
+						temp += logpdf(modelparams.hiddennodes[h].psi_nodes[aa].dist, site.psi)
+					end
+					sumll = logsumexp(sumll, log(modelparams.hiddennodes[h].aa_node.probs[aa])+temp)
+				end
+				ll += sumll
 			end
 		else
 			if site.phi > -100.0
@@ -2013,6 +2076,8 @@ function compare_branch_scalings(nodelist1,nodelist2)
 	return outputlist[1]
 end
 
+
+
 function initialise_tree_aa(rng::AbstractRNG, modelparams::ModelParams, nodelist::Array{TreeNode,1}, numcols::Int) 
 	root = nodelist[1]
 	reversenodelist = reverse(nodelist)
@@ -2215,7 +2280,7 @@ function training_example_from_sequence_alignment(rng::AbstractRNG, modelparams:
 	return ( proteins, nodelist, sequences)
 end
 
-function training_example_from_json_family(rng::AbstractRNG, modelparams::ModelParams, json_family; blindnodenames::Array{String,1}=String[])
+function training_example_from_json_family(rng::AbstractRNG, modelparams::ModelParams, json_family; blindnodenames::Array{String,1}=String[], blindstructurenames::Array{String,1}=String[])
 	root = gettreefromnewick(json_family["newick_tree"])
 	binarize!(root)
 	nodelist = getnodelist(root)
@@ -2236,10 +2301,14 @@ function training_example_from_json_family(rng::AbstractRNG, modelparams::ModelP
 	    for (aa,phi_psi,omega,bond_lengths,bond_angles) in zip(json_protein["aligned_sequence"], json_protein["aligned_phi_psi"], json_protein["aligned_omega"], json_protein["aligned_bond_lengths"], json_protein["aligned_bond_angles"])
 	    	if name in blindnodenames
 	    		push!(protein.sites, SiteObservation())
-		    else
-		    	phi = phi_psi[1]
-		    	psi = phi_psi[2]
-		        push!(protein.sites, SiteObservation(0,indexof(string(aa), aminoacids),phi,omega,psi,bond_lengths[1],bond_lengths[2],bond_lengths[3],bond_angles[1],bond_angles[2],bond_angles[3]))
+		    else		    	
+		        if name in blindstructurenames
+		        	push!(protein.sites, SiteObservation(0,indexof(string(aa), aminoacids),-1000.0,-1000.0,-1000.0,-1000.0,-1000.0,-1000.0,-1000.0,-1000.0,-1000.0))
+		        else
+		        	phi = phi_psi[1]
+		    		psi = phi_psi[2]
+		        	push!(protein.sites, SiteObservation(0,indexof(string(aa), aminoacids),phi,omega,psi,bond_lengths[1],bond_lengths[2],bond_lengths[3],bond_angles[1],bond_angles[2],bond_angles[3]))
+		        end
 		    end
 	    end
 	    name_protein_dict[json_family["proteins"][p]["name"]] = (p, protein)
@@ -2937,6 +3006,14 @@ function samplepaths_seperate_old(rng::AbstractRNG, col::Int,proteins,nodelist::
 	return accepted_hidden,accepted_hidden_total,accepted_aa,accepted_aa_total, hidden_accepted, aa_accepted
 end
 
+#=
+function sample_dataset(rng::AbstractRNG, col::Int,proteins,nodelist::Array{TreeNode,1}, modelparams::ModelParams, useoldsampling::Bool=false; dosamplesiterates::Bool=false, accept_everything::Bool=false)
+	if lengths(proteins) == 1
+		samplesingle(nodelist[1], modelparams)
+	else
+		samplepaths_seperate_new(rng, col, proteins, nodelist, modelparams, useoldsampling, dosamplesiterates=dosamplesiterates, accept_everything=accept_everything)
+	end
+end=#
 
 function samplepaths_seperate_new(rng::AbstractRNG, col::Int,proteins,nodelist::Array{TreeNode,1}, modelparams::ModelParams, useoldsampling::Bool=false; dosamplesiterates::Bool=false, accept_everything::Bool=false)
 	for node in nodelist
@@ -3201,7 +3278,25 @@ function calculateloglikelihood(modelparams::ModelParams, trainingexamples::Arra
 	return augmentedll, observationll
 end
 
-function aaintegrated_loglikelihood(rng::AbstractRNG, proteins::Array{Protein,1}, nodelist::Array{TreeNode,1})
+function calculateloglikelihood_array(modelparams::ModelParams, trainingexamples::Array{Tuple,1})
+	augmented_array = Float64[]
+	observation_array = Float64[]
+	observationll = 0.0
+	augmentedll = 0.0
+	for (proteins,nodelist) in trainingexamples
+		numcols = length(proteins[1])
+		augtemp = augmentedloglikelihood(nodelist, Int[col for col=1:numcols], modelparams)
+		augmentedll +=  augtemp
+		push!(augmented_array, augtemp)
+
+		obstemp = observationloglikelihood(proteins, nodelist, modelparams)		
+		observationll += obstemp
+		push!(observation_array, obstemp)
+	end
+	return augmentedll, observationll, augmented_array, observation_array
+end
+
+function aaintegrated_loglikelihood(rng::AbstractRNG, modelparams::ModelParams, proteins::Array{Protein,1}, nodelist::Array{TreeNode,1})
 	sequencell = 0.0
 	numcols = length(proteins[1])
 	for col=1:numcols
@@ -3210,13 +3305,21 @@ function aaintegrated_loglikelihood(rng::AbstractRNG, proteins::Array{Protein,1}
 	return sequencell
 end
 
+function aaintegrated_loglikelihood_array(rng::AbstractRNG, modelparams::ModelParams, trainingexamples::Array{Tuple,1})
+	sequencell = 0.0
+	sequence_array = Float64[]
+	for (proteins,nodelist) in trainingexamples
+		temp = aaintegrated_loglikelihood(rng, modelparams, proteins, nodelist)
+		sequencell += temp
+		push!(sequence_array, temp)
+	end
+	return sequencell, sequence_array
+end
+
 function aaintegrated_loglikelihood(rng::AbstractRNG, modelparams::ModelParams, trainingexamples::Array{Tuple,1})
 	sequencell = 0.0
 	for (proteins,nodelist) in trainingexamples
-		numcols = length(proteins[1])
-		for col=1:numcols
-			sequencell += felsensteinresample_aa(rng, proteins, nodelist, Int[col], col, modelparams, false)
-		end
+		sequencell += aaintegrated_loglikelihood(rng, proteins, nodelist)
 	end
 	return sequencell
 end

@@ -75,6 +75,7 @@ function infer(parsed_args=Dict{String,Any}())
 
 	blindscores = Dict{String,Array{Float64,1}}()
 	blindscores_current = Dict{String,Float64}()
+	blindstructurenames = []
 	blindnodenames = parsed_args["blindproteins"] != nothing ? split(parsed_args["blindproteins"], r",|;") : String[]
 	if length(blindnodenames) > 0
 		println("Blinding protein sequences and structures: ", join(blindnodenames, ", "))
@@ -115,7 +116,7 @@ function infer(parsed_args=Dict{String,Any}())
 	#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/hiv/curated6.fasta"), newickfile=abspath("../data/hiv/curated6.nwk"), blindnodenames=blindnodenames)
 	
 	
-	#fastafile = abspath("../data/influenza_a/HA/selection3.fasta")
+	#datafile = abspath("../data/influenza_a/HA/selection3.fasta")
 	#newickfile= abspath("../data/influenza_a/HA/selection3.fasta.nwk")	
 	#newickfile= abspath("tree.mean.branch.consensus.nwk")		
 	#blindnodenames = String["6n41.pdb_1951"]
@@ -123,21 +124,30 @@ function infer(parsed_args=Dict{String,Any}())
 	#blindnodenames = String[]
 
 	
-	#fastafile = abspath("../data/hiv/curated6.fasta")
+	#datafile = abspath("../data/hiv/curated6.fasta")
 	#newickfile=abspath("../data/hiv/curated6.nwk")	
 	#newickfile=abspath("tree.mean.branch.consensus.nwk")	
 	#blindnodenames = String["B.US.1978.SF4.KJ704795"]
 	#blindnodenames = String[]
 
-	#fastafile = abspath("../data/test_data/hiv_pol_selection.fasta")
+	#datafile = abspath("../data/test_data/hiv_pol_selection.fasta")
 	#newickfile=abspath("../data/test_data/hiv_pol_selection.fasta.nwk")	
 	#blindnodenames = String["CPZ.GA.1988.GAB1.X52154"]
 
-	fastafile = abspath("../data/test_data/westnile_dengue_selection.fasta")
-	newickfile=abspath("../data/test_data/westnile_dengue_selection.fasta.nwk")
-	blindnodenames = String["AEN02430.1"]
+	#datafile = abspath("../data/test_data/westnile_dengue_selection.fasta")
+	#newickfile=abspath("../data/test_data/westnile_dengue_selection.fasta.nwk")
+	#blindnodenames = String["AEN02430.1"]
+	#blindnodenames = String[]
 
-	#fastafile = abspath("../data/test_data/maise_streak_virus_coat_protein_selection.fasta")
+	datafile = abspath("../data/diverse_rna_virus_structures/human_poliovirus_1_VP3.select.fasta.muscle.fas.selection.fas.fam")
+	newickfile=abspath("../data/test_data/westnile_dengue_selection.fasta.nwk")
+	#blindstructurenames =  String["pdb1z7z_3", "pdb4q4w_3", "pdb5o5b_3", "pdb1eah_3", "pdb3jbg_3"]
+	#blindstructurenames =  String["pdb1z7z_3", "pdb4q4w_3", "pdb5o5b_3", "pdb1eah_3"]
+	#blindstructurenames =  String["pdb1z7z_3", "pdb4q4w_3", "pdb1eah_3", "pdb3jbg_3"]
+	blindstructurenames =  String["pdb1z7z_3", "pdb5o5b_3", "pdb1eah_3", "pdb3jbg_3"]
+	#blindnodenames = String[]
+
+	#datafile = abspath("../data/test_data/maise_streak_virus_coat_protein_selection.fasta")
 	#newickfile = abspath("../data/test_data/maise_streak_virus_coat_protein_selection.rooted.nwk")	
 	#blindnodenames = String["ACF40553.1"]
 
@@ -159,10 +169,22 @@ function infer(parsed_args=Dict{String,Any}())
 		end
 	end
 
-	proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, fastafile, newickfile=newickfile, blindnodenames=blindnodenames)
-	
+	proteins = nothing
+	nodelist = nothing
+	json_family = nothing
+	sequences = nothing
+	if endswith(datafile, ".fam")
+		json_family = JSON.parse(open(datafile, "r"))
+		proteins, nodelist,json_family, sequences = training_example_from_json_family(rng, modelparams, json_family, blindstructurenames=blindstructurenames)
+	else
+		proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, datafile, newickfile=newickfile, blindnodenames=blindnodenames)
+	end
 
-	mu,alpha = TraitAssociation.find_mu_and_alpha(fastafile,newickfile,blindnodenames,modelparams.numrates,R,aafreqs)
+	mu = 1.0
+	alpha = 1.0
+	if dosamplesiterates
+		mu,alpha = TraitAssociation.find_mu_and_alpha(datafile,newickfile,blindnodenames,modelparams.numrates,R,aafreqs)
+	end
 	println("mu: ", mu)
 	println("alpha: ", alpha)
 	println("END")
@@ -170,8 +192,8 @@ function infer(parsed_args=Dict{String,Any}())
 
 	LGreconstruction_score = 0.0
 	if length(blindnodenames) > 0
-		#LGreconstruction_score,mu,alpha = TraitAssociation.pathreconstruction(fastafile,newickfile,blindnodenames,modelparams.numrates,R,aafreqs,mu,alpha)
-		LGreconstruction_score,mu,alpha = TraitAssociation.pathreconstruction(fastafile,newickfile,blindnodenames,modelparams.numrates)
+		#LGreconstruction_score,mu,alpha = TraitAssociation.pathreconstruction(datafile,newickfile,blindnodenames,modelparams.numrates,R,aafreqs,mu,alpha)
+		LGreconstruction_score,mu,alpha = TraitAssociation.pathreconstruction(datafile,newickfile,blindnodenames,modelparams.numrates)
 		println("LGreconstruction_score ",LGreconstruction_score)
 	end
 
@@ -184,9 +206,15 @@ function infer(parsed_args=Dict{String,Any}())
 		reset_matrix_cache(modelparams)
 	end
 
+	structuresamples = Dict{String,Sample}()
+	for name in blindstructurenames
+		structuresamples[name] = Sample(name, modelparams)
+	end
 
 
-	outputprefix = string("output/",basename(modelfile),".",basename(fastafile))
+
+
+	outputprefix = string("output/",basename(modelfile),".",basename(datafile))
 
 	println("Initialisation finished.")
 
@@ -555,6 +583,23 @@ function infer(parsed_args=Dict{String,Any}())
 			end
 
 			println("rates: ",ratetotals./iter)
+		end
+
+		if iter % 10 ==0
+			reset_matrix_cache(modelparams)
+			for selnode in nodelist
+				if selnode.name in blindstructurenames
+					println("SAMPLING STRUCTURE", selnode.name)		
+					push!(structuresamples[selnode.name].aasamples, Int[selnode.data.aabranchpath.paths[col][end] for col=1:numcols])
+					push!(structuresamples[selnode.name].hiddensamples, Int[selnode.data.branchpath.paths[col][end] for col=1:numcols])
+					if json_family != nothing
+						structuresamples[selnode.name].json_family = json_family
+					end
+					fout = open(string(selnode.name,".samples"), "w")
+					Serialization.serialize(fout, structuresamples[selnode.name])
+					close(fout)
+				end
+			end
 		end
 	end
 	close(mcmcwriter)

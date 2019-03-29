@@ -171,10 +171,6 @@ end
 
 
 
-function euclidean(f1::Array{Float64,1},f2::Array{Float64,1})
-  return sqrt(mean([(v1-v2)^2.0 for (v1,v2) in zip(f1,f2)]))
-end
-
 function score(distmatrix::Array{Float64,2}, sel::Array{Int,1}, z::Int=0)
 
   len = length(sel)

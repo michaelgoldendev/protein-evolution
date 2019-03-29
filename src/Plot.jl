@@ -1,5 +1,7 @@
 include("Main.jl")
 
+push!(LOAD_PATH,@__DIR__)
+#using BivariateVonMises
 
 using PyPlot
 function plot_nodes(modelfile)
@@ -7,6 +9,8 @@ function plot_nodes(modelfile)
 	fin = open(modelfile, "r")
 	modelparams = Serialization.deserialize(fin)
 	close(fin)
+
+	println("PRIOR ", modelparams.hiddennodes[1].phi_node.kappa_prior)
 
 	toprowonly = true	
 	N = 300
@@ -26,7 +30,7 @@ function plot_nodes(modelfile)
 		plt[:rc]("text", usetex=true)
 		plt[:rc]("font", family="serif")
 
-		plt[:suptitle](string(" Hidden state $(h) (", @sprintf("%0.1f", hiddenfreqs[h]*100.0), "\\%)"), fontsize=16,x=0.515)
+		plt[:suptitle](string(" Hidden state $(h) (", @sprintf("%0.2f", hiddenfreqs[h]*100.0), "\\%)"), fontsize=16,x=0.515)
 
 		mat = zeros(Float64, N, N)
 		if modelparams.hidden_conditional_on_aa
@@ -145,6 +149,86 @@ function plotratenetwork(modelfile)
 	close(fout)
 end
 
+function plotstructuresamples()
+	name = "pdb1eah_3"
+	samplefile = string(name,".samples")
+	
+
+	fin = open(samplefile, "r")	
+	proteinsample = Serialization.deserialize(fin)
+	close(fin)
+	json_family = proteinsample.json_family
+
+	seqnametoindex = Dict{String,Int}()
+	for (index,protein) in enumerate(proteinsample.json_family["proteins"])
+		seqnametoindex[proteinsample.json_family["proteins"][index]["name"]] = index
+	end
+	modelparams = proteinsample.modelparams
+	hiddenfreqs = (modelparams.transitionprobs^100)[1,:]
+
+	numcols = length(proteinsample.aasamples[1])
+	fig = plt[:figure](figsize=(8,6))
+	plt[:rc]("text", usetex=true)
+	plt[:rc]("font", family="serif")
+
+	for col=1:numcols
+
+		N = 200
+		mat = zeros(Float64, N, N)
+		numsamples = length(proteinsample.aasamples)
+		startiter = max(1, div(numsamples,3))
+		enditer = numsamples
+		for iter=startiter:numsamples
+			h = proteinsample.hiddensamples[iter][col]
+			aa = proteinsample.aasamples[iter][col]
+
+			k = Float64[modelparams.hiddennodes[h].phi_nodes[aa].kappa, modelparams.hiddennodes[h].psi_nodes[aa].kappa, 0.0]
+			mu = Float64[modelparams.hiddennodes[h].phi_nodes[aa].mu, modelparams.hiddennodes[h].psi_nodes[aa].mu]
+			#bv = BivariateVonMisesDist(k, mu)
+
+			for (i, x) in enumerate(range(-pi,stop=pi,length=N))
+				for (j, y) in enumerate(range(-pi,stop=pi,length=N))
+					mat[N-j+1,i] += pdf(modelparams.hiddennodes[h].phi_nodes[aa].dist, x)*pdf(modelparams.hiddennodes[h].psi_nodes[aa].dist, y)*modelparams.hiddennodes[h].aa_node.probs[aa]
+					#mat[N-j+1,i] += BivariateVonMises.pdf(bv, Float64[x,y])
+				end
+			end
+		end
+		mat /= (enditer-startiter+1.0)
+
+		plt[:clf]()
+		#plt[:suptitle](string(" Hidden state $(h) (", @sprintf("%0.1f", hiddenfreqs[h]*100.0), "\\%)"), fontsize=16,x=0.515)
+
+		
+		
+		#ax = plt[:gca]
+		ax = plt[:imshow](mat)
+
+		phi,psi = proteinsample.json_family["proteins"][seqnametoindex[name]]["aligned_phi_psi"][col]
+		if phi > -100.0 && psi > -100.0
+			x = ((phi+pi)/(2.0*pi))*N
+			y = (1.0-((psi+pi)/(2.0*pi)))*N
+			plt[:plot](x, y, "ro")
+		end
+		phi,psi = proteinsample.json_family["proteins"][seqnametoindex["pdb4q4w_3"]]["aligned_phi_psi"][col]
+		if phi > -100.0 && psi > -100.0
+			x = ((phi+pi)/(2.0*pi))*N
+			y = (1.0-((psi+pi)/(2.0*pi)))*N
+			plt[:plot](x, y, "go")
+		end
+		angle_tick_positions = [0, div(N-1,4), div(N-1,2), div((N-1)*3,4), N-1]
+		angle_labels = ["\$-\\pi\$","\$-\\pi/2\$", "0", "\$\\pi/2\$", "\$\\pi\$"]
+		#ax[:set_xticks](angle_tick_positions)
+		#ax[:set_yticks](angle_tick_positions)
+		#ax[:set_xticklabels](angle_labels)
+		#ax[:set_yticklabels](reverse(angle_labels))
+		plt[:xlabel]("Phi (\$\\phi\$)", fontsize=13)
+		plt[:ylabel]("Psi (\$\\psi\$)", fontsize=13)
+
+		plt[:savefig]("plots/test$(col).png")
+		plt[:close]
+	end
+end
+
 function parse_plotting_commandline()
     settings = ArgParseSettings()
     settings.prog = prog
@@ -162,6 +246,20 @@ function parse_plotting_commandline()
     return parse_args(settings)
 end
 
-parsed_args = parse_plotting_commandline()
+#parsed_args = parse_plotting_commandline()
 #plot_nodes(parsed_args["plot_model_file"])
-plotratenetwork(parsed_args["plot_model_file"])
+#plotratenetwork(parsed_args["plot_model_file"])
+#plot_nodes("models/model_h.20.thresh2.hiddenaascaling.anglescondaa.ratemode1.model")
+#plot_nodes("models/model_h.16.thresh2.hiddenaascaling.anglescondaa.ratemode1.model")
+#plot_nodes("models/model_h.15.thresh2.hiddenaascaling.anglescondaa.ratemode1.model")
+#plot_nodes("models/model_h.21.thresh2.hiddenaascaling.anglescondaa.ratemode1.model")
+#plot_nodes("models/model_h.14.thresh2.hiddenaascaling.anglescondaa.ratemode1.model")
+#plot_nodes("models/model_h.17.thresh2.hiddenaascaling.anglescondaa.ratemode1.model")
+#plot_nodes("models/model_h.10.thresh2.hiddenaascaling.anglescondaa.ratemode1.model")
+#plot_nodes("models/model_h.11.thresh2.hiddenaascaling.anglescondaa.ratemode1.model")
+#plot_nodes("models/model_h.10.thresh2.rerun.hiddenaascaling.anglescondaa.ratemode1.model")
+#plot_nodes("models/model_h.15.thresh2.rerun.hiddenaascaling.anglescondaa.ratemode1.model")
+
+
+
+plotstructuresamples()
