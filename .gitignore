@@ -8,11 +8,10 @@
 *.nexus
 *.nwk
 *.model
-binaries/
 cache/
 data/
 obsolete/
-models/
+models/*.log
 output/
 deps/deps.jl
 *.zip
