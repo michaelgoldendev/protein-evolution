@@ -39,7 +39,7 @@ module BivariateVonMises
 		data::Array{Array{Float64,1},1}
 		kappa_prior::ContinuousUnivariateDistribution
 		
-		function BivariateVonMisesNode(k::Array{Float64,1}=Float64[1.0,1.0,0.0], mu::Array{Float64,1}=Float64[0.0,0.0],kappa_prior_exp_rate::Float64=0.5)
+		function BivariateVonMisesNode(k::Array{Float64,1}=Float64[1e-5,1e-5,0.0], mu::Array{Float64,1}=Float64[0.0,0.0],kappa_prior_exp_rate::Float64=0.5)
 			new(k,mu, computeLogNormConst(k),0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0, Array{Float64,1}[], Exponential(kappa_prior_exp_rate))
 		end
 	end
@@ -100,13 +100,14 @@ double k1 = k[0];
 
 	function computeLogNormConst(k::Array{Float64,1}, lower::Float64=Float64(-pi), upper::Float64=Float64(pi))
 	     exactLimit = 400.0
-	     if ((sqrt(k[1]*k[1] + k[2]*k[2] - 2.0*k[1]*k[3]) + k[2]) < exactLimit)
+	     if((sqrt(k[1]*k[1] + k[2]*k[2] - 2.0*k[1]*k[3]) + k[2]) < exactLimit)
 	          resExact,err = quadgk(x -> logNormConstExactIntegrand(x,k), lower, upper)
 	          return log(resExact)
 	     else
 	          scaleTerm = sqrt(k[1]*k[1] + k[3]*k[3] - 2.0*k[1]*k[3]) + k[2]
 	          resApproximate,err = quadgk(x -> logNormConstApproximateIntegrand(x,k,scaleTerm), lower, upper)	          
-	          resExact,err = quadgk(x -> logNormConstExactIntegrand(x,k), lower, upper)
+	          #resExact,err = quadgk(x -> logNormConstExactIntegrand(x,k), lower, upper)
+	          ##println("A\t",log(resExact),"\t", log(resApproximate) + scaleTerm)
 	          return log(resApproximate) + scaleTerm
 	     end
 	end
@@ -182,7 +183,7 @@ double k1 = k[0];
 	function optimizeprior(bv::BivariateVonMisesNode)
 		startstr = string("start value: ", bv.k, "\t", bv.mu)
 		if bv.count == 0
-			bv.k = Float64[1e-5,1e-5]
+			bv.k = Float64[1e-5,1e-5, 0.0]
 		else
 			opt = Opt(:LN_COBYLA,5)
 			data = filter(x -> x[1] > -100.0 && x[2] > -100.0, bv.data)
@@ -199,12 +200,21 @@ double k1 = k[0];
 			xtol_rel!(opt,1e-3)
 			maxeval!(opt, 2000)
 			max_objective!(opt, localObjectiveFunction)
-			(minf,minx,ret) = optimize(opt, Float64[min(bv.k[1], 700.0), min(bv.k[2], 700.0), max(-700.0, min(bv.k[3], 700.0)), pimod(bv.mu[1]), pimod(bv.mu[2])])
+
+			maxk3 = 0.5*abs((bv.k[1]*bv.k[1] + bv.k[2]*bv.k[2])/(2.0*bv.k[1]))
+			mink3 = -maxk3
+			(minf,minx,ret) = optimize(opt, Float64[min(bv.k[1], 700.0), min(bv.k[2], 700.0), max(mink3, min(bv.k[3], maxk3)), pimod(bv.mu[1]), pimod(bv.mu[2])])
 			bv.k[1] = minx[1]
 			bv.k[2] = minx[2]
 			bv.k[3] = minx[3]
 			bv.mu[1] = minx[4]
 			bv.mu[2] = minx[5]
+			k = bv.k
+			if abs(2.0*k[1]*k[3]) >= (k[1]*k[1] + k[2]*k[2])
+				bv.k[3] = 0.0
+			end
+			println(bv.k)
+			bv.logNormConst = computeLogNormConst(bv.k)
 			println(ret)
 		end		
 		println(startstr)
@@ -280,6 +290,8 @@ double k1 = k[0];
 			optimizeprior(dist)
 		end
 
+		dist.logNormConst = computeLogNormConst(dist.k)
+
 		reset(dist)
  	end
 end
@@ -288,10 +300,10 @@ end
 bv = BivariateVonMises.BivariateVonMisesNode(Float64[2.0,4.0,0.0], Float64[0.0,0.0])
 #println(BivariateVonMises.logpdf(bv,[0.0,0.0]))
 for z=1:1000
-	x = 0.5 + randn()*0.1
-	y = 0.8 + randn()*0.1 - x*0.5
+	x = 0.5 + randn()*6.1
+	y = 0.8 + randn()*8.1 - x*0.5
 	# + x*0.02 +
-	BivariateVonMises.add_point(bv, Float64[x,y])
+	BivariateVonMises.add_bvm_point(bv, Float64[x,y])
 end
-BivariateVonMises.estimate(bv)
-println(bv.k,"\t",bv.mu)=#
+BivariateVonMises.estimate_bvm(bv)=#
+#=println(bv.k,"\t",bv.mu)=#

@@ -121,6 +121,13 @@ module Binaries
                 read(file, String)
               end
               return muscle_alignment, cachefile
+            elseif Sys.islinux()
+              muscle_windows = joinpath(@__DIR__,"..","binaries","muscle3.8.31_i86linux64")
+              read(`$muscle_windows -in $alignmentfile -out $cachefile`, String)
+              muscle_alignment = open(cachefile) do file
+                read(file, String)
+              end
+              return muscle_alignment, cachefile
             else
               return "",""
             end

@@ -70,7 +70,53 @@ module EMNodes
 		categorical_node.probs = categorical_node.counts / sum(categorical_node.counts)
 		categorical_node.probs = categorical_node.probs.^categorical_node.alphas.^beta
 		categorical_node.probs /= sum(categorical_node.probs)
+		#categorical_optimizeprior(categorical_node)
 		categorical_node.counts =  ones(Float64, categorical_node.numcats)*0.1
+	end
+
+	function categorical_loglik_and_prior(categorical_node::CategoricalNode, params::Array{Float64,1})
+		s = sum(params)
+		if s > 1.0
+			ll = -s*1e40
+			##println("FF", ll)
+			return -Inf
+		elseif s < 1e-4
+			ll = -(1.0-s)*1e40
+			##println("EE", ll)
+			return -Inf
+		else
+			alpha = 1e-10
+			d = Dirichlet(alpha*ones(Float64,20))
+			probs = Float64[]
+			append!(probs, params)
+			push!(probs, 1.0-s)
+			logprobs = log.(probs)
+			ll = sum(logprobs.*categorical_node.counts) + logpdf(d,probs)
+			println("W\t",ll,"\t",probs)
+			return ll
+		end
+	end
+
+	function categorical_optimizeprior(categorical_node::CategoricalNode)
+		opt = Opt(:LN_COBYLA,19)
+		localObjectiveFunction = ((param, grad) -> categorical_loglik_and_prior(categorical_node, param))
+		lower = ones(Float64, 19)*1e-4
+		upper = ones(Float64, 19)
+		upper_bounds!(opt, upper)
+		xtol_rel!(opt,1e-5)
+		maxeval!(opt, 2000)
+		max_objective!(opt, localObjectiveFunction)
+		initialparams = max.(1e-4, categorical_node.probs[1:19])
+		initialprobs = copy(categorical_node.probs)
+		initialloglik = categorical_loglik_and_prior(categorical_node, initialparams)
+		(minf,minx,ret) = optimize(opt, initialparams)
+		probs = Float64[]
+		append!(probs,minx)
+		push!(probs, 1.0 - sum(minx))
+		categorical_node.probs = probs
+		println(minf,"\t",initialloglik)
+		println("INIT ", initialprobs)
+		println("FINAL ", probs)
 	end
 
 	export MultivariateNode
@@ -125,11 +171,12 @@ module EMNodes
 		dist::VonMises
 		data::Array{Float64,1}
 		kappa_prior::ContinuousUnivariateDistribution
+		maxkappa::Float64
 
 		function VonMisesNode(kappa_prior_exp_rate::Float64=2.0)
 			mu = 0.0
 			kappa = 1e-5
-			new(0.0, 0.0, 0.0, mu, kappa, VonMises(mu, kappa), Float64[], Exponential(kappa_prior_exp_rate))
+			new(0.0, 0.0, 0.0, mu, kappa, VonMises(mu, kappa), Float64[], Exponential(kappa_prior_exp_rate), 700.0)
 		end
 	end
 
@@ -172,7 +219,7 @@ module EMNodes
 
 			vonmises_node.mu = mu
 			vonmises_node.kappa = kappa
-			vonmises_node.dist = VonMises(mu, min(700.0, kappa))
+			vonmises_node.dist = VonMises(mu, min(vonmises_node.maxkappa, kappa))
 		end
 		optimizeprior(vonmises_node)
 		vonmises_node.data = Float64[]
@@ -194,13 +241,13 @@ module EMNodes
 			data = filter(x -> x > -100.0, vonmises_node.data)
 			localObjectiveFunction = ((param, grad) -> loglik_and_prior(vonmises_node, data, param[1]))
 			lower = ones(Float64, 1)*1e-5
-			upper = ones(Float64, 1)*700.0
+			upper = ones(Float64, 1)*vonmises_node.maxkappa
 			lower_bounds!(opt, lower)
 			upper_bounds!(opt, upper)
 			xtol_rel!(opt,1e-5)
 			maxeval!(opt, 1000)
 			max_objective!(opt, localObjectiveFunction)
-			(minf,minx,ret) = optimize(opt, Float64[min(vonmises_node.kappa, 700.0)])
+			(minf,minx,ret) = optimize(opt, Float64[min(vonmises_node.kappa, vonmises_node.maxkappa)])
 			vonmises_node.kappa = minx[1]
 		end
 		vonmises_node.dist = VonMises(vonmises_node.mu, vonmises_node.kappa)

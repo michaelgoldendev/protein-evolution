@@ -2,10 +2,12 @@ using FastaIO
 using Statistics
 using BioAlignments
 using BioStructures
+using Random
 
 push!(LOAD_PATH,@__DIR__)
 using Backbone
 using Binaries
+using DatasetCreator
 
 pdbdir = abspath("../data/pdbs/")
 
@@ -143,25 +145,26 @@ function find_pdb_homologs(fastafile, outfile="homologs.fas")
 			    	spl2 = split(nameandchain,"_")
 			    	pdbname = spl2[1]
 			    	chain = spl2[2]
-			    	key = string(">",pdbname,"\n",seq)
+			    	#key = string(">",pdbname,"\n",seq)
+			    	key = string(pdbname)
 			    	if !haskey(pdbmatches, key)
-				    	println(count,"\t",pdbname,"\t",chain,"\t",maxmatch2, "\t", maxmatch3,"\t",maxalignmentscore)
-				    	res = pairalign(GlobalAlignment(), seq, bestquery, AffineGapScoreModel(BLOSUM62, gap_open=-10, gap_extend=-1))
-	    				aln = res.aln
-	    				if maxalignmentscore > alignmentscorecutoff
-	    					#println(aln)	
-	    					try
-		    					structure = retrievepdb(pdbname, pdb_dir=pdbdir)
-		    					polypeptide = Backbone.backbone_angles_and_bond_lengths_from_pdb(structure[1][chain])
-		    					#println(name)
-		    					#println(polypeptide["sequence"])
-		    					println(fout, string(">pdb",pdbname,"_",chain))
-		    					println(fout, polypeptide["sequence"])
-		    				catch
-		    					println("ERROR DOWNLOADING ", pdbname)
+			    		resolution,rvalue,freervalue = get_quality_attributes(pdbname)
+						if rvalue > 0.0 && rvalue < 0.25 && freervalue < 0.25
+					    	println(count,"\t",pdbname,"\t",chain,"\t",maxmatch2, "\t", maxmatch3,"\t",maxalignmentscore)
+					    	res = pairalign(GlobalAlignment(), seq, bestquery, AffineGapScoreModel(BLOSUM62, gap_open=-10, gap_extend=-1))
+		    				aln = res.aln
+		    				if maxalignmentscore > alignmentscorecutoff
+		    					try
+			    					structure = retrievepdb(pdbname, pdb_dir=pdbdir)
+			    					polypeptide = Backbone.backbone_angles_and_bond_lengths_from_pdb(structure[1][chain])
+			    					println(fout, string(">pdb",pdbname,"_",chain))
+			    					println(fout, polypeptide["sequence"])
+					    			pdbmatches[key] = nameandchain
+			    				catch
+			    					println("ERROR DOWNLOADING ", pdbname)
+			    				end
 		    				end
-	    				end
-				    	pdbmatches[key] = nameandchain
+					    end
 				    end
 			    end
 	    	end
@@ -185,17 +188,68 @@ function find_pdb_homologs(fastafile, outfile="homologs.fas")
 	end
 end
 
+function find_random_pdbs(outfile="pdbselection.fas")
+	rng = MersenneTwister(4917104813143)
+	fout = open(outfile,"w")
+	pdbmatches = Dict{AbstractString,AbstractString}()
+	open("../data/pdbsequences.fasta") do file
+		name = ""
+		seq = ""
+		count = 0
+	    for ln in eachline(file)
+	    	if startswith(ln,">")
+	    		name = ln
+	    		seq = ""
+	    	else
+	    		count += 1
+	    		seq = ln
+
+	    		if rand(rng,1:250) == 1 && match(r".*mol:protein.*", name) != nothing && length(seq) >= 100 
+	    			namelower = lowercase(name)
+
+	    			if !occursin("mutant", namelower) && !occursin("recombinant", namelower) && !occursin("synthetic", namelower) && !occursin("humanized", namelower) && !occursin("humanised", namelower)
+				    	nameandchain = split(name[2:end])[1]
+				    	spl2 = split(nameandchain,"_")
+				    	pdbname = spl2[1]
+				    	chain = spl2[2]
+					    
+					    if !haskey(pdbmatches, pdbname)
+						    try
+					    		resolution,rvalue,freervalue = DatasetCreator.get_quality_attributes(pdbname)
+					    		if rvalue > 0.0 && rvalue < 0.25 && freervalue > 0.0 && freervalue < 0.25
+						    		pdbmatches[pdbname] = pdbname
+						    		println(fout, ">pdb$(pdbname)_$(chain) $(name[2:end])")
+						    		println(fout, seq)
+						    		flush(fout)
+						    	end
+						   	catch e
+
+						   	end
+					   end
+				   end
+		    	end
+	    	end	       
+	    end
+	end
+	close(fout)
+end
+
+#find_random_pdbs()
 
 #fastafile = abspath("../data/influenza_a/HA/selection3.fasta")
 #fastafile = abspath("../data/hiv/curated6.fasta")
 #fastafile = abspath("../data/test_data/hiv_pol_selection.fasta")
 #fastafile = abspath("../data/test_data/maise_streak_virus_coat_protein_selection.fasta")
 #fastafile = abspath("../data/test_data/westnile_dengue_selection.fasta")
-#find_pdb_homologs(fastafile)
+#
+fastafile = "../data/diverse_rna_virus_structures/norovirus_capsid.select.fasta"
+find_pdb_homologs(fastafile)
 
 
 #fastafile = "C:\\Google Drive\\GitHub\\protein-evolution\\data\\curated\\curated_rna\\avian_coronavirus_NSP3.select.fasta"
 #family_directories = ["../data/curated/curated_rna/", "../data/selected_families/"]
+
+#=
 family_directories = ["../data/curated_selection"]
 for family_dir in family_directories
 	fastafiles = filter(f -> endswith(f,".fasta"), readdir(family_dir))
@@ -205,6 +259,7 @@ for family_dir in family_directories
 		find_pdb_homologs(path, outpath)
 	end
 end
+=#
 
 
 #=

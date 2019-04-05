@@ -55,6 +55,7 @@ mutable struct ModelParams
 	hidden_conditional_on_aa::Bool
 	ratemode::Int
 	aarates::Array{Float64,1}
+	use_bivariate_von_mises::Bool
 
     function ModelParams(aminoacidQ::Array{Float64,2}, numhiddenstates::Int,mu::Float64=1.0,hiddenmu::Float64=1.0)
         initialprobs = ones(Float64, numhiddenstates)./numhiddenstates
@@ -80,7 +81,8 @@ mutable struct ModelParams
 		#rates = discretizegamma(rate_alpha,1.0/rate_alpha,numrates)
 		rates = ones(Float64,numrates)
 		rate_freqs = ones(Float64,numrates)/numrates
-        new(20,aminoacidQ,LGexchangeability, rate_alpha, numrates, rates,rate_freqs,numhiddenstates,initialprobs,transitioncounts,transitionprobs,transitionrates,hiddennodes,mu,hiddenmu,matrixcache,1.0,1.0,true,true,1, ones(Float64,numhiddenstates))
+		#
+        new(20,aminoacidQ,LGexchangeability, rate_alpha, numrates, rates,rate_freqs,numhiddenstates,initialprobs,transitioncounts,transitionprobs,transitionrates,hiddennodes,mu,hiddenmu,matrixcache,1.0,1.0,true,true,1, ones(Float64,numhiddenstates), true)
     end
 end
 
@@ -1776,7 +1778,7 @@ function siteloglikelihood(site::SiteObservation, h::Int, aa::Int, modelparams::
 	if modelparams.usestructureobservations
 		if modelparams.hidden_conditional_on_aa
 			if aa > 0
-				if site.phi > -100.0 && site.psi > -100
+				if modelparams.use_bivariate_von_mises && site.phi > -100.0 && site.psi > -100.0
 					ll += BivariateVonMises.logpdf(modelparams.hiddennodes[h].phipsi_nodes[aa], Float64[site.phi, site.psi])
 				else
 					if site.phi > -100.0
@@ -1789,14 +1791,11 @@ function siteloglikelihood(site::SiteObservation, h::Int, aa::Int, modelparams::
 				if site.omega > -100.0
 					ll += logpdf(modelparams.hiddennodes[h].omega_nodes[aa].dist, site.omega)
 				end
-				if site.psi > -100.0
-					ll += logpdf(modelparams.hiddennodes[h].psi_nodes[aa].dist, site.psi)
-				end
 			else
 				sumll = -Inf
 				for aa=1:modelparams.alphabet
 					temp = 0.0
-					if site.phi > -100.0 && site.psi > -100
+					if modelparams.use_bivariate_von_mises && site.phi > -100.0 && site.psi > -100.0
 						temp += BivariateVonMises.logpdf(modelparams.hiddennodes[h].phipsi_nodes[aa], Float64[site.phi, site.psi])
 					else
 						if site.phi > -100.0
@@ -1815,7 +1814,7 @@ function siteloglikelihood(site::SiteObservation, h::Int, aa::Int, modelparams::
 				ll += sumll
 			end
 		else
-			if site.phi > -100.0 && site.psi > -100
+			if modelparams.use_bivariate_von_mises && site.phi > -100.0 && site.psi > -100.0
 				ll += BivariateVonMises.logpdf(modelparams.hiddennodes[h].phipsi_node, Float64[site.phi, site.psi])
 			else
 				if site.phi > -100.0

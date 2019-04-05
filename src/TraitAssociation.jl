@@ -1464,7 +1464,8 @@ function pathreconstruction(fastafile="",treefile="",blindnodenames::Array{Strin
 
     println(JSON.json(jsondict))=#
     println(matchcounts./matchtotals)
-    println(mean(matchcounts./matchtotals))
+    println("mean: ", mean(matchcounts./matchtotals))
+    println("std: ", std(matchcounts./matchtotals))
     return mean(matchcounts./matchtotals), minx[1], minx[2]
 end
 

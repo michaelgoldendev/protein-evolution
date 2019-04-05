@@ -24,6 +24,7 @@ function train(parsed_args=Dict{String,Any}())
 
 	outputmodelname = string("_h.",modelparams.numhiddenstates)
 	outputmodelname = string(outputmodelname,".thresh",sitethreshold)
+	outputmodelname = string(outputmodelname, ".rerun")
 	if dosamplesiterates
 		modelparams.rate_alpha = 0.5
 		modelparams.rates = discretizegamma(modelparams.rate_alpha, 1.0/modelparams.rate_alpha, modelparams.numrates)
@@ -43,6 +44,9 @@ function train(parsed_args=Dict{String,Any}())
 	if independentsites
 		outputmodelname = string(outputmodelname,".independentsites")
 	end
+	if parsed_args["sequenceonly"]
+		outputmodelname = string(outputmodelname,".seqonly")
+	end
 
 	modelparams.usestructureobservations = usestructureobservations
 	modelparams.hidden_conditional_on_aa = parsed_args["angles-cond-aa"]
@@ -54,6 +58,7 @@ function train(parsed_args=Dict{String,Any}())
 
 	modelfile = string("models/model", outputmodelname, ".model")
 	tracefile = string("models/trace", outputmodelname,".log")
+	familytracefile = string("models/family.trace", outputmodelname,".log")
 
 	if parsed_args["loadfromcache"]
 		modelparams = Serialization.deserialize(open(modelfile, "r"))
@@ -70,8 +75,14 @@ function train(parsed_args=Dict{String,Any}())
 
 	trainingexamples = Tuple[]
 
-	family_directories = ["../data/curated/curated_rna/", "../data/selected_families/"]
-	#family_directories = ["../data/selected_families/", "../data/curated/curated_rna/"]
+	#family_directories = ["../data/curated/curated_rna/", "../data/selected_families/"]
+	#family_directories = ["../data/homstrad_families/", "../data/curated_rna_virus_structures/"]	
+	#family_directories = ["../data/single_pdbs/", "../data/homstrad_families/", "../data/curated_rna_virus_structures/"]
+	#family_directories = ["../data/single_pdbs/", "../data/homstrad_families/"]
+	#family_directories = ["../data/single_pdbs/", "../data/homstrad_families/", "../data/curated/curated_rna/"]
+	family_directories = ["../data/single_pdbs/", "../data/homstrad_families/", "../data/curated_rna_virus_structures/"] 
+	#family_directories = ["../data/single_pdbs/", "../data/homstrad_families/"] 
+	family_names = String[]
 	for family_dir in family_directories
 		family_files = filter(f -> endswith(f,".fam"), readdir(family_dir))
 		for family_file in family_files
@@ -86,6 +97,7 @@ function train(parsed_args=Dict{String,Any}())
 					training_example = (training_example[1], TreeNode[root], training_example[3], training_example[4])
 				end
 				push!(trainingexamples, training_example)
+				push!(family_names, family_file)
 				if parsed_args["maxtraininginstances"] != nothing && length(trainingexamples) == parsed_args["maxtraininginstances"]
 					break
 				end
@@ -95,6 +107,16 @@ function train(parsed_args=Dict{String,Any}())
 			break
 		end
 	end
+	familytracefile = string("models/family.trace", outputmodelname,".log")
+	familyoutfile = open(familytracefile,"w")
+	print(familyoutfile,"iter")
+	print(familyoutfile,"\tll\taall\tstructurell\tpathll")
+	for name in family_names
+		print(familyoutfile,"\t",name,"_ll","\t",name,"_obsll","\t",name,"_aall")
+	end
+	println(familyoutfile)
+
+	println("Number of training examples: ", length(trainingexamples))
 
 	totalbranchlength_input = 0.0
 	for training_example in trainingexamples
@@ -104,28 +126,25 @@ function train(parsed_args=Dict{String,Any}())
 			end
 		end
 	end
-	
-	for i=1:5
-		for (proteins,nodelist,json_family,sequences) in trainingexamples
-			numcols = length(proteins[1])		
-		
-			randcols = shuffle(rng, Int[i for i=1:numcols])
-			for col in randcols
-				samplepaths_seperate_new(rng,col,proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates, accept_everything=true)
-			end
-		end
-	end 
 
-	for i=1:1
-		for (proteins,nodelist,json_family,sequences) in trainingexamples
-			numcols = length(proteins[1])		
-		
+	for (proteins,nodelist,json_family,sequences) in trainingexamples
+		if length(proteins) == 1
+			samplesingle(rng, nodelist[1], modelparams)
+		else
+			numcols = length(proteins[1])
+			for i=1:5
+				randcols = shuffle(rng, Int[i for i=1:numcols])
+				for col in randcols
+					samplepaths_seperate_new(rng,col,proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates, accept_everything=true)
+				end
+			end
+
 			randcols = shuffle(rng, Int[i for i=1:numcols])
 			for col in randcols
 				samplepaths_seperate_new(rng,col,proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates)
 			end
 		end
-	end	
+	end 
 
 	logwriter = open(tracefile, "w")
 	println(logwriter, "iter\tll\taall\tstructurell\tpathll")
@@ -155,36 +174,41 @@ function train(parsed_args=Dict{String,Any}())
 		accepted_aa_total = 0.0
 		for (proteins,nodelist,json_family,sequences) in trainingexamples
 			numcols = length(proteins[1])
-			accepted = zeros(Int, numcols)			
-			for i=1:maxsamplesperiter
-				randcols = shuffle(rng, Int[i for i=1:numcols])
-				for col in randcols
-					if accepted[col] < sitethreshold || i % 20 == 0 || (col > 1 && accepted[col-1] < sitethreshold) || (col < numcols && accepted[col+1] < sitethreshold) 
-						a1,a2,a3,a4, hidden_accepted, aa_accepted = samplepaths_seperate_new(rng,col,proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates)
-						accepted_hidden += a1
-						accepted_hidden_total += a2
-						accepted_aa += a3
-						accepted_aa_total += a4
-						if hidden_accepted
-							accepted[col] += 1
-						end						
+
+			if length(proteins) == 1
+				samplesingle(rng, nodelist[1], modelparams)
+			else				
+				accepted = zeros(Int, numcols)			
+				for i=1:maxsamplesperiter					
+					randcols = shuffle(rng, Int[i for i=1:numcols])
+					for col in randcols
+						if accepted[col] < sitethreshold || i % 20 == 0 || (col > 1 && accepted[col-1] < sitethreshold) || (col < numcols && accepted[col+1] < sitethreshold) 
+							a1,a2,a3,a4, hidden_accepted, aa_accepted = samplepaths_seperate_new(rng,col,proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates)
+							accepted_hidden += a1
+							accepted_hidden_total += a2
+							accepted_aa += a3
+							accepted_aa_total += a4
+							if hidden_accepted
+								accepted[col] += 1
+							end						
+						end
 					end
-				end
-				min_accepted = minimum(accepted)
-				if min_accepted >= sitethreshold					
-					println("min_accepted ", min_accepted," out of ", i, " mean is ", mean(accepted))
-					break
-				end
+					min_accepted = minimum(accepted)
+					if min_accepted >= sitethreshold					
+						println("min_accepted ", min_accepted," out of ", i, " mean is ", mean(accepted))
+						break
+					end
 
 
-				if samplebranchlengths && (i <= sitethreshold || i % 10 == 0)
-					for node in nodelist
-						if !isroot(node)
-							t,propratio = proposebranchlength(rng, node, Int[col for col=1:numcols], modelparams)
-							node.branchlength = t
-							events = mean([length(p)-1.0 for p in node.data.branchpath.paths])
-							aa_events = mean([length(p)-1.0 for p in node.data.aabranchpath.paths])
-							#println(node.nodeindex,"\t",node.data.inputbranchlength,"\t",node.branchlength,"\t",events,"\t",aa_events)
+					if samplebranchlengths && (i <= sitethreshold || i % 10 == 0)
+						for node in nodelist
+							if !isroot(node)
+								t,propratio = proposebranchlength(rng, node, Int[col for col=1:numcols], modelparams)
+								node.branchlength = t
+								events = mean([length(p)-1.0 for p in node.data.branchpath.paths])
+								aa_events = mean([length(p)-1.0 for p in node.data.aabranchpath.paths])
+								#println(node.nodeindex,"\t",node.data.inputbranchlength,"\t",node.branchlength,"\t",events,"\t",aa_events)
+							end
 						end
 					end
 				end
@@ -240,9 +264,11 @@ function train(parsed_args=Dict{String,Any}())
 							push!(modelparams.hiddennodes[h].phi_node.data, site.phi)
 							push!(modelparams.hiddennodes[h].omega_node.data, site.omega)
 							push!(modelparams.hiddennodes[h].psi_node.data, site.psi)
+							BivariateVonMises.add_bvm_point(modelparams.hiddennodes[h].phipsi_node, Float64[site.phi, site.psi])
 							push!(modelparams.hiddennodes[h].phi_nodes[site.aa].data, site.phi)
 							push!(modelparams.hiddennodes[h].omega_nodes[site.aa].data, site.omega)
 							push!(modelparams.hiddennodes[h].psi_nodes[site.aa].data, site.psi)
+							BivariateVonMises.add_bvm_point(modelparams.hiddennodes[h].phipsi_nodes[site.aa], Float64[site.phi, site.psi])
 							push!(modelparams.hiddennodes[h].bond_angle1_node.data, site.bond_angle1)
 							push!(modelparams.hiddennodes[h].bond_angle2_node.data, site.bond_angle2)
 							push!(modelparams.hiddennodes[h].bond_angle3_node.data, site.bond_angle3)
@@ -273,7 +299,8 @@ function train(parsed_args=Dict{String,Any}())
 			estimate_categorical(modelparams.hiddennodes[h].aa_node, 1.0)		
 			estimatevonmises(modelparams.hiddennodes[h].phi_node)
 			estimatevonmises(modelparams.hiddennodes[h].psi_node)
-			estimatevonmises(modelparams.hiddennodes[h].omega_node)			
+			estimatevonmises(modelparams.hiddennodes[h].omega_node)
+			estimate_bvm(modelparams.hiddennodes[h].phipsi_node)
 			estimatevonmises(modelparams.hiddennodes[h].bond_angle1_node)
 			estimatevonmises(modelparams.hiddennodes[h].bond_angle2_node)
 			estimatevonmises(modelparams.hiddennodes[h].bond_angle3_node)			
@@ -286,6 +313,7 @@ function train(parsed_args=Dict{String,Any}())
 				estimatevonmises(modelparams.hiddennodes[h].phi_nodes[aa])
 				estimatevonmises(modelparams.hiddennodes[h].psi_nodes[aa])
 				estimatevonmises(modelparams.hiddennodes[h].omega_nodes[aa])
+				estimate_bvm(modelparams.hiddennodes[h].phipsi_nodes[aa])
 				if modelparams.hidden_conditional_on_aa
 					println(iter,"\t",h,"\t",aminoacids[aa],"\t",@sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]),"\t",modelparams.hiddennodes[h].phi_nodes[aa].mu,"\t",modelparams.hiddennodes[h].phi_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].phi_nodes[aa].N)		
 					println(iter,"\t",h,"\t",aminoacids[aa],"\t",@sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]),"\t",modelparams.hiddennodes[h].psi_nodes[aa].mu,"\t",modelparams.hiddennodes[h].psi_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].psi_nodes[aa].N)
@@ -517,7 +545,6 @@ function train(parsed_args=Dict{String,Any}())
 		println("Hidden transitions: ", hiddentransitions)
 		println("AA transitions: ", aatransitions)
 		reset_matrix_cache(modelparams)
-
 		for (proteins,nodelist,json_family,sequences) in trainingexamples
 			for node in nodelist
 				if !isroot(node)
@@ -533,23 +560,34 @@ function train(parsed_args=Dict{String,Any}())
 		modelparams.transitionrates *= modelparams.branchscalingfactor
 		modelparams.branchscalingfactor = 1.0
 
-		augmentedll_end,observationll_end = calculateloglikelihood(modelparams, trainingexamples)
+		augmentedll_end,observationll_end, augmented_array, observation_array = calculateloglikelihood_array(modelparams, trainingexamples)
 		totalll_end = augmentedll_end+observationll_end
 
-		aaloglikelihood = aaintegrated_loglikelihood(rng, modelparams, trainingexamples)
+		aaloglikelihood, sequence_array = aaintegrated_loglikelihood_array(rng, modelparams, trainingexamples)
 		final_loglikelihood = aaloglikelihood+observationll_end
+
+		
+		print(familyoutfile, iter-1)
+		print(familyoutfile,"\t",final_loglikelihood,"\t",aaloglikelihood,"\t",observationll_end,"\t",augmentedll_end)
+		for (name,obsll,seqll) in zip(family_names, observation_array,sequence_array)
+			print(familyoutfile, "\t",obsll+seqll,"\t",obsll,"\t",seqll)
+		end
+		println(familyoutfile)
+		flush(familyoutfile)
 
 		#println(logwriter, "iter\tll\taall\tstructurell\tpathll")
 		#println(logwriter, iter-1,"\t",totalll_end,"\t",augmentedll_end,"\t",integrated_loglikelihood,"\t",aaloglikelihood,"\t",observationll_end)
 		println(logwriter, iter-1,"\t",final_loglikelihood,"\t",aaloglikelihood,"\t",observationll_end,"\t",augmentedll_end)
 		flush(logwriter)
-		if noimprovement >= Inf || final_loglikelihood > maxloglikelihood
+		if noimprovement >= 3 || final_loglikelihood > maxloglikelihood
+			if final_loglikelihood > maxloglikelihood		
+				fout = open(modelfile, "w")
+				reset_matrix_cache(modelparams)
+				Serialization.serialize(fout, modelparams)
+				close(fout)
+			end 
 			noimprovement = 0
 			maxloglikelihood = final_loglikelihood			
-			fout = open(modelfile, "w")
-			reset_matrix_cache(modelparams)
-			Serialization.serialize(fout, modelparams)
-			close(fout)
 		else
 			noimprovement += 1 
 			fin = open(modelfile, "r")	

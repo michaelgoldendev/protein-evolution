@@ -15,6 +15,18 @@ function transitionmatrix(sequences::Array{String,1}, curri::Int, nexti::Int)
 	return transprobs
 end
 
+function getconsensus(seqs::Array{String,1})
+	majorityseq = ""
+	for col=1:length(seqs[1])
+		aacount = zeros(Int,20)
+		for seq in seqs
+			aacount[CommonUtils.indexof(string(seq[col]),aminoacids)] += 1
+		end
+		majorityseq = string(majorityseq, aminoacids[findmax(aacount)[2]])
+	end
+	return majorityseq
+end
+
 function viterbi(sequences::Array{String,1})
 	numcols = length(sequences[1])
 	liks = zeros(Float64,numcols,20)
@@ -75,7 +87,7 @@ function infer(parsed_args=Dict{String,Any}())
 
 	blindscores = Dict{String,Array{Float64,1}}()
 	blindscores_current = Dict{String,Float64}()
-	blindstructurenames = []
+	blindstructurenames = String[]
 	blindnodenames = parsed_args["blindproteins"] != nothing ? split(parsed_args["blindproteins"], r",|;") : String[]
 	if length(blindnodenames) > 0
 		println("Blinding protein sequences and structures: ", join(blindnodenames, ", "))
@@ -84,74 +96,79 @@ function infer(parsed_args=Dict{String,Any}())
 	modelparams.scalingfactor = modelparams.branchscalingfactor
 	println("Scaling factor: ", modelparams.scalingfactor)
 
+	datafile = parsed_args["dataset"]
+	if datafile == nothing
+		#=
+		family_dir = "../data/families/"
+		family_files = filter(f -> endswith(f,".fam"), readdir(family_dir))
+		family_file = joinpath(family_dir, family_files[11])
+		
+		#family_file = "../data/families/alpha-amylase_NC.ali_23.fam"
 
-	#=
-	family_dir = "../data/families/"
-	family_files = filter(f -> endswith(f,".fam"), readdir(family_dir))
-	family_file = joinpath(family_dir, family_files[11])
-	
-	#family_file = "../data/families/alpha-amylase_NC.ali_23.fam"
+		full_path = abspath(family_file)
+		json_family = JSON.parse(open(full_path, "r"))
+		training_example = training_example_from_json_family(rng, modelparams, json_family, blindnodenames=blindnodenames, scalebranchlengths=samplebranchlengths)		
+		println(json_family["newick_tree"])
+		if length(training_example[2][1].children) == 1
+			root = training_example[2][1].children[1]
+			root.parent = Nullable{TreeNode}()
+			training_example = (training_example[1], TreeNode[root], training_example[3], training_example[4])
+		end
+		proteins,nodelist,json_family,sequences = training_example=#
+		
+		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/alignments/HCV_REF_2014_ns5b_PRO_curated.fasta"), blindnodenames=blindnodenames)
+		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/alignments/hiv-curated-sel.fasta"), blindnodenames=blindnodenames)
 
-	full_path = abspath(family_file)
-	json_family = JSON.parse(open(full_path, "r"))
-	training_example = training_example_from_json_family(rng, modelparams, json_family, blindnodenames=blindnodenames, scalebranchlengths=samplebranchlengths)		
-	println(json_family["newick_tree"])
-	if length(training_example[2][1].children) == 1
-		root = training_example[2][1].children[1]
-		root.parent = Nullable{TreeNode}()
-		training_example = (training_example[1], TreeNode[root], training_example[3], training_example[4])
+		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/H1N1_selection2.fas"), newickfile=abspath("../data/influenza_a/HA/H1N1_selection2_rooted.fas.nwk"), blindnodenames=blindnodenames)
+		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/selection3.fasta"), newickfile=abspath("../data/influenza_a/HA/selection3.fasta.nwk"), blindnodenames=blindnodenames)
+		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/selection3.fasta"), newickfile=abspath("tree.mean.branch.consensus.nwk"), blindnodenames=blindnodenames)
+
+
+		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/selection4.fasta"), newickfile=abspath("tree.mean.branch.consensus.nwk"), blindnodenames=blindnodenames)
+
+		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/hiv/curated6.fasta"), newickfile=abspath("../data/hiv/curated6.nwk"), blindnodenames=blindnodenames)
+		
+		
+		#datafile = abspath("../data/influenza_a/HA/selection3.fasta")
+		#newickfile= abspath("../data/influenza_a/HA/selection3.fasta.nwk")	
+		#newickfile= abspath("tree.mean.branch.consensus.nwk")		
+		#blindnodenames = String["6n41.pdb_1951"]
+		#modelparams.rate_alpha = 0.153
+		#blindnodenames = String[]
+
+		
+		#datafile = abspath("../data/hiv/curated6.fasta")
+		#newickfile=abspath("../data/hiv/curated6.nwk")	
+		#newickfile=abspath("tree.mean.branch.consensus.nwk")	
+		#blindnodenames = String["B.US.1978.SF4.KJ704795"]
+		#blindnodenames = String[]
+
+		#datafile = abspath("../data/test_data/hiv_pol_selection.fasta")
+		#newickfile=abspath("../data/test_data/hiv_pol_selection.fasta.nwk")	
+		#blindnodenames = String["CPZ.GA.1988.GAB1.X52154"]
+
+		#datafile = abspath("../data/test_data/westnile_dengue_selection.fasta")
+		#newickfile=abspath("../data/test_data/westnile_dengue_selection.fasta.nwk")
+		#blindnodenames = String["AEN02430.1"]
+		#blindnodenames = String[]
+
+		#datafile = abspath("../data/diverse_rna_virus_structures/human_poliovirus_1_VP3.select.fasta.muscle.fas.selection.fas.fam")
+		#blindstructurenames =  String["pdb1z7z_3", "pdb4q4w_3", "pdb5o5b_3", "pdb1eah_3", "pdb3jbg_3"]
+		#blindstructurenames =  String["pdb1z7z_3", "pdb4q4w_3", "pdb5o5b_3", "pdb1eah_3"]
+		#blindstructurenames =  String["pdb1z7z_3", "pdb4q4w_3", "pdb1eah_3", "pdb3jbg_3"]
+		#blindstructurenames =  String["pdb1z7z_3", "pdb5o5b_3", "pdb1eah_3", "pdb3jbg_3"]
+		#blindnodenames = String[]
+		datafile = abspath("../data/diverse_rna_virus_structures/norovirus_capsid_P_selection.fas.fam")
+		#blindstructurenames =  String["pdb5kon_A", "pdb4oos_A", "pdb2obr_A", "pdb4oov_A", "pdb3skb_A", "pdb4rpd_A"] # 
+		#blindstructurenames =  String["pdb5kon_A", "pdb4oos_A", "pdb2obr_A", "pdb4oov_A", "pdb3skb_A"] # , "pdb4rpd_A"
+		blindstructurenames =  String["pdb5kon_A", "pdb2obr_A", "pdb3skb_A", "pdb4rpd_A", "pdb4oos_A"] # "pdb4oov_A"
+
+		#datafile = abspath("../data/test_data/maise_streak_virus_coat_protein_selection.fasta")
+		#newickfile = abspath("../data/test_data/maise_streak_virus_coat_protein_selection.rooted.nwk")	
+		#blindnodenames = String["ACF40553.1"]
 	end
-	proteins,nodelist,json_family,sequences = training_example=#
-	
-	#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/alignments/HCV_REF_2014_ns5b_PRO_curated.fasta"), blindnodenames=blindnodenames)
-	#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/alignments/hiv-curated-sel.fasta"), blindnodenames=blindnodenames)
 
-	#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/H1N1_selection2.fas"), newickfile=abspath("../data/influenza_a/HA/H1N1_selection2_rooted.fas.nwk"), blindnodenames=blindnodenames)
-	#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/selection3.fasta"), newickfile=abspath("../data/influenza_a/HA/selection3.fasta.nwk"), blindnodenames=blindnodenames)
-	#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/selection3.fasta"), newickfile=abspath("tree.mean.branch.consensus.nwk"), blindnodenames=blindnodenames)
-
-
-	#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/selection4.fasta"), newickfile=abspath("tree.mean.branch.consensus.nwk"), blindnodenames=blindnodenames)
-
-	#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/hiv/curated6.fasta"), newickfile=abspath("../data/hiv/curated6.nwk"), blindnodenames=blindnodenames)
-	
-	
-	#datafile = abspath("../data/influenza_a/HA/selection3.fasta")
-	#newickfile= abspath("../data/influenza_a/HA/selection3.fasta.nwk")	
-	#newickfile= abspath("tree.mean.branch.consensus.nwk")		
-	#blindnodenames = String["6n41.pdb_1951"]
-	#modelparams.rate_alpha = 0.153
-	#blindnodenames = String[]
-
-	
-	#datafile = abspath("../data/hiv/curated6.fasta")
-	#newickfile=abspath("../data/hiv/curated6.nwk")	
-	#newickfile=abspath("tree.mean.branch.consensus.nwk")	
-	#blindnodenames = String["B.US.1978.SF4.KJ704795"]
-	#blindnodenames = String[]
-
-	#datafile = abspath("../data/test_data/hiv_pol_selection.fasta")
-	#newickfile=abspath("../data/test_data/hiv_pol_selection.fasta.nwk")	
-	#blindnodenames = String["CPZ.GA.1988.GAB1.X52154"]
-
-	#datafile = abspath("../data/test_data/westnile_dengue_selection.fasta")
-	#newickfile=abspath("../data/test_data/westnile_dengue_selection.fasta.nwk")
-	#blindnodenames = String["AEN02430.1"]
-	#blindnodenames = String[]
-
-	datafile = abspath("../data/diverse_rna_virus_structures/human_poliovirus_1_VP3.select.fasta.muscle.fas.selection.fas.fam")
-	newickfile=abspath("../data/test_data/westnile_dengue_selection.fasta.nwk")
-	#blindstructurenames =  String["pdb1z7z_3", "pdb4q4w_3", "pdb5o5b_3", "pdb1eah_3", "pdb3jbg_3"]
-	#blindstructurenames =  String["pdb1z7z_3", "pdb4q4w_3", "pdb5o5b_3", "pdb1eah_3"]
-	#blindstructurenames =  String["pdb1z7z_3", "pdb4q4w_3", "pdb1eah_3", "pdb3jbg_3"]
-	blindstructurenames =  String["pdb1z7z_3", "pdb5o5b_3", "pdb1eah_3", "pdb3jbg_3"]
-	#blindnodenames = String[]
-
-	#datafile = abspath("../data/test_data/maise_streak_virus_coat_protein_selection.fasta")
-	#newickfile = abspath("../data/test_data/maise_streak_virus_coat_protein_selection.rooted.nwk")	
-	#blindnodenames = String["ACF40553.1"]
-
-	modelparams.numrates = 20
+	modelparams.numrates = 1
 	mu = 1.0
 	alpha = 1.0
 	stationaryprobs = (modelparams.transitionprobs^50)[1,:]
@@ -395,7 +412,8 @@ function infer(parsed_args=Dict{String,Any}())
 				    blindscores_current[string("majorityseq:",selnode.name)] = calculatematch(inputsequence,majorityseq)
 				    blindscores_current[string("viterbi:",selnode.name)] = calculatematch(inputsequence,viterbiseq)
 				    println(blindscoresarray)
-				    println(mean(blindscoresarray[max(1,div(length(blindscoresarray),3)):end]))
+				    println("mean: ", mean(blindscoresarray[max(1,div(length(blindscoresarray),3)):end]))
+				    println("std: ", std(blindscoresarray[max(1,div(length(blindscoresarray),3)):end]))
 				end
 			end
 		end
@@ -489,12 +507,38 @@ function infer(parsed_args=Dict{String,Any}())
 			end
 			=#
 		end
+
+		
+		for node in nodelist
+			if !isleafnode(node) && node.name != ""			
+				ancestorwriter = open("reconstruction_$(node.name).fas", iter == 1 ? "w" : "a")
+				sampledseq = ""
+				for col=1:numcols
+					sampledseq = string(sampledseq, aminoacids[node.data.aabranchpath.paths[col][end]])
+				end
+				seqs = get(majority, node.name, String[])
+				push!(seqs, sampledseq)
+				majority[node.name] = seqs
+				println(ancestorwriter, ">iter$(iter)")
+				println(ancestorwriter, sampledseq)
+				close(ancestorwriter)
+
+				startindex = max(1, div(length(seqs),3))
+				seqs = majority[node.name][startindex:end]
+
+				consensusseqwriter = open("reconstruction_$(node.name).fas", "w")
+				println(consensusseqwriter, ">consensus")
+				println(consensusseqwriter, getconsensus(seqs))
+				close(consensusseqwriter)
+			end
+		end
 	
 		for node in nodelist
 			if !isroot(node)
 				print(mcmcwriter,"\t$(sum([length(path)-1 for path in node.data.branchpath.paths]))")
 			end
 		end
+
 		for node in nodelist
 			if !isroot(node)
 				print(mcmcwriter,"\t",count_aminoacid_substitutions(rng,modelparams,node))
@@ -618,8 +662,8 @@ function parse_inference_commandline()
         	help = "specify model file to use for inference"
           	arg_type = String
           	required = true
-        "--alignment"
-        	help = "alignment in fasta format"
+        "--dataset"
+        	help = "alignment in fasta format or .fam file"
         	arg_type = String
         "--tree"
         	help = "tree in newick format"
