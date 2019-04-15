@@ -208,7 +208,53 @@ module DatasetCreator
 			close(fout)
 		end
 	end
+
+	export getpdbsequencealignment
+	function getpdbsequencealignment(pdbs::Array{String,1}, outfile, createfamilyfile=true)
+		pdbdir = abspath("../data/pdbs/")
+		fout = open(outfile, "w")
+		for p in pdbs
+			spl = split(p,"_")
+			pdbname = spl[1]
+			chain = ""
+			if length(spl) > 1
+				chain = spl[2]
+			end
+			structure = retrievepdb(pdbname, pdb_dir=pdbdir)
+			longestsequence = ""
+			for c in structure[1]
+				polypeptide = Backbone.backbone_angles_and_bond_lengths_from_pdb(c)
+				sequence = polypeptide["sequence"]
+				if longestsequence == "" || length(c) > length(longestsequence)
+					longestsequence =  sequence
+					chain = chainid(c)
+				end
+			end
+			if chain != ""
+				polypeptide = Backbone.backbone_angles_and_bond_lengths_from_pdb(structure[1][chain])
+				longestsequence = polypeptide["sequence"]
+				println(fout, ">pdb",pdbname,"_",chain)
+				println(fout, longestsequence)
+			end
+		end
+		close(fout)
+
+		musclefile = string(outfile, ".muscle.fas")
+		fastastring,cachefile = Binaries.muscle(outfile)
+		fout = open(musclefile, "w")
+		print(fout,fastastring)
+		close(fout)
+
+		if fastastring != "" && createfamilyfile
+			DatasetCreator.fromsequencealignment(musclefile, string(musclefile, ".fam"))
+		end	
+
+		return musclefile
+	end
 end
+
+#fastafile = DatasetCreator.getpdbsequencealignment(String["1a4x"], "../data/curated_families/temp.fas")
+#DatasetCreator.fromsequencealignment(fastafile,"../data/curated_families/test.fam", usequalitycutoff=true)
 
 #=
 function parse_dataset_creator_commandline()

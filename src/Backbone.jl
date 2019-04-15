@@ -265,88 +265,89 @@ module Backbone
             end
         end
 
-        currresnumber = min(1, resnumber(residues[1]))
-        pos = 1
-        while pos <= length(residues)
-            thisresnumber = resnumber(residues[pos])
+        if length(residues) > 0
+            currresnumber = min(1, resnumber(residues[1]))
+            pos = 1
+            while pos <= length(residues)
+                thisresnumber = resnumber(residues[pos])
 
-            aa = "X"
-            omega = -1000.0
-            phi = -1000.0
-            psi = -1000.0
-            a1 = -1000.0
-            a2 = -1000.0
-            a3 = -1000.0
-            b1 = -1000.0
-            b2 = -1000.0
-            b3 = -1000.0
+                aa = "X"
+                omega = -1000.0
+                phi = -1000.0
+                psi = -1000.0
+                a1 = -1000.0
+                a2 = -1000.0
+                a3 = -1000.0
+                b1 = -1000.0
+                b2 = -1000.0
+                b3 = -1000.0
 
-            while currresnumber < thisresnumber && resid(residues[pos]) == string(thisresnumber)
-                sequence = string(sequence, "X")
-                push!(phi_psi_list, (-1000.0,-1000.0))
-                push!(omega_list, -1000.0)
-                push!(bond_angles_list, (-1000.0,-1000.0,-1000.0))
-                push!(bond_lengths_list, (-1000.0,-1000.0,-1000.0))
-                currresnumber += 1
+                while currresnumber < thisresnumber && resid(residues[pos]) == string(thisresnumber)
+                    sequence = string(sequence, "X")
+                    push!(phi_psi_list, (-1000.0,-1000.0))
+                    push!(omega_list, -1000.0)
+                    push!(bond_angles_list, (-1000.0,-1000.0,-1000.0))
+                    push!(bond_lengths_list, (-1000.0,-1000.0,-1000.0))
+                    currresnumber += 1
+                end
+
+                if resid(residues[pos]) == string(thisresnumber)
+                    prevresi = nothing
+                    currresi = residues[pos]
+                    nextresi = nothing
+                    if pos > 1 && resnumber(residues[pos-1])+1 == resnumber(residues[pos])
+                        prevresi = residues[pos-1]
+                    end
+                    if pos < length(residues) && resnumber(residues[pos])+1 == resnumber(residues[pos+1])
+                        nextresi = residues[pos+1]
+                    end
+
+                    if prevresi != nothing
+                        if in("CA", atomnames(prevresi)) && in("C", atomnames(prevresi)) && in("N", atomnames(currresi)) && in("CA", atomnames(currresi))
+                            omega = dihedralangle(prevresi["CA"], prevresi["C"], currresi["N"], currresi["CA"])
+                        end
+                        if in("C", atomnames(prevresi)) && in("N", atomnames(currresi)) && in("CA", atomnames(currresi)) && in("C", atomnames(currresi))
+                            phi = dihedralangle(prevresi["C"], currresi["N"], currresi["CA"], currresi["C"])
+                        end
+                        if in("CA", atomnames(prevresi)) && in("C", atomnames(prevresi)) && in("N", atomnames(currresi))
+                            a1 = bondangle(prevresi["CA"], prevresi["C"], currresi["N"])
+                        end
+                        if in("C", atomnames(prevresi)) && in("N", atomnames(currresi)) && in("CA", atomnames(currresi))
+                            a2 = bondangle(prevresi["C"], currresi["N"], currresi["CA"])
+                        end
+                        if in("N", atomnames(currresi)) && in("C", atomnames(prevresi))
+                            b1 = sqrt(sqdistance(currresi["N"], prevresi["C"]))
+                        end
+                    end
+                    if in("N", atomnames(currresi)) && in("CA", atomnames(currresi)) && in("C", atomnames(currresi))
+                        a3 = bondangle(currresi["N"], currresi["CA"], currresi["C"])
+                    end
+                    if in("CA", atomnames(currresi)) && in("N", atomnames(currresi))
+                        b2 = sqrt(sqdistance(currresi["CA"], currresi["N"]))
+                    end
+                    if in("C", atomnames(currresi)) && in("CA", atomnames(currresi))
+                        b3 = sqrt(sqdistance(currresi["C"], currresi["CA"]))
+                    end
+                    if nextresi != nothing 
+                        if in("N", atomnames(currresi)) && in("CA", atomnames(currresi)) && in("C", atomnames(currresi)) && in("N", atomnames(nextresi))
+                            psi  = dihedralangle(currresi["N"], currresi["CA"], currresi["C"], nextresi["N"])
+                        end
+                    end
+                    threeletter = resname(currresi)
+                    aa = three_to_one[threeletter]
+
+                    sequence = string(sequence, aa)
+                    push!(phi_psi_list, (phi,psi))
+                    push!(omega_list, omega)
+                    push!(bond_angles_list, (a1,a2,a3))
+                    push!(bond_lengths_list, (b1,b2,b3))
+
+                    #println(aa,"\t",currresnumber,"\t", omega, "\t", phi, "\t", psi,"\t",a1,"\t",a2,"\t",a3,"\t",b1,"\t",b2,"\t",b3)V
+                    currresnumber += 1                
+                end
+                pos += 1
             end
-
-            if resid(residues[pos]) == string(thisresnumber)
-                prevresi = nothing
-                currresi = residues[pos]
-                nextresi = nothing
-                if pos > 1 && resnumber(residues[pos-1])+1 == resnumber(residues[pos])
-                    prevresi = residues[pos-1]
-                end
-                if pos < length(residues) && resnumber(residues[pos])+1 == resnumber(residues[pos+1])
-                    nextresi = residues[pos+1]
-                end
-
-                if prevresi != nothing
-                    if in("CA", atomnames(prevresi)) && in("C", atomnames(prevresi)) && in("N", atomnames(currresi)) && in("CA", atomnames(currresi))
-                        omega = dihedralangle(prevresi["CA"], prevresi["C"], currresi["N"], currresi["CA"])
-                    end
-                    if in("C", atomnames(prevresi)) && in("N", atomnames(currresi)) && in("CA", atomnames(currresi)) && in("C", atomnames(currresi))
-                        phi = dihedralangle(prevresi["C"], currresi["N"], currresi["CA"], currresi["C"])
-                    end
-                    if in("CA", atomnames(prevresi)) && in("C", atomnames(prevresi)) && in("N", atomnames(currresi))
-                        a1 = bondangle(prevresi["CA"], prevresi["C"], currresi["N"])
-                    end
-                    if in("C", atomnames(prevresi)) && in("N", atomnames(currresi)) && in("CA", atomnames(currresi))
-                        a2 = bondangle(prevresi["C"], currresi["N"], currresi["CA"])
-                    end
-                    if in("N", atomnames(currresi)) && in("C", atomnames(prevresi))
-                        b1 = sqrt(sqdistance(currresi["N"], prevresi["C"]))
-                    end
-                end
-                if in("N", atomnames(currresi)) && in("CA", atomnames(currresi)) && in("C", atomnames(currresi))
-                    a3 = bondangle(currresi["N"], currresi["CA"], currresi["C"])
-                end
-                if in("CA", atomnames(currresi)) && in("N", atomnames(currresi))
-                    b2 = sqrt(sqdistance(currresi["CA"], currresi["N"]))
-                end
-                if in("C", atomnames(currresi)) && in("CA", atomnames(currresi))
-                    b3 = sqrt(sqdistance(currresi["C"], currresi["CA"]))
-                end
-                if nextresi != nothing 
-                    if in("N", atomnames(currresi)) && in("CA", atomnames(currresi)) && in("C", atomnames(currresi)) && in("N", atomnames(nextresi))
-                        psi  = dihedralangle(currresi["N"], currresi["CA"], currresi["C"], nextresi["N"])
-                    end
-                end
-                threeletter = resname(currresi)
-                aa = three_to_one[threeletter]
-
-                sequence = string(sequence, aa)
-                push!(phi_psi_list, (phi,psi))
-                push!(omega_list, omega)
-                push!(bond_angles_list, (a1,a2,a3))
-                push!(bond_lengths_list, (b1,b2,b3))
-
-                #println(aa,"\t",currresnumber,"\t", omega, "\t", phi, "\t", psi,"\t",a1,"\t",a2,"\t",a3,"\t",b1,"\t",b2,"\t",b3)V
-                currresnumber += 1                
-            end
-            pos += 1
         end
-
         dict = Dict{String,Any}()
         dict["sequence"] = sequence
         dict["phi_psi"] = phi_psi_list

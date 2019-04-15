@@ -1208,13 +1208,15 @@ function find_mu_and_alpha(fastafile="",treefile="",blindnodenames::Array{String
     jsondict = Dict{Any,Any}()
 
     aadata,subcolumnrefs = getaadata(nodelist,seqindextonodeindex,sequences)
-    for col=1:numcols
-        aadata[blank_seqindex,col,:] = ones(Float64,20)
+    if blank_seqindex > 0
+        for col=1:numcols
+            aadata[blank_seqindex,col,:] = ones(Float64,20)
+        end
+        trueseq = deepcopy(sequences[blank_seqindex])
+        sequences[blank_seqindex] = repeat("-", numcols)
+        nummatches = 1e-10
+        numtotal = 1e-10
     end
-    trueseq = deepcopy(sequences[blank_seqindex])
-    sequences[blank_seqindex] = repeat("-", numcols)
-    nummatches = 1e-10
-    numtotal = 1e-10
 
     minf, minx = optimizealignmentlikelihood(nodelist, numcols, aadata, subcolumnrefs, 0.188721, 0.123624, numrates, R, freqs)
     return minx[1],minx[2]
@@ -1364,7 +1366,7 @@ function pathreconstruction(fastafile="",treefile="",blindnodenames::Array{Strin
                     push!(jsondict[string("Column ", col)]["samples"][s]["times"], Float64[parse(Float64, Formatting.fmt("0.3f", v)) for v in times])
                 end
             end=#
-            if trueseq[col] != '-'
+            if uppercase(trueseq[col]) in aminoacids 
                 if aminoacids[sample[blank_nodeindex]] == trueseq[col] 
                     matchcounts[s] += 1.0
                 else                 

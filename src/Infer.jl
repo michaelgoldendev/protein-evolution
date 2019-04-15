@@ -63,11 +63,14 @@ function calculatematch(realseq::String, predseq::String)
 	countmatches = 0.0
 	counttotal = 0.0
     for (aa1,aa2) in zip(predseq,realseq)
-    	if aa1 == aa2
-    		countmatches += 1.0
-    	end
-    	counttotal += 1.0
+    	if uppercase(aa2) in aminoacids
+	    	if aa1 == aa2
+	    		countmatches += 1.0
+	    	end
+	    	counttotal += 1.0
+	    end
     end
+    println("COUNTTOTAL ", counttotal)
     return countmatches/counttotal
 end
 
@@ -85,18 +88,20 @@ function infer(parsed_args=Dict{String,Any}())
 	samplebranchlengths = parsed_args["samplebranchlengths"]
 	dosamplesiterates = parsed_args["samplesiterates"]
 
-	blindscores = Dict{String,Array{Float64,1}}()
-	blindscores_current = Dict{String,Float64}()
-	blindstructurenames = String[]
-	blindnodenames = parsed_args["blindproteins"] != nothing ? split(parsed_args["blindproteins"], r",|;") : String[]
-	if length(blindnodenames) > 0
-		println("Blinding protein sequences and structures: ", join(blindnodenames, ", "))
+	sequencescores = Dict{String,Array{Float64,1}}()
+	structurescores = Dict{String,Array{Float64,1}}()
+	sequencescores_current = Dict{String,Float64}()
+	blindstructures = parsed_args["blindstructures"] != nothing ? convert(Array{String,1}, split(parsed_args["blindstructures"], r",|;")) : String[]
+	blindproteins = parsed_args["blindproteins"] != nothing ? convert(Array{String,1}, split(parsed_args["blindproteins"], r",|;")) : String[]
+	if length(blindproteins) > 0
+		println("Blinding protein sequences and structures: ", join(blindproteins, ", "))
 	end
 
 	modelparams.scalingfactor = modelparams.branchscalingfactor
 	println("Scaling factor: ", modelparams.scalingfactor)
 
 	datafile = parsed_args["dataset"]
+	newickfile = ""
 	if datafile == nothing
 		#=
 		family_dir = "../data/families/"
@@ -107,7 +112,7 @@ function infer(parsed_args=Dict{String,Any}())
 
 		full_path = abspath(family_file)
 		json_family = JSON.parse(open(full_path, "r"))
-		training_example = training_example_from_json_family(rng, modelparams, json_family, blindnodenames=blindnodenames, scalebranchlengths=samplebranchlengths)		
+		training_example = training_example_from_json_family(rng, modelparams, json_family, blindproteins=blindproteins, scalebranchlengths=samplebranchlengths)		
 		println(json_family["newick_tree"])
 		if length(training_example[2][1].children) == 1
 			root = training_example[2][1].children[1]
@@ -116,59 +121,66 @@ function infer(parsed_args=Dict{String,Any}())
 		end
 		proteins,nodelist,json_family,sequences = training_example=#
 		
-		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/alignments/HCV_REF_2014_ns5b_PRO_curated.fasta"), blindnodenames=blindnodenames)
-		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/alignments/hiv-curated-sel.fasta"), blindnodenames=blindnodenames)
+		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/alignments/HCV_REF_2014_ns5b_PRO_curated.fasta"), blindproteins=blindproteins)
+		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/alignments/hiv-curated-sel.fasta"), blindproteins=blindproteins)
 
-		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/H1N1_selection2.fas"), newickfile=abspath("../data/influenza_a/HA/H1N1_selection2_rooted.fas.nwk"), blindnodenames=blindnodenames)
-		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/selection3.fasta"), newickfile=abspath("../data/influenza_a/HA/selection3.fasta.nwk"), blindnodenames=blindnodenames)
-		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/selection3.fasta"), newickfile=abspath("tree.mean.branch.consensus.nwk"), blindnodenames=blindnodenames)
+		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/H1N1_selection2.fas"), newickfile=abspath("../data/influenza_a/HA/H1N1_selection2_rooted.fas.nwk"), blindproteins=blindproteins)
+		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/selection3.fasta"), newickfile=abspath("../data/influenza_a/HA/selection3.fasta.nwk"), blindproteins=blindproteins)
+		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/selection3.fasta"), newickfile=abspath("tree.mean.branch.consensus.nwk"), blindproteins=blindproteins)
 
 
-		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/selection4.fasta"), newickfile=abspath("tree.mean.branch.consensus.nwk"), blindnodenames=blindnodenames)
+		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/selection4.fasta"), newickfile=abspath("tree.mean.branch.consensus.nwk"), blindproteins=blindproteins)
 
-		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/hiv/curated6.fasta"), newickfile=abspath("../data/hiv/curated6.nwk"), blindnodenames=blindnodenames)
+		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/hiv/curated6.fasta"), newickfile=abspath("../data/hiv/curated6.nwk"), blindproteins=blindproteins)
 		
 		
 		#datafile = abspath("../data/influenza_a/HA/selection3.fasta")
 		#newickfile= abspath("../data/influenza_a/HA/selection3.fasta.nwk")	
 		#newickfile= abspath("tree.mean.branch.consensus.nwk")		
-		#blindnodenames = String["6n41.pdb_1951"]
+		#blindproteins = String["6n41.pdb_1951"]
 		#modelparams.rate_alpha = 0.153
-		#blindnodenames = String[]
+		#blindproteins = String[]
 
 		
 		#datafile = abspath("../data/hiv/curated6.fasta")
 		#newickfile=abspath("../data/hiv/curated6.nwk")	
 		#newickfile=abspath("tree.mean.branch.consensus.nwk")	
-		#blindnodenames = String["B.US.1978.SF4.KJ704795"]
-		#blindnodenames = String[]
+		#blindproteins = String["B.US.1978.SF4.KJ704795"]
+		#blindproteins = String[]
 
 		#datafile = abspath("../data/test_data/hiv_pol_selection.fasta")
 		#newickfile=abspath("../data/test_data/hiv_pol_selection.fasta.nwk")	
-		#blindnodenames = String["CPZ.GA.1988.GAB1.X52154"]
+		#blindproteins = String["CPZ.GA.1988.GAB1.X52154"]
 
 		#datafile = abspath("../data/test_data/westnile_dengue_selection.fasta")
 		#newickfile=abspath("../data/test_data/westnile_dengue_selection.fasta.nwk")
-		#blindnodenames = String["AEN02430.1"]
-		#blindnodenames = String[]
+		#blindproteins = String["AEN02430.1"]
+		#blindproteins = String[]
 
 		#datafile = abspath("../data/diverse_rna_virus_structures/human_poliovirus_1_VP3.select.fasta.muscle.fas.selection.fas.fam")
-		#blindstructurenames =  String["pdb1z7z_3", "pdb4q4w_3", "pdb5o5b_3", "pdb1eah_3", "pdb3jbg_3"]
-		#blindstructurenames =  String["pdb1z7z_3", "pdb4q4w_3", "pdb5o5b_3", "pdb1eah_3"]
-		#blindstructurenames =  String["pdb1z7z_3", "pdb4q4w_3", "pdb1eah_3", "pdb3jbg_3"]
-		#blindstructurenames =  String["pdb1z7z_3", "pdb5o5b_3", "pdb1eah_3", "pdb3jbg_3"]
-		#blindnodenames = String[]
+		#blindstructures =  String["pdb1z7z_3", "pdb4q4w_3", "pdb5o5b_3", "pdb1eah_3", "pdb3jbg_3"]
+		#blindstructures =  String["pdb1z7z_3", "pdb4q4w_3", "pdb5o5b_3", "pdb1eah_3"]
+		#blindstructures =  String["pdb1z7z_3", "pdb4q4w_3", "pdb1eah_3", "pdb3jbg_3"]
+		#blindstructures =  String["pdb1z7z_3", "pdb5o5b_3", "pdb1eah_3", "pdb3jbg_3"]
+		#blindproteins = String[]
+
 		datafile = abspath("../data/diverse_rna_virus_structures/norovirus_capsid_P_selection.fas.fam")
-		#blindstructurenames =  String["pdb5kon_A", "pdb4oos_A", "pdb2obr_A", "pdb4oov_A", "pdb3skb_A", "pdb4rpd_A"] # 
-		#blindstructurenames =  String["pdb5kon_A", "pdb4oos_A", "pdb2obr_A", "pdb4oov_A", "pdb3skb_A"] # , "pdb4rpd_A"
-		blindstructurenames =  String["pdb5kon_A", "pdb2obr_A", "pdb3skb_A", "pdb4rpd_A", "pdb4oos_A"] # "pdb4oov_A"
+		#blindproteins =  String["pdb5kon_A", "pdb4oos_A", "pdb2obr_A", "pdb4oov_A", "pdb3skb_A", "pdb4rpd_A"] # random
+		#blindproteins =  String["pdb4oos_A", "pdb2obr_A", "pdb4oov_A", "pdb3skb_A", "pdb4rpd_A"]
+		#blindstructures =  String["pdb5kon_A", "pdb4oos_A", "pdb2obr_A", "pdb4oov_A", "pdb3skb_A", "pdb4rpd_A"] # blind all structures
+		#blindproteins =  String["pdb4oos_A", "pdb2obr_A", "pdb4oov_A", "pdb3skb_A", "pdb4rpd_A"] # blind sequences and structures
+		blindstructures =  String["pdb5kon_A", "pdb4oos_A", "pdb2obr_A", "pdb4oov_A", "pdb3skb_A"] # , "pdb4rpd_A"
+		#blindstructures =  String["pdb5kon_A", "pdb2obr_A", "pdb3skb_A", "pdb4rpd_A", "pdb4oos_A"] # "pdb4oov_A"
 
 		#datafile = abspath("../data/test_data/maise_streak_virus_coat_protein_selection.fasta")
 		#newickfile = abspath("../data/test_data/maise_streak_virus_coat_protein_selection.rooted.nwk")	
-		#blindnodenames = String["ACF40553.1"]
+		#blindproteins = String["ACF40553.1"]
 	end
 
 	modelparams.numrates = 1
+	if dosamplesiterates
+		modelparams.numrates = 20
+	end 
 	mu = 1.0
 	alpha = 1.0
 	stationaryprobs = (modelparams.transitionprobs^50)[1,:]
@@ -190,17 +202,31 @@ function infer(parsed_args=Dict{String,Any}())
 	nodelist = nothing
 	json_family = nothing
 	sequences = nothing
+	fastafile = datafile
 	if endswith(datafile, ".fam")
 		json_family = JSON.parse(open(datafile, "r"))
-		proteins, nodelist,json_family, sequences = training_example_from_json_family(rng, modelparams, json_family, blindstructurenames=blindstructurenames)
+		proteins, nodelist,json_family, sequences = training_example_from_json_family(rng, modelparams, json_family, blindproteins=blindproteins, blindstructures=blindstructures)
+		newickfile = string(tempname(),".nwk")
+		fout = open(newickfile, "w")
+		println(fout, json_family["newick_tree"])
+		close(fout)
+
+		fastafile = string(tempname(),".fas")
+		println(fastafile)
+		fout = open(fastafile, "w")
+		for p in json_family["proteins"]
+			println(fout, ">", p["name"])
+			println(fout, p["aligned_sequence"])
+		end
+		close(fout)
 	else
-		proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, datafile, newickfile=newickfile, blindnodenames=blindnodenames)
+		proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, datafile, newickfile=newickfile, blindproteins=blindproteins)
 	end
 
 	mu = 1.0
 	alpha = 1.0
 	if dosamplesiterates
-		mu,alpha = TraitAssociation.find_mu_and_alpha(datafile,newickfile,blindnodenames,modelparams.numrates,R,aafreqs)
+		mu,alpha = TraitAssociation.find_mu_and_alpha(fastafile,newickfile,blindproteins,modelparams.numrates,R,aafreqs)
 	end
 	println("mu: ", mu)
 	println("alpha: ", alpha)
@@ -208,9 +234,9 @@ function infer(parsed_args=Dict{String,Any}())
 
 
 	LGreconstruction_score = 0.0
-	if length(blindnodenames) > 0
-		#LGreconstruction_score,mu,alpha = TraitAssociation.pathreconstruction(datafile,newickfile,blindnodenames,modelparams.numrates,R,aafreqs,mu,alpha)
-		LGreconstruction_score,mu,alpha = TraitAssociation.pathreconstruction(datafile,newickfile,blindnodenames,modelparams.numrates)
+	if length(blindproteins) > 0		
+		#LGreconstruction_score,mu,alpha = TraitAssociation.pathreconstruction(datafile,newickfile,blindproteins,modelparams.numrates,R,aafreqs,mu,alpha)
+		LGreconstruction_score,mu,alpha = TraitAssociation.pathreconstruction(fastafile,newickfile,blindproteins,modelparams.numrates)
 		println("LGreconstruction_score ",LGreconstruction_score)
 	end
 
@@ -224,7 +250,7 @@ function infer(parsed_args=Dict{String,Any}())
 	end
 
 	structuresamples = Dict{String,Sample}()
-	for name in blindstructurenames
+	for name in blindstructures
 		structuresamples[name] = Sample(name, modelparams)
 	end
 
@@ -248,11 +274,11 @@ function infer(parsed_args=Dict{String,Any}())
 	print(mcmcwriter, "iter\ttotalll\tpathll\tsequencell\tobservationll\tscalingfactor\talpha")
 
 	blindseq_writers = Dict{String,Any}()
-	for blindnodename in blindnodenames
+	for blindnodename in blindproteins
 		print(mcmcwriter,"\t",blindnodename)
 		blindseq_writers[blindnodename] = open(string("$(outputprefix).", blindnodename,".fasta"), "w")
 	end
-	for blindnodename in blindnodenames
+	for blindnodename in blindproteins
 		print(mcmcwriter,"\t",string("LGmean:", blindnodename))
 		print(mcmcwriter,"\t",string("majorityseq:", blindnodename))
 		print(mcmcwriter,"\t",string("viterbi:", blindnodename))
@@ -293,11 +319,26 @@ function infer(parsed_args=Dict{String,Any}())
 			end
 		end
 	end
+	for name in blindstructures
+		print(mcmcwriter,"\t",string("angularrmsd:", name))
+	end
+	for name in blindstructures
+		print(mcmcwriter,"\t",string("angularrmsd25:", name))
+	end
+	for name in blindstructures
+		print(mcmcwriter,"\t",string("angularrmsd50:", name))
+	end
+	for name in blindstructures
+		print(mcmcwriter,"\t",string("angularrmsd75:", name))
+	end
+	for name in blindstructures
+		print(mcmcwriter,"\t",string("angularrmsd90:", name))
+	end
 	println(mcmcwriter)
 	
 	majority = Dict{String, Array{String,1}}()
 	for node in nodelist
-		if node.name in blindnodenames
+		if node.name in blindproteins
 			majority[node.name] = String[]
 			node.data.fixbranchlength = true
 			if !isnull(node.parent)
@@ -315,7 +356,7 @@ function infer(parsed_args=Dict{String,Any}())
 	count_hidden_total = zeros(Int, numcols)
 
 	maxaugmentedll = -Inf
-	blindscoresatmax = Float64[]
+	sequencescoresatmax = Float64[]
 	ratetotals = zeros(Float64, numcols)
 	for iter=1:10000
 
@@ -375,45 +416,43 @@ function infer(parsed_args=Dict{String,Any}())
 		println("$(iter).3 Sampling blind nodes START")
 		@time begin
 			for selnode in nodelist
-				if selnode.name in blindnodenames
+				if selnode.name in blindproteins					
+					alignedsequence = sequences[selnode.seqindex]								
+					sampledseq = ""
+					for col=1:numcols
+						if  alignedsequence[col] != '-'
+							sampledseq = string(sampledseq, aminoacids[selnode.data.aabranchpath.paths[col][end]])
+						end
+					end
 					println(selnode.name)		
-					alignedsequence = sequences[selnode.seqindex]
-					sequence, phi_psi, omega, bond_angles, bond_lengths = protein_to_lists(sampletreenode(rng, selnode, modelparams, alignedsequence))
+					#sequence, phi_psi, omega, bond_angles, bond_lengths = protein_to_lists(sampletreenode(rng, selnode, modelparams, alignedsequence))
 					println(blindseq_writers[selnode.name], ">sample$(iter)")
-					println(blindseq_writers[selnode.name], sequence)
+					println(blindseq_writers[selnode.name], sampledseq)
 					flush(blindseq_writers[selnode.name])
 					majorityseq = ""
-					viterbiseq = ""					
-					sampledseq = ""
-					if iter % 1 == 0
-						for col=1:numcols
-							if  alignedsequence[col] != '-'
-								sampledseq = string(sampledseq, aminoacids[selnode.data.aabranchpath.paths[col][end]])
-							end
+					viterbiseq = ""		
+					push!(majority[selnode.name], sampledseq)
+					startindex = max(1, div(length(majority[selnode.name]),3))
+					seqs = majority[selnode.name][startindex:end]
+					
+					for col=1:length(sampledseq)
+						aacount = zeros(Int,20)
+						for seq in seqs
+							aacount[CommonUtils.indexof(string(seq[col]),aminoacids)] += 1
 						end
-						push!(majority[selnode.name], sampledseq)
-						startindex = max(1, div(length(majority[selnode.name]),3))
-						seqs = majority[selnode.name][startindex:end]
-						
-						for col=1:length(sampledseq)
-							aacount = zeros(Int,20)
-							for seq in seqs
-								aacount[CommonUtils.indexof(string(seq[col]),aminoacids)] += 1
-							end
-							majorityseq = string(majorityseq, aminoacids[findmax(aacount)[2]])
-						end
-						viterbiseq = viterbi(seqs)
+						majorityseq = string(majorityseq, aminoacids[findmax(aacount)[2]])
 					end
+					viterbiseq = viterbi(seqs)
 
 				    inputsequence = replace(alignedsequence, "-" => "")
-				    blindscoresarray = get(blindscores, selnode.name, Float64[])
-				    push!(blindscoresarray, calculatematch(inputsequence,sampledseq))
-				    blindscores[selnode.name] = blindscoresarray
-				    blindscores_current[string("majorityseq:",selnode.name)] = calculatematch(inputsequence,majorityseq)
-				    blindscores_current[string("viterbi:",selnode.name)] = calculatematch(inputsequence,viterbiseq)
-				    println(blindscoresarray)
-				    println("mean: ", mean(blindscoresarray[max(1,div(length(blindscoresarray),3)):end]))
-				    println("std: ", std(blindscoresarray[max(1,div(length(blindscoresarray),3)):end]))
+				    sequencescoresarray = get(sequencescores, selnode.name, Float64[])
+				    push!(sequencescoresarray, calculatematch(inputsequence,sampledseq))
+				    sequencescores[selnode.name] = sequencescoresarray
+				    sequencescores_current[string("majorityseq:",selnode.name)] = calculatematch(inputsequence,majorityseq)
+				    sequencescores_current[string("viterbi:",selnode.name)] = calculatematch(inputsequence,viterbiseq)
+				    println(sequencescoresarray)
+				    println("mean: ", mean(sequencescoresarray[max(1,div(length(sequencescoresarray),3)):end]))
+				    println("std: ", std(sequencescoresarray[max(1,div(length(sequencescoresarray),3)):end]))
 				end
 			end
 		end
@@ -428,19 +467,19 @@ function infer(parsed_args=Dict{String,Any}())
 		end
 		observationll = observationloglikelihood(proteins, nodelist, modelparams)
 		print(mcmcwriter, iter-1,"\t",augmentedll+observationll,"\t",augmentedll,"\t",sequencell,"\t",observationll,"\t",modelparams.scalingfactor, "\t", modelparams.rate_alpha)
-		for blindnodename in blindnodenames
-			print(mcmcwriter,"\t",blindscores[blindnodename][end])
+		for blindnodename in blindproteins
+			print(mcmcwriter,"\t",sequencescores[blindnodename][end])
 		end
-		for blindnodename in blindnodenames
+		for blindnodename in blindproteins
 			print(mcmcwriter,"\t",LGreconstruction_score)
-			print(mcmcwriter,"\t",blindscores_current[string("majorityseq:",blindnodename)])
-			print(mcmcwriter,"\t",blindscores_current[string("viterbi:",blindnodename)])
+			print(mcmcwriter,"\t",sequencescores_current[string("majorityseq:",blindnodename)])
+			print(mcmcwriter,"\t",sequencescores_current[string("viterbi:",blindnodename)])
 		end
 		if augmentedll > maxaugmentedll
 			maxaugmentedll = augmentedll
-			blindscoresatmax = Float64[blindscores[blindnodename][end] for blindnodename in blindnodenames]
+			sequencescoresatmax = Float64[sequencescores[blindnodename][end] for blindnodename in blindproteins]
 		end
-		println("maxll","\t",blindscoresatmax,"\t", maxaugmentedll)
+		println("maxll","\t",sequencescoresatmax,"\t", maxaugmentedll)
 
 		for node in nodelist
 			if !isroot(node)				
@@ -556,8 +595,6 @@ function infer(parsed_args=Dict{String,Any}())
 				subspersite_cache[outputnode.nodeindex] = cached_branchlengths
 			end
 		end
-		println(mcmcwriter)
-		flush(mcmcwriter)
 
 		println(treewriter, getnewick(outputnodelist[1]))
 		flush(treewriter)
@@ -629,22 +666,74 @@ function infer(parsed_args=Dict{String,Any}())
 			println("rates: ",ratetotals./iter)
 		end
 
-		if iter % 10 ==0
-			reset_matrix_cache(modelparams)
+		if iter % 1 == 0
+
 			for selnode in nodelist
-				if selnode.name in blindstructurenames
-					println("SAMPLING STRUCTURE", selnode.name)		
+				if selnode.name in blindstructures
+					sequence, phi_psi, omega, bond_angles, bond_lengths = protein_to_lists(sampletreenode(rng,selnode,modelparams,sequences[selnode.seqindex]))
+					phipsi_real = Tuple{Float64,Float64}[(p[1],p[2]) for p in json_family["proteins"][selnode.seqindex]["aligned_phi_psi"]]
+					#angulardist = angular_rmsd(phi_psi, phipsi_real)
+					println("LENGTHS ", length(phi_psi), "\t", length(phipsi_real))
+					angulardist = angular_rmsd_percentile(phi_psi, phipsi_real)
+					
+					println("angular_rmsd ($(selnode.name)): ", angulardist)
+
+					key = selnode.name
+				    structurescoresarray = get(structurescores, key, Float64[])
+				    push!(structurescoresarray,  angular_rmsd(phi_psi, phipsi_real))
+					structurescores[key] = structurescoresarray
+
+					key = string(selnode.name,"_perc25")
+				    structurescoresarray = get(structurescores, key, Float64[])
+				    push!(structurescoresarray, angular_rmsd_percentile(phi_psi, phipsi_real, 25.0))
+					structurescores[key] = structurescoresarray
+
+					key = string(selnode.name,"_perc50")
+				    structurescoresarray = get(structurescores, key, Float64[])
+				    push!(structurescoresarray, angular_rmsd_percentile(phi_psi, phipsi_real, 50.0))
+					structurescores[key] = structurescoresarray
+
+					key = string(selnode.name,"_perc75")
+				    structurescoresarray = get(structurescores, key, Float64[])
+				    push!(structurescoresarray, angular_rmsd_percentile(phi_psi, phipsi_real, 75.0))
+					structurescores[key] = structurescoresarray
+
+					key = string(selnode.name,"_perc90")
+				    structurescoresarray = get(structurescores, key, Float64[])
+				    push!(structurescoresarray, angular_rmsd_percentile(phi_psi, phipsi_real, 90.0))
+					structurescores[key] = structurescoresarray
+
+					push!(structuresamples[selnode.name].phipsisamples, phi_psi)
 					push!(structuresamples[selnode.name].aasamples, Int[selnode.data.aabranchpath.paths[col][end] for col=1:numcols])
 					push!(structuresamples[selnode.name].hiddensamples, Int[selnode.data.branchpath.paths[col][end] for col=1:numcols])
 					if json_family != nothing
 						structuresamples[selnode.name].json_family = json_family
 					end
-					fout = open(string(selnode.name,".samples"), "w")
-					Serialization.serialize(fout, structuresamples[selnode.name])
-					close(fout)
+
+					reset_matrix_cache(modelparams)					
 				end
 			end
+			fout = open(string("structure.samples"), "w")
+			Serialization.serialize(fout, structuresamples)
+			close(fout)
 		end
+		for name in blindstructures
+			print(mcmcwriter,"\t",structurescores[name][end])
+		end	
+		for name in blindstructures
+			print(mcmcwriter,"\t",structurescores[string(name,"_perc25")][end])
+		end
+		for name in blindstructures
+			print(mcmcwriter,"\t",structurescores[string(name,"_perc50")][end])
+		end	
+		for name in blindstructures
+			print(mcmcwriter,"\t",structurescores[string(name,"_perc75")][end])
+		end	
+		for name in blindstructures
+			print(mcmcwriter,"\t",structurescores[string(name,"_perc90")][end])
+		end		
+		println(mcmcwriter)
+		flush(mcmcwriter)
 	end
 	close(mcmcwriter)
 	close(treewriter)
@@ -670,7 +759,10 @@ function parse_inference_commandline()
         	arg_type = String        
         "--blindproteins"
         	help = "comma-seperated list of protein names, whose sequences and structures will be blinded"
-        	arg_type = String        
+        	arg_type = String
+    	"--blindstructures"
+        	help = "comma-seperated list of protein names, whose structures only  will be blinded"
+        	arg_type = String           
         "--samplebranchlengths"
         	help = ""
       	    action = :store_true

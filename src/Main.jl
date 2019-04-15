@@ -14,6 +14,7 @@ push!(LOAD_PATH,@__DIR__)
 using EMNodes
 using BivariateVonMises
 using Backbone
+using AngleUtils
 
 using Binaries
 using BranchPaths
@@ -88,13 +89,14 @@ end
 
 mutable struct Sample 
 	name::String
+	phipsisamples::Array{Array{Tuple{Float64,Float64},1},1}
 	aasamples::Array{Array{Int,1},1}
 	hiddensamples::Array{Array{Int,1},1}
 	json_family::Dict{String,Any}
 	modelparams::ModelParams
 
 	function Sample(name::String, modelparams::ModelParams)
-		new(name, Int[], Int[], Dict{String,Any}(), modelparams)
+		new(name, Array{Tuple{Float64,Float64},1}[], Int[], Int[], Dict{String,Any}(), modelparams)
 	end
 end
 
@@ -1892,9 +1894,11 @@ function sampletreenode(rng::AbstractRNG, node::TreeNode, modelparams::ModelPara
 	sampled = Protein()
 	sampled.name = node.name
 	for col=1:numcols
-		aa = aligned_sequence[col]
+		aa = aligned_sequence[col]		
+		site = SiteObservation()
+		site.phi = -1000.0
+		site.psi = -1000.0
 		if aa != '-'
-			site = SiteObservation()
 			#site.aa = indexof(string(aa), aminoacids)
 			site.h =  node.data.branchpath.paths[col][end]
 			h = site.h
@@ -1902,18 +1906,21 @@ function sampletreenode(rng::AbstractRNG, node::TreeNode, modelparams::ModelPara
 			#site.aa = CommonUtils.sample(rng, hiddennode.aa_node.probs)
 			site.aa = node.data.aabranchpath.paths[col][end]
 			if modelparams.hidden_conditional_on_aa
-				#=
-				site.phi = pimod(vonmisesrand(rng, hiddennode.phi_nodes[site.aa].dist))
-				site.omega = pimod(vonmisesrand(rng, hiddennode.omega_nodes[site.aa].dist))
-				site.psi = pimod(vonmisesrand(rng, hiddennode.psi_nodes[site.aa].dist))
-				=#
+				if modelparams.use_bivariate_von_mises
+					site.phi, site.psi = BivariateVonMises.sample(rng, hiddennode.phipsi_nodes[site.aa])
+				else
+					site.phi = pimod(vonmisesrand(rng, hiddennode.phi_nodes[site.aa].dist))
+					site.psi = pimod(vonmisesrand(rng, hiddennode.psi_nodes[site.aa].dist))
+				end
 			else
-				#=
-				site.phi = pimod(vonmisesrand(rng, hiddennode.phi_node.dist))
-				site.omega = pimod(vonmisesrand(rng, hiddennode.omega_node.dist))
-				site.psi = pimod(vonmisesrand(rng, hiddennode.psi_node.dist))
-				=#
+				if modelparams.use_bivariate_von_mises
+					site.phi, site.psi = BivariateVonMises.sample(rng, hiddennode.phipsi_node)
+				else
+					site.phi = pimod(vonmisesrand(rng, hiddennode.phi_node.dist))
+					site.psi = pimod(vonmisesrand(rng, hiddennode.psi_node.dist))
+				end
 			end
+			site.omega = pimod(vonmisesrand(rng, hiddennode.omega_nodes[site.aa].dist))
 			bond_lengths = rand(rng, hiddennode.bond_lengths_node.mvn)
 			site.bond_length1 = bond_lengths[1]
 			site.bond_length2 = bond_lengths[2]
@@ -1923,8 +1930,8 @@ function sampletreenode(rng::AbstractRNG, node::TreeNode, modelparams::ModelPara
 			site.bond_angle2 = pimod(vonmisesrand(rng, hiddennode.bond_angle2_node.dist))
 			site.bond_angle3 = pimod(vonmisesrand(rng, hiddennode.bond_angle3_node.dist))
 			println("J", col)=#
-			push!(sampled.sites, site)
 		end
+		push!(sampled.sites, site)
 	end
 	return sampled
 end
@@ -2256,7 +2263,7 @@ function initialise_tree(rng::AbstractRNG, modelparams::ModelParams, inputroot::
 	return root,nodelist
 end
 
-function training_example_from_sequence_alignment(rng::AbstractRNG, modelparams::ModelParams, fastafile::String; newickfile=nothing, blindnodenames::Array{String,1}=String[])
+function training_example_from_sequence_alignment(rng::AbstractRNG, modelparams::ModelParams, fastafile::String; newickfile=nothing, blindproteins::Array{String,1}=String[])
 	sequences = AbstractString[]
     names = AbstractString[]
 
@@ -2273,7 +2280,7 @@ function training_example_from_sequence_alignment(rng::AbstractRNG, modelparams:
 	    protein = Protein(name)
 	    for aa in sequence
 		    site = SiteObservation()
-		    if name in blindnodenames
+		    if name in blindproteins
 		    	site.aa = 0
 		    else
 		    	site.aa = CommonUtils.indexof(string(aa),aminoacids)
@@ -2296,7 +2303,7 @@ function training_example_from_sequence_alignment(rng::AbstractRNG, modelparams:
 	return ( proteins, nodelist, sequences)
 end
 
-function training_example_from_json_family(rng::AbstractRNG, modelparams::ModelParams, json_family; blindnodenames::Array{String,1}=String[], blindstructurenames::Array{String,1}=String[])
+function training_example_from_json_family(rng::AbstractRNG, modelparams::ModelParams, json_family; blindproteins::Array{String,1}=String[], blindstructures::Array{String,1}=String[])
 	root = gettreefromnewick(json_family["newick_tree"])
 	binarize!(root)
 	nodelist = getnodelist(root)
@@ -2315,10 +2322,10 @@ function training_example_from_json_family(rng::AbstractRNG, modelparams::ModelP
 	    json_protein = json_family["proteins"][p]
 	    push!(sequences, json_protein["aligned_sequence"])
 	    for (aa,phi_psi,omega,bond_lengths,bond_angles) in zip(json_protein["aligned_sequence"], json_protein["aligned_phi_psi"], json_protein["aligned_omega"], json_protein["aligned_bond_lengths"], json_protein["aligned_bond_angles"])
-	    	if name in blindnodenames
+	    	if name in blindproteins
 	    		push!(protein.sites, SiteObservation())
 		    else		    	
-		        if name in blindstructurenames
+		        if name in blindstructures
 		        	push!(protein.sites, SiteObservation(0,indexof(string(aa), aminoacids),-1000.0,-1000.0,-1000.0,-1000.0,-1000.0,-1000.0,-1000.0,-1000.0,-1000.0))
 		        else
 		        	phi = phi_psi[1]

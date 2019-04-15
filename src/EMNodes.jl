@@ -254,6 +254,7 @@ module EMNodes
 		println("end value: ", vonmises_node.kappa)
 	end
 
+	#=
 	export vonmisesrand
 	function vonmisesrand(rng::AbstractRNG, vonmises::VonMises)
 		dist = VonMises(0.0, vonmises.κ)
@@ -277,7 +278,53 @@ module EMNodes
 			println("sample ",v,"\t",u,"\t",cdf(vonmises,mid),"\t",vonmises,"\t",lower,"\t",upper)
 		end
 		return mod2pi(mid + vonmises.μ)
-	end
+	end=#
+
+	#=
+	sample(RandomGen* rg) {
+	// Returns a sample from the Von Mises distribution.
+	//
+	// Based on the algorithm of Best & Fisher (1979), as described in: Jupp PE
+	// and Mardia KV,  "Directional Statistics",  John Wiley & Sons, 1999.
+
+	// For kappas close to zero return a sample from the uniform distribution on the circle
+	if(kappa < 1e-6) {
+		return 2.0 * M_PI * rg->get_rand();  // TODO: This should be a random number in the interval [0,1)
+	}
+
+	// For all other use the algorithm of Best & Fisher (1997)
+	double U1, U2, U3, z, f, c, theta;
+
+	do {
+		U1 = rg->get_rand();
+		z = cos(M_PI * U1);
+		f = (1.0 + r * z) / (r + z);
+		c = kappa * (r - f);
+
+		U2 = rg->get_rand();
+	} while ( ( c * (2.0 - c) - U2 <= 0 ) && ( c * exp(1.0 - c) - U2 < 0 ) );
+
+	U3 = rg->get_rand();
+
+	if(U3 - 0.5 > 0) {
+		theta = mu + acos(f);
+	}
+	else {
+		theta = mu - acos(f);
+	}
+
+	// Make sure that theta is in [0, 2Pi[
+	bool less;
+	double TWO_M_PI = 2.0 * M_PI;
+	while( (less=(theta<0.0)) || (theta>TWO_M_PI)) {
+		if (less)
+			theta += TWO_M_PI;
+		else
+			theta -= TWO_M_PI;
+	}
+
+	return theta;
+}=#
 
 	export HiddenNode
 	mutable struct HiddenNode

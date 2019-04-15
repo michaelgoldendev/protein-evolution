@@ -8,6 +8,7 @@ module BivariateVonMises
 	using SpecialFunctions
 	using QuadGK
 	using NLopt
+	using Random
 
 	function pimod(angle::Float64)
 	  theta = mod2pi(angle)
@@ -185,12 +186,13 @@ double k1 = k[0];
 		if bv.count == 0
 			bv.k = Float64[1e-5,1e-5, 0.0]
 		else
+			kappalimit = 2000.0
 			opt = Opt(:LN_COBYLA,5)
 			data = filter(x -> x[1] > -100.0 && x[2] > -100.0, bv.data)
 			localObjectiveFunction = ((params, grad) -> loglik_and_prior(bv, data, params))
 			lower = ones(Float64, 5)*1e-5
-			upper = ones(Float64, 5)*700.0
-			lower[3] = -700.0
+			upper = ones(Float64, 5)*kappalimit
+			lower[3] = -kappalimit
 			lower[4] = Float64(-pi)
 			lower[5] = Float64(-pi)
 			upper[4] = Float64(pi)
@@ -203,7 +205,7 @@ double k1 = k[0];
 
 			maxk3 = 0.5*abs((bv.k[1]*bv.k[1] + bv.k[2]*bv.k[2])/(2.0*bv.k[1]))
 			mink3 = -maxk3
-			(minf,minx,ret) = optimize(opt, Float64[min(bv.k[1], 700.0), min(bv.k[2], 700.0), max(mink3, min(bv.k[3], maxk3)), pimod(bv.mu[1]), pimod(bv.mu[2])])
+			(minf,minx,ret) = optimize(opt, Float64[min(bv.k[1], kappalimit), min(bv.k[2], kappalimit), max(mink3, min(bv.k[3], maxk3)), pimod(bv.mu[1]), pimod(bv.mu[2])])
 			bv.k[1] = minx[1]
 			bv.k[2] = minx[2]
 			bv.k[3] = minx[3]
@@ -294,16 +296,191 @@ double k1 = k[0];
 
 		reset(dist)
  	end
-end
+
+
+	
+	export vonmisesrand
+	function vonmisesrand(rng::AbstractRNG, mu::Float64, kappa::Float64)
+		if kappa  < 1e-6
+			return rand(rng)*2.0*pi
+		else
+			a = 1.0 + sqrt(1.0 + 4.0 * kappa * kappa)
+			b = (a - sqrt(2.0 * a)) / (2.0 * kappa)
+			r = (1.0 + b * b) / (2.0 * b)
+			c = 0.0
+			f = 0.0
+			U2 = 0.0
+
+			cont = true
+			while cont || ( ( c * (2.0 - c) - U2 <= 0 ) && ( c * exp(1.0 - c) - U2 < 0 ) )
+				cont = false
+				U1 = rand(rng)
+				z = cos(pi*U1)
+				f = (1.0 + r * z) / (r + z)
+				c = kappa * (r - f)
+				U2 = rand(rng)
+			end
+
+			U3 = rand(rng)
+
+			if U3 - 0.5 > 0
+				theta = mu + acos(f)
+			else
+				theta = mu - acos(f)
+			end
+
+			return mod2pi(theta)
+		end
+	end
+
+	function vonmisesrand(rng::AbstractRNG, vonmises::VonMises)
+		return vonmisesrand(rng::AbstractRNG, vonmises.μ, vonmises.κ)
+	end
+
+	export sample
+ 	function sample(rng::AbstractRNG, bvm::BivariateVonMisesNode)
+ 		phivm = VonMises(bvm.mu[1], bvm.k[1])
+ 		psivm = VonMises(bvm.mu[2], bvm.k[2])
+ 		currx = Float64[vonmisesrand(rng,phivm),vonmisesrand(rng,psivm)]
+ 		propx = copy(currx)
+ 		currll = logpdf(bvm, currx)
+ 		propll = currll 
+ 		#fout = open("mcmc.log","w")		
+ 		#println(fout, "iter\tmu1\tmu2")
+ 		for i=1:10000
+ 			if i % 3 == 0
+ 				propx[1] = vonmisesrand(rng, phivm)
+ 				propratio = Distributions.logpdf(phivm, currx[1]) - Distributions.logpdf(phivm, propx[1])
+ 				propll = logpdf(bvm, propx)
+ 				if exp(propll-currll+propratio) > rand(rng)
+ 					currll = propll
+ 					currx[1] = propx[1]
+ 					#println("$(i) 1 ", currx)
+ 				else
+ 					propx[1] = currx[1]
+ 				end
+ 			elseif i % 3 == 1
+ 				propx[2] = vonmisesrand(rng, psivm)
+ 				propratio = Distributions.logpdf(psivm, currx[2]) - Distributions.logpdf(psivm, propx[2])
+ 				propll = logpdf(bvm, propx)
+ 				if exp(propll-currll+propratio) > rand(rng)
+ 					currll = propll
+ 					currx[2] = propx[2]
+ 					#println("$(i) 2 ", currx)
+ 				else
+ 					propx[2] = currx[2]
+ 				end
+ 			else 
+ 				index = rand(rng,1:2)
+ 				propx[index] =  vonmisesrand(rng, currx[index], bvm.k[index]*1.0)
+ 				propll = logpdf(bvm, propx)
+ 				if exp(propll-currll) > rand(rng)
+ 					currll = propll
+ 					currx[index] = propx[index]
+ 					#println("$(i) 3 ", currx)
+ 				else
+ 					propx[index] = currx[index]
+ 				end
+ 			end
+ 			#println(fout, "$(i-1)\t$(currx[1])\t$(currx[2])")
+ 		end
+ 		#close(fout)
+ 		return currx
+ 	end
 
 #=
-bv = BivariateVonMises.BivariateVonMisesNode(Float64[2.0,4.0,0.0], Float64[0.0,0.0])
-#println(BivariateVonMises.logpdf(bv,[0.0,0.0]))
-for z=1:1000
-	x = 0.5 + randn()*6.1
-	y = 0.8 + randn()*8.1 - x*0.5
-	# + x*0.02 +
-	BivariateVonMises.add_bvm_point(bv, Float64[x,y])
+ 	function vonMisesSampler(rng::AbstractRNG, k::Float64, mean::Float64)
+ 		res = 0.0
+ 		a = 1.0 + sqrt(1.0 + 4.0*k*k)
+ 		b = (a - sqrt(2.0*a)) / (2.0*k)
+ 		r = (1.0 + b*b)/(2.0*b)
+ 		f = 0.0
+ 		while true
+ 			U1 = rand(rng)
+ 			z = cos(pi*U1)
+ 			f = (1.0 + r*z)/(r + z)
+ 			c = k * (r - f)
+			U2 = rand(rng)
+		 	if (((c*(2.0-c) - U2) > 0.0) || ((log(c/U2) + 1.0 - c >= 0.0)))
+		 		break
+          	end
+ 		end
+ 		U3 = rand(rng)
+ 		if U3 > 0.5
+ 			res = mod(acos(f)+mean, 2.0*pi)
+ 		else
+ 			res = mod(-acos(f)+mean, 2.0*pi)
+ 		end
+ 		return res
+ 	end
+
+ 	function sample(rng::AbstractRNG, bvm::BivariateVonMisesNode)
+
+	     double k13 = sqrt(k[1]*k[1] + k[3]*k[3] - 2.0*k[1]*k[3]*cos(psi));
+	     double psi_mu = atan((-k3*sin(psi))/(k1 - k3*cos(psi)));
+	     double phi = vonMisesSampler(k13, psi_mu, rg);
+
+	     // Angles are in the interval [-pi, pi]. Add 3*pi to bring them
+	     // to: [2*pi, 4*pi] which with mu values in [-pi, pi] brings it
+	     // to [pi, 3pi], which can then readily be transformed back to [-pi, pi]
+	     psi = fmod(psi + (3*M_PI) + mu2, 2*M_PI) - M_PI;
+	     phi = fmod(phi + (3*M_PI) + mu1, 2*M_PI) - M_PI;
+
+	     rVal.resize(2);
+	     rVal[0] = phi;
+	     rVal[1] = psi;
+ 	end
+
+ 	  double vonMisesSampler(double k, double mean, RandomGen* rg) {
+     if (mean < -M_PI || mean > M_PI) {
+          fprintf(stderr, "vonMises Error: mean must be in the interval (-pi,pi). Mean=%f\n", mean);
+     }
+     double res;
+     double a = 1.0 + sqrt(1.0 + 4.0*k*k);
+     double b = (a - sqrt(2*a)) / (2*k);
+     double r = (1.0 + b*b)/(2*b);
+     double f;
+     while(true) {
+          // double U1 = RandomLib::Random::Global.FixedN();
+          double U1 = rg->get_rand();
+          double z = cos(M_PI * U1);
+          f = (1.0 + r*z)/(r + z);
+          double c = k * (r - f);
+          // double U2 = RandomLib::Random::Global.FixedN();
+          double U2 = rg->get_rand();
+          if (((c*(2.0-c) - U2) > 0.0) || ((log(c/U2) + 1.0 - c >= 0.0))){
+               break;           // accept
+          }
+     }
+     // double U3 = RandomLib::Random::Global.FixedN();
+     double U3 = rg->get_rand();
+     if (U3 > 0.5) {
+          res = fmod(acos(f)+mean, 2*M_PI);
+     } else {
+          res = fmod(-acos(f)+mean, 2*M_PI);
+     }
+     return res;
+}=#
 end
-BivariateVonMises.estimate_bvm(bv)=#
-#=println(bv.k,"\t",bv.mu)=#
+#=
+using Random
+bvm = BivariateVonMises.BivariateVonMisesNode(Float64[400.0, 400.0, 200.0], Float64[pi,pi])
+rng = MersenneTwister(1)
+currx =  BivariateVonMises.sample(rng, bvm)
+println(currx)
+currx =  BivariateVonMises.sample(rng, bvm)
+println(currx)
+currx =  BivariateVonMises.sample(rng, bvm)
+println(currx)
+currx =  BivariateVonMises.sample(rng, bvm)
+println(currx)
+currx =  BivariateVonMises.sample(rng, bvm)
+println(currx)
+currx =  BivariateVonMises.sample(rng, bvm)
+println(currx)
+currx =  BivariateVonMises.sample(rng, bvm)
+println(currx)
+currx =  BivariateVonMises.sample(rng, bvm)
+println(currx)
+currx =  BivariateVonMises.sample(rng, bvm)
+println(currx)=#
