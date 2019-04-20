@@ -165,11 +165,12 @@ function infer(parsed_args=Dict{String,Any}())
 		#blindproteins = String[]
 
 		datafile = abspath("../data/diverse_rna_virus_structures/norovirus_capsid_P_selection.fas.fam")
-		#blindproteins =  String["pdb5kon_A", "pdb4oos_A", "pdb2obr_A", "pdb4oov_A", "pdb3skb_A", "pdb4rpd_A"] # random
+		#blindproteins =  String["pdb5kon_A", "pdb4oos_A", "pdb2obr_A", "pdb4oov_A", "pdb3skb_A", "pdb4rpd_A", "KC462195|NA", "KF712507|VP1"] # random
 		#blindproteins =  String["pdb4oos_A", "pdb2obr_A", "pdb4oov_A", "pdb3skb_A", "pdb4rpd_A"]
 		#blindstructures =  String["pdb5kon_A", "pdb4oos_A", "pdb2obr_A", "pdb4oov_A", "pdb3skb_A", "pdb4rpd_A"] # blind all structures
 		#blindproteins =  String["pdb4oos_A", "pdb2obr_A", "pdb4oov_A", "pdb3skb_A", "pdb4rpd_A"] # blind sequences and structures
 		blindstructures =  String["pdb5kon_A", "pdb4oos_A", "pdb2obr_A", "pdb4oov_A", "pdb3skb_A"] # , "pdb4rpd_A"
+		#blindproteins =  String["pdb4oos_A", "pdb2obr_A", "pdb4oov_A", "pdb3skb_A", "KC462195|NA", "KF712507|VP1", "pdb4rpd_A"] # "pdb5kon_A"
 		#blindstructures =  String["pdb5kon_A", "pdb2obr_A", "pdb3skb_A", "pdb4rpd_A", "pdb4oos_A"] # "pdb4oov_A"
 
 		#datafile = abspath("../data/test_data/maise_streak_virus_coat_protein_selection.fasta")
@@ -232,6 +233,15 @@ function infer(parsed_args=Dict{String,Any}())
 	println("alpha: ", alpha)
 	println("END")
 
+	if length(proteins) == 1
+		println(length(nodelist))
+		println(json_family["newick_tree"])
+		marginalprobs = forwardbackward(rng, nodelist[1], modelparams)
+		println(marginalprobs)
+		exit()
+	end
+	#..\data\single_pdbs\pdb1bv3_A.fam
+	#..\data\homstrad_curated\A2M_B.selection.fam
 
 	LGreconstruction_score = 0.0
 	if length(blindproteins) > 0		
@@ -276,7 +286,11 @@ function infer(parsed_args=Dict{String,Any}())
 	blindseq_writers = Dict{String,Any}()
 	for blindnodename in blindproteins
 		print(mcmcwriter,"\t",blindnodename)
-		blindseq_writers[blindnodename] = open(string("$(outputprefix).", blindnodename,".fasta"), "w")
+		try
+			blindseq_writers[blindnodename] = open(string("$(outputprefix).", blindnodename,".fasta"), "w")
+		catch 
+
+		end
 	end
 	for blindnodename in blindproteins
 		print(mcmcwriter,"\t",string("LGmean:", blindnodename))
@@ -426,9 +440,13 @@ function infer(parsed_args=Dict{String,Any}())
 					end
 					println(selnode.name)		
 					#sequence, phi_psi, omega, bond_angles, bond_lengths = protein_to_lists(sampletreenode(rng, selnode, modelparams, alignedsequence))
-					println(blindseq_writers[selnode.name], ">sample$(iter)")
-					println(blindseq_writers[selnode.name], sampledseq)
-					flush(blindseq_writers[selnode.name])
+					try
+						println(blindseq_writers[selnode.name], ">sample$(iter)")
+						println(blindseq_writers[selnode.name], sampledseq)
+						flush(blindseq_writers[selnode.name])
+					catch 
+
+					end
 					majorityseq = ""
 					viterbiseq = ""		
 					push!(majority[selnode.name], sampledseq)
@@ -702,6 +720,10 @@ function infer(parsed_args=Dict{String,Any}())
 				    structurescoresarray = get(structurescores, key, Float64[])
 				    push!(structurescoresarray, angular_rmsd_percentile(phi_psi, phipsi_real, 90.0))
 					structurescores[key] = structurescoresarray
+
+					if !haskey(structuresamples, selnode.name)
+						structuresamples[selnode.name] = Sample(string(selnode.name), modelparams)
+					end
 
 					push!(structuresamples[selnode.name].phipsisamples, phi_psi)
 					push!(structuresamples[selnode.name].aasamples, Int[selnode.data.aabranchpath.paths[col][end] for col=1:numcols])

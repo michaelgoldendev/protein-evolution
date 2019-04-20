@@ -49,9 +49,9 @@ function train(parsed_args=Dict{String,Any}())
 	end
 
 	modelparams.usestructureobservations = usestructureobservations
-	modelparams.hidden_conditional_on_aa = parsed_args["angles-cond-aa"]
-	if modelparams.hidden_conditional_on_aa
-		outputmodelname = string(outputmodelname,".anglescondaa")
+	modelparams.hidden_conditional_on_aa = false
+	if parsed_args["angles-cond-aa"] > 0
+		outputmodelname = string(outputmodelname,".anglescondaa", parsed_args["angles-cond-aa"])
 	end 
 	modelparams.ratemode = parsed_args["ratemode"]
 	outputmodelname = string(outputmodelname,".ratemode", modelparams.ratemode)
@@ -63,6 +63,7 @@ function train(parsed_args=Dict{String,Any}())
 	if parsed_args["loadfromcache"]
 		modelparams = Serialization.deserialize(open(modelfile, "r"))
 	end
+	modelparams.use_bivariate_von_mises = true
 
 	if modelparams.numhiddenstates == 1
 		fout = open(modelfile, "w")
@@ -80,8 +81,9 @@ function train(parsed_args=Dict{String,Any}())
 	#family_directories = ["../data/single_pdbs/", "../data/homstrad_families/", "../data/curated_rna_virus_structures/"]
 	#family_directories = ["../data/single_pdbs/", "../data/homstrad_families/"]
 	#family_directories = ["../data/single_pdbs/", "../data/homstrad_families/", "../data/curated/curated_rna/"]
-	family_directories = ["../data/single_pdbs/", "../data/homstrad_families/", "../data/curated_rna_virus_structures/"] 
+	#family_directories = ["../data/single_pdbs/", "../data/homstrad_families/", "../data/curated_rna_virus_structures/"] 
 	#family_directories = ["../data/single_pdbs/", "../data/homstrad_families/"] 
+	family_directories = ["../data/homstrad_curated/", "../data/curated_rna_virus_structures/"] 
 	family_names = String[]
 	for family_dir in family_directories
 		family_files = filter(f -> endswith(f,".fam"), readdir(family_dir))
@@ -91,11 +93,6 @@ function train(parsed_args=Dict{String,Any}())
 			if 1 <= length(json_family["proteins"]) <= 1e10
 				training_example = training_example_from_json_family(rng, modelparams, json_family)		
 				println(json_family["newick_tree"])
-				if length(training_example[2][1].children) == 1
-					root = training_example[2][1].children[1]
-					root.parent = Nullable{TreeNode}()
-					training_example = (training_example[1], TreeNode[root], training_example[3], training_example[4])
-				end
 				push!(trainingexamples, training_example)
 				push!(family_names, family_file)
 				if parsed_args["maxtraininginstances"] != nothing && length(trainingexamples) == parsed_args["maxtraininginstances"]
@@ -107,6 +104,31 @@ function train(parsed_args=Dict{String,Any}())
 			break
 		end
 	end
+	#=
+	usedindices = Int[]
+	selected_trainingexamples = Tuple[]
+	selected_family_names = String[]
+	for (index, (family_name,training_example)) in enumerate(zip(family_names,trainingexamples))
+		if length(training_example[2]) == 1
+			push!(selected_trainingexamples, training_example)
+			push!(selected_family_names, family_name)
+			push!(usedindices, index)
+		end
+	end
+	
+	permutedindices = randperm(rng,length(family_names))
+	permutedindices	= permutedindices[1:200]
+	for index in permutedindices
+		if !(index in usedindices)
+			push!(selected_trainingexamples, trainingexamples[index])
+			push!(selected_family_names, family_names[index])
+		end
+	end
+	trainingexamples = selected_trainingexamples
+	family_names = selected_family_names
+	=#
+
+
 	familytracefile = string("models/family.trace", outputmodelname,".log")
 	familyoutfile = open(familytracefile,"w")
 	print(familyoutfile,"iter")
@@ -127,12 +149,16 @@ function train(parsed_args=Dict{String,Any}())
 		end
 	end
 
-	for (proteins,nodelist,json_family,sequences) in trainingexamples
+	for (index, (proteins,nodelist,json_family,sequences)) in enumerate(trainingexamples)
+		if index % 50 == 0
+			println(index)
+		end 
 		if length(proteins) == 1
-			samplesingle(rng, nodelist[1], modelparams)
+			println(length(nodelist))
+			backwardsamplesingle(rng, nodelist[1], modelparams)
 		else
 			numcols = length(proteins[1])
-			for i=1:5
+			for i=1:3
 				randcols = shuffle(rng, Int[i for i=1:numcols])
 				for col in randcols
 					samplepaths_seperate_new(rng,col,proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates, accept_everything=true)
@@ -149,6 +175,10 @@ function train(parsed_args=Dict{String,Any}())
 	logwriter = open(tracefile, "w")
 	println(logwriter, "iter\tll\taall\tstructurell\tpathll")
 	for iter=1:10000
+		if !(parsed_args["angles-cond-aa"] <= 0) && iter >= parsed_args["angles-cond-aa"]
+			modelparams.hidden_conditional_on_aa = true
+		end
+
 		reset_matrix_cache(modelparams)
 		transitionrate_counts = ones(Float64, modelparams.numhiddenstates, modelparams.numhiddenstates)*0.01
 		transitionrate_totals = ones(Float64, modelparams.numhiddenstates, modelparams.numhiddenstates)*0.001
@@ -176,7 +206,7 @@ function train(parsed_args=Dict{String,Any}())
 			numcols = length(proteins[1])
 
 			if length(proteins) == 1
-				samplesingle(rng, nodelist[1], modelparams)
+				backwardsamplesingle(rng, nodelist[1], modelparams)
 			else				
 				accepted = zeros(Int, numcols)			
 				for i=1:maxsamplesperiter					
@@ -303,11 +333,13 @@ function train(parsed_args=Dict{String,Any}())
 			estimate_bvm(modelparams.hiddennodes[h].phipsi_node)
 			estimatevonmises(modelparams.hiddennodes[h].bond_angle1_node)
 			estimatevonmises(modelparams.hiddennodes[h].bond_angle2_node)
-			estimatevonmises(modelparams.hiddennodes[h].bond_angle3_node)			
-			println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle1_node.mu,"\t",modelparams.hiddennodes[h].bond_angle1_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle1_node.N)
-			println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle2_node.mu,"\t",modelparams.hiddennodes[h].bond_angle2_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle2_node.N)
-			println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle3_node.mu,"\t",modelparams.hiddennodes[h].bond_angle3_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle3_node.N)
-			println(iter,"\t",h,"\t", modelparams.hiddennodes[h].bond_lengths_node.mvn.μ)
+			estimatevonmises(modelparams.hiddennodes[h].bond_angle3_node)
+			println(iter,"\t",h,"\t",modelparams.hiddennodes[h].phipsi_node.mu,"\t",modelparams.hiddennodes[h].phipsi_node.k, "\t", modelparams.hiddennodes[h].phi_node.mu, "\t", modelparams.hiddennodes[h].psi_node.mu, "\t", modelparams.hiddennodes[h].phi_node.kappa, "\t", modelparams.hiddennodes[h].psi_node.kappa)		
+			println(modelparams.hiddennodes[h].phipsi_node.count,"\t",modelparams.hiddennodes[h].phi_node.N,"\t",modelparams.hiddennodes[h].psi_node.N)
+			#println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle1_node.mu,"\t",modelparams.hiddennodes[h].bond_angle1_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle1_node.N)
+			#println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle2_node.mu,"\t",modelparams.hiddennodes[h].bond_angle2_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle2_node.N)
+			#println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle3_node.mu,"\t",modelparams.hiddennodes[h].bond_angle3_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle3_node.N)
+			#println(iter,"\t",h,"\t", modelparams.hiddennodes[h].bond_lengths_node.mvn.μ)
 			estimate_multivariate_node(modelparams.hiddennodes[h].bond_lengths_node)
 			for aa=1:modelparams.alphabet
 				estimatevonmises(modelparams.hiddennodes[h].phi_nodes[aa])
@@ -315,9 +347,9 @@ function train(parsed_args=Dict{String,Any}())
 				estimatevonmises(modelparams.hiddennodes[h].omega_nodes[aa])
 				estimate_bvm(modelparams.hiddennodes[h].phipsi_nodes[aa])
 				if modelparams.hidden_conditional_on_aa
-					println(iter,"\t",h,"\t",aminoacids[aa],"\t",@sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]),"\t",modelparams.hiddennodes[h].phi_nodes[aa].mu,"\t",modelparams.hiddennodes[h].phi_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].phi_nodes[aa].N)		
-					println(iter,"\t",h,"\t",aminoacids[aa],"\t",@sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]),"\t",modelparams.hiddennodes[h].psi_nodes[aa].mu,"\t",modelparams.hiddennodes[h].psi_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].psi_nodes[aa].N)
-					println(iter,"\t",h,"\t",aminoacids[aa],"\t",@sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]),"\t",modelparams.hiddennodes[h].omega_nodes[aa].mu,"\t",modelparams.hiddennodes[h].omega_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].omega_nodes[aa].N)				
+					print(iter,"\t",h,"\t",aminoacids[aa],"\t",@sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]),"\t",modelparams.hiddennodes[h].phi_nodes[aa].mu,"\t",modelparams.hiddennodes[h].phi_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].phi_nodes[aa].N)		
+					println("\t",modelparams.hiddennodes[h].psi_nodes[aa].mu,"\t",modelparams.hiddennodes[h].psi_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].psi_nodes[aa].N)
+					#println(iter,"\t",h,"\t",aminoacids[aa],"\t",@sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]),"\t",modelparams.hiddennodes[h].omega_nodes[aa].mu,"\t",modelparams.hiddennodes[h].omega_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].omega_nodes[aa].N)						end
 				end
 			end
 			for aa=1:20
@@ -631,7 +663,8 @@ function parse_training_commandline()
           	action = :store_true
   	 	"--angles-cond-aa"
          	help = "angles depend on amino acids"
-          	action = :store_true
+          	arg_type = Int
+          	default = 0
         "--ratemode"
         	arg_type = Int
          	default = 1

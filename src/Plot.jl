@@ -160,6 +160,234 @@ function angulardist_to_angle(r::Float64)
 	return acos((4.0-r*r)/4.0)
 end
 
+#=
+pdb5kon_A       5.0     0.10497765462660003
+pdb5kon_A       10.0    0.15504705879597758
+pdb5kon_A       15.0    0.1952006839547977
+pdb5kon_A       20.0    0.2363761857881891
+pdb5kon_A       25.0    0.2753585030174491
+pdb5kon_A       30.0    0.31742743975553606
+pdb5kon_A       35.0    0.35733717157303746
+pdb5kon_A       40.0    0.39962262036628277
+pdb5kon_A       45.0    0.4436988090579543
+pdb5kon_A       50.0    0.4930929801444881
+pdb5kon_A       55.0    0.5447908568027151
+pdb5kon_A       60.0    0.6012837939020248
+pdb5kon_A       65.0    0.6681579154888537
+pdb5kon_A       70.0    0.7522127707019409
+pdb5kon_A       75.0    0.8512081083302513
+pdb5kon_A       80.0    0.9853479454377839
+pdb5kon_A       85.0    1.210492764013601
+pdb5kon_A       90.0    1.7017839460994724
+pdb5kon_A       95.0    2.0153764641273937
+pdb5kon_A       100.0   2.827588897883591
+
+pdb5kon_A       5.0     0.1201021426065796
+pdb5kon_A       10.0    0.17502817016176758
+pdb5kon_A       15.0    0.23282797240820557
+pdb5kon_A       20.0    0.2895681089134446
+pdb5kon_A       25.0    0.35064183163686635
+pdb5kon_A       30.0    0.41814965652203573
+pdb5kon_A       35.0    0.4912150109371237
+pdb5kon_A       40.0    0.5755203605876927
+pdb5kon_A       45.0    0.6703321677459775
+pdb5kon_A       50.0    0.7804351132135359
+pdb5kon_A       55.0    0.9116972833656863
+pdb5kon_A       60.0    1.0829697011592112
+pdb5kon_A       65.0    1.3287474362318772
+pdb5kon_A       70.0    1.6627402575284427
+pdb5kon_A       75.0    1.8936097122000308
+pdb5kon_A       80.0    1.9779699868588898
+pdb5kon_A       85.0    2.0144371434617256
+pdb5kon_A       90.0    2.1132150019257687
+pdb5kon_A       95.0    2.3317382836531944
+pdb5kon_A       100.0   2.8280129048920477
+=#
+
+function positionofvalue(arr::Array{Float64,1}, v::Float64)
+	sort!(arr)
+	for (i,a) in enumerate(arr)
+		if v < a
+			return (i-1.0)/(length(arr)-1.0)
+		end
+	end
+	return 1.0
+end
+
+function plotaccuracy()
+	samplefile = string("structure.samples")
+
+	N = 100
+	startpos = 1
+
+	fin = open(samplefile, "r")	
+	samples = Serialization.deserialize(fin)
+	close(fin)
+	for name in keys(samples)
+		proteinsample = samples[name]
+
+		json_family = proteinsample.json_family
+
+		seqnametoindex = Dict{String,Int}()
+		for (index,protein) in enumerate(proteinsample.json_family["proteins"])
+			seqnametoindex[proteinsample.json_family["proteins"][index]["name"]] = index
+		end
+
+		modelparams = proteinsample.modelparams
+		hiddenfreqs = (modelparams.transitionprobs^100)[1,:]
+
+		numcols = length(proteinsample.aasamples[1])
+		fig = plt.figure(figsize=(7,6))
+		plt.rc("text", usetex=true)
+		plt.rc("font", family="serif")
+
+		numsamples = length(proteinsample.aasamples)
+		startiter = max(1, div(numsamples,3))
+		enditer = numsamples
+
+		distances = Float64[]
+		for iter=startiter:numsamples
+			for col=1:numcols
+				truephipsi = proteinsample.json_family["proteins"][seqnametoindex[name]]["aligned_phi_psi"][col]
+				sampledphipsi = proteinsample.phipsisamples[iter][col]
+				if truephipsi[1] > -100.0 && truephipsi[2] > -100.0 && sampledphipsi[1] > -100.0 && sampledphipsi[2] > -100.0
+					push!(distances, angular_rmsd(truephipsi[1],sampledphipsi[1],truephipsi[2],sampledphipsi[2]))
+				end
+			end			
+		end
+
+		cpos = [0.0, 0.75, 1.25, 1.75]
+		rs = Float64[0.5, 1.0, 1.5, 2.0]
+		rcolours = ["wo", "wo", "wo", "wo"]
+
+		cpos = [0.0, 0.375-0.025, 0.75-0.025, 1.25-0.025, 1.75-0.025]
+		rs = Float64[0.25, 0.5, 1.0, 1.5, 2.0]
+		distlabelr = rs .+ 0.045
+		distlabelr[1] = 0.17
+		percfontsizes = Int[11,14,14,14,14]
+		distfontsizes = Int[10,14,14,14,14]
+		#colours = ["#65ca44", "#84d432", "#abdb20", "#d4e115", "#fce51e"]
+		colours = ["#5599ff", "#2a7fff", "#0066ff", "#0055d4", "#0044aa"]
+		
+
+		if length(distances) > 0
+			for perc=5.0:5.0:100.0
+				println(name,"\t",perc,"\t",StatsBase.percentile(distances,perc))
+			end
+			for r in rs
+				println(r,"\t",positionofvalue(distances,r))
+			end
+		end
+		mat = zeros(Float64, N, N)
+
+		plt.clf()
+		
+		#ax = plt.imshow(mat)
+
+		ax = plt.gca()
+		ax.set_facecolor("white")
+		ax.set_aspect("equal", "box")
+
+		#perc =	@sprintf("%d", positionofvalue(distances,0.25)*100.0)
+		#plt.text(0.5*N,0.5*N, string("$(perc)\\%"), fontsize=percfontsize, color="white",  horizontalalignment="center", verticalalignment="center")
+		#plt.text((0.5+(0.15/pi))*N,0.5*N, string("0.25"), fontsize=10, color="white",  horizontalalignment="left", verticalalignment="center")
+
+		for (colour,percfontsize,distfontsize,c,d,r) in zip(colours,percfontsizes,distfontsizes,cpos,distlabelr,rs)
+			perc =	@sprintf("%d", positionofvalue(distances,r)*100.0)
+			theta = acos(1.0 - c*c/2.0)/2.0
+			plt.text(0.5*N,(0.5+(theta/pi))*N, string("$(perc){\\footnotesize{\\%}}"), fontsize=percfontsize, color=colour,  horizontalalignment="center", verticalalignment="center")
+			theta = angulardist_to_angle(d)/2.0
+			plt.text((0.5+(theta/pi))*N,(0.5+(theta/pi))*N, string(r), fontsize=distfontsize, color=colour,  horizontalalignment="left", verticalalignment="center")
+
+			percfontsize = 12
+			distfontsize = 12
+		end
+
+		for (colour,r) in zip(colours,rs)
+			coordinates = []
+			xcoordinates = Float64[]
+			ycoordinates = Float64[]
+			delta = 0.0
+			for x in delta:0.001:2.0*pi-delta
+				phix = x
+				term = (r*r - 4.0 + 2.0*cos(phix-pi))/-2.0
+				if abs(term) <= 1.0
+					psiy = mod2pi(acos(term))
+					if !isnan(phix) && !isnan(psiy)
+						if delta <= phix <= 2.0*pi-delta && delta <= psiy <= 2.0*pi-delta
+							x1 = phix/2.0/pi*N
+							y1 = mod2pi(psiy+pi)/2.0/pi*N
+							push!(coordinates, (x1,y1))
+							push!(xcoordinates, x1)
+							push!(ycoordinates, y1)
+						end
+					end
+				end
+			end
+			for x in delta:0.001:2.0*pi-delta
+				phix = 2.0*pi - x
+				term = (r*r - 4.0 + 2.0*cos(phix-pi))/-2.0
+				if abs(term) <= 1.0
+					psiy = mod2pi(acos(term))
+					if !isnan(phix) && !isnan(psiy)
+						if delta <= phix <= 2.0*pi-delta && delta <= psiy <= 2.0*pi-delta
+							x1 = phix/2.0/pi*N
+							y1 = mod2pi(-psiy-pi)/2.0/pi*N
+							push!(coordinates, (x1,y1))
+							push!(xcoordinates, x1)
+							push!(ycoordinates, y1)
+						end
+					end
+				end
+			end
+			push!(xcoordinates,xcoordinates[1])
+			push!(ycoordinates,ycoordinates[1])
+			#println(xcoordinates)
+			#println(ycoordinates)
+			plt.plot(xcoordinates, ycoordinates, "--", color=colour, linewidth=1)
+		end
+
+		#=
+		for (r, pointcol) in zip(rs,rcolours)
+			for x in 0.0:0.0025:2.0*pi
+				phix = x
+				term = (r*r - 4.0 + 2.0*cos(phix))/-2.0
+				if abs(term) <= 1.0
+					psiy = mod2pi(acos(term))
+					if !isnan(phix) && !isnan(psiy)
+						if 0.0 <= phix <= 2.0*pi && 0.0 <= psiy <= 2.0*pi
+							plt.plot(mod2pi(phix-pi)/2.0/pi*N, mod2pi(psiy-pi)/2.0/pi*N, pointcol, markersize=0.25)
+						end
+					end
+					if !isnan(phix) && !isnan(psiy)
+						if 0.0 <= phix <= 2.0*pi && 0.0 <= psiy <= 2.0*pi
+							plt.plot(mod2pi(phix-pi)/2.0/pi*N, mod2pi(-psiy-pi)/2.0/pi*N, pointcol, markersize=0.25)
+						end
+					end
+				end
+			end
+		end=#
+
+	
+
+		angle_tick_positions = [0, div(N-1,4), div(N-1,2), div((N-1)*3,4), N-1]
+		angle_labels = ["\$-\\pi\$","\$-\\pi/2\$", "0", "\$\\pi/2\$", "\$\\pi\$"]
+		#ax[:set_xticks](angle_tick_positions)
+		#ax[:set_yticks](angle_tick_positions)
+		plt.xticks(angle_tick_positions, angle_labels)
+		plt.yticks(angle_tick_positions, reverse(angle_labels))
+		#plt.title("Site $(col)", fontsize=15)
+		plt.xlabel("Phi (\$\\phi\$)", fontsize=15)
+		plt.ylabel("Psi (\$\\psi\$)", fontsize=15)
+
+		plt.xlim(0.0,N)
+		plt.ylim(0.0,N)
+
+		plt.savefig("plots/$(name)_4rpd_newsampler30.png", transparent=false)
+		plt.close()
+	end
+end
+
 function plotstructuresamples()
 	othername = "pdb4rpd_A"
 	#othername = ""
@@ -207,6 +435,10 @@ function plotstructuresamples()
 			for perc=5.0:5.0:100.0
 				println(name,"\t",perc,"\t",StatsBase.percentile(distances,perc))
 			end
+			println(0.25,"\t",positionofvalue(distances,0.25))
+			println(0.5,"\t",positionofvalue(distances,0.5))
+			println(1.0,"\t",positionofvalue(distances,1.0))
+			println(sqrt(8.0),"\t",positionofvalue(distances,sqrt(8.0)))
 		end
 
 		for col=startpos:numcols
@@ -353,4 +585,5 @@ end
 #plot_nodes("models/model_h.10.thresh3.rerun.hiddenaascaling.anglescondaa.ratemode1.model")
 #plot_nodes("models/model_h.30.thresh2.rerun.hiddenaascaling.anglescondaa.ratemode1.model")
 #plotratenetwork("models/model_h.10.thresh3.rerun.hiddenaascaling.anglescondaa.ratemode1.model")
-plotstructuresamples()
+plotaccuracy()
+#plotstructuresamples()

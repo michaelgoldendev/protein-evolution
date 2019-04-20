@@ -173,10 +173,10 @@ module EMNodes
 		kappa_prior::ContinuousUnivariateDistribution
 		maxkappa::Float64
 
-		function VonMisesNode(kappa_prior_exp_rate::Float64=2.0)
+		function VonMisesNode(kappa_prior_exp_rate::Float64=100.0)
 			mu = 0.0
 			kappa = 1e-5
-			new(0.0, 0.0, 0.0, mu, kappa, VonMises(mu, kappa), Float64[], Exponential(kappa_prior_exp_rate), 700.0)
+			new(0.0, 0.0, 0.0, mu, kappa, VonMises(mu, kappa), Float64[], Exponential(kappa_prior_exp_rate), 5000.0)
 		end
 	end
 
@@ -185,17 +185,17 @@ module EMNodes
 		if length(vonmises_node.data) > 0
 			vonmises_node.rx = 0.0
 			vonmises_node.ry = 0.0
-			vonmises_node.N = 0
+			vonmises_node.N = 0.0
 			for theta in vonmises_node.data
 				if theta > -100.0
 					vonmises_node.rx += cos(theta)
 					vonmises_node.ry += sin(theta)
-					vonmises_node.N += 1
+					vonmises_node.N += 1.0
 				end
 			end		
 		end
 
-		if vonmises_node.N >= 2
+		if vonmises_node.N >= 2.0
 			rx = vonmises_node.rx
 			ry = vonmises_node.ry
 			n = vonmises_node.N
@@ -233,25 +233,25 @@ module EMNodes
 	end
 
 	function optimizeprior(vonmises_node::VonMisesNode)
-		println("start value: ", vonmises_node.kappa, "\t", vonmises_node.N)
+		#println("start value: ", vonmises_node.kappa, "\t", vonmises_node.N)
 		if vonmises_node.N == 0
 			vonmises_node.kappa = 1e-5
 		else
 			opt = Opt(:LN_COBYLA,1)
 			data = filter(x -> x > -100.0, vonmises_node.data)
 			localObjectiveFunction = ((param, grad) -> loglik_and_prior(vonmises_node, data, param[1]))
-			lower = ones(Float64, 1)*1e-5
+			lower = ones(Float64, 1)*0.1
 			upper = ones(Float64, 1)*vonmises_node.maxkappa
 			lower_bounds!(opt, lower)
 			upper_bounds!(opt, upper)
 			xtol_rel!(opt,1e-5)
 			maxeval!(opt, 1000)
 			max_objective!(opt, localObjectiveFunction)
-			(minf,minx,ret) = optimize(opt, Float64[min(vonmises_node.kappa, vonmises_node.maxkappa)])
+			(minf,minx,ret) = optimize(opt, Float64[max(0.1, min(vonmises_node.kappa, vonmises_node.maxkappa))])
 			vonmises_node.kappa = minx[1]
 		end
 		vonmises_node.dist = VonMises(vonmises_node.mu, vonmises_node.kappa)
-		println("end value: ", vonmises_node.kappa)
+		#println("end value: ", vonmises_node.kappa)
 	end
 
 	#=

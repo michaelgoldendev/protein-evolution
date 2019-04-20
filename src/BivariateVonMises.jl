@@ -40,7 +40,7 @@ module BivariateVonMises
 		data::Array{Array{Float64,1},1}
 		kappa_prior::ContinuousUnivariateDistribution
 		
-		function BivariateVonMisesNode(k::Array{Float64,1}=Float64[1e-5,1e-5,0.0], mu::Array{Float64,1}=Float64[0.0,0.0],kappa_prior_exp_rate::Float64=0.5)
+		function BivariateVonMisesNode(k::Array{Float64,1}=Float64[1e-5,1e-5,0.0], mu::Array{Float64,1}=Float64[0.0,0.0],kappa_prior_exp_rate::Float64=100.0)
 			new(k,mu, computeLogNormConst(k),0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0, Array{Float64,1}[], Exponential(kappa_prior_exp_rate))
 		end
 	end
@@ -186,17 +186,17 @@ double k1 = k[0];
 		if bv.count == 0
 			bv.k = Float64[1e-5,1e-5, 0.0]
 		else
-			kappalimit = 2000.0
+			kappalimit = 5000.0
 			opt = Opt(:LN_COBYLA,5)
 			data = filter(x -> x[1] > -100.0 && x[2] > -100.0, bv.data)
 			localObjectiveFunction = ((params, grad) -> loglik_and_prior(bv, data, params))
 			lower = ones(Float64, 5)*1e-5
 			upper = ones(Float64, 5)*kappalimit
 			lower[3] = -kappalimit
-			lower[4] = Float64(-pi)
-			lower[5] = Float64(-pi)
-			upper[4] = Float64(pi)
-			upper[5] = Float64(pi)
+			lower[4] = Float64(0.0)
+			lower[5] = Float64(0.0)
+			upper[4] = Float64(2.0*pi)
+			upper[5] = Float64(2.0*pi)
 			lower_bounds!(opt, lower)
 			upper_bounds!(opt, upper)
 			xtol_rel!(opt,1e-3)
@@ -205,7 +205,7 @@ double k1 = k[0];
 
 			maxk3 = 0.5*abs((bv.k[1]*bv.k[1] + bv.k[2]*bv.k[2])/(2.0*bv.k[1]))
 			mink3 = -maxk3
-			(minf,minx,ret) = optimize(opt, Float64[min(bv.k[1], kappalimit), min(bv.k[2], kappalimit), max(mink3, min(bv.k[3], maxk3)), pimod(bv.mu[1]), pimod(bv.mu[2])])
+			(minf,minx,ret) = optimize(opt, Float64[min(bv.k[1], kappalimit), min(bv.k[2], kappalimit), max(mink3, min(bv.k[3], maxk3)), mod2pi(bv.mu[1]), mod2pi(bv.mu[2])])
 			bv.k[1] = minx[1]
 			bv.k[2] = minx[2]
 			bv.k[3] = minx[3]
@@ -215,12 +215,12 @@ double k1 = k[0];
 			if abs(2.0*k[1]*k[3]) >= (k[1]*k[1] + k[2]*k[2])
 				bv.k[3] = 0.0
 			end
-			println(bv.k)
+			#println(bv.k)
 			bv.logNormConst = computeLogNormConst(bv.k)
-			println(ret)
+			#println(ret)
 		end		
-		println(startstr)
-		println("end value: ", bv.k, "\t", bv.mu)
+		#println(startstr)
+		#println("end value: ", bv.k, "\t", bv.mu)
 	end
 
 	#=
@@ -334,7 +334,7 @@ double k1 = k[0];
 	end
 
 	function vonmisesrand(rng::AbstractRNG, vonmises::VonMises)
-		return vonmisesrand(rng::AbstractRNG, vonmises.μ, vonmises.κ)
+		return vonmisesrand(rng, vonmises.μ, vonmises.κ)
 	end
 
 	export sample

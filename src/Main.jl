@@ -1189,8 +1189,14 @@ function felsensteinresample_aa(rng::AbstractRNG, proteins::Array{Protein,1}, no
 				end
 				likelihoods[nodeindex,node.data.protein.sites[aacol].aa] = 1.0
 			else
-				if modelparams.hidden_conditional_on_aa
+				if modelparams.hidden_conditional_on_aa					
 					likelihoods[nodeindex,:] = observationlikelihood_aa(node.data.protein, aacol, node.data.branchpath.paths[aacol][end], modelparams)
+					for a=1:modelparams.alphabet
+						if likelihoods[nodeindex,a] != 1.0
+							println(likelihoods)							
+							exit()
+						end
+					end
 				else
 					for a=1:modelparams.alphabet
 						likelihoods[nodeindex,a] = 1.0
@@ -1746,7 +1752,7 @@ function constructHiddenMatrix(modelparams::ModelParams, prevh_hmm::Int, nexth_h
     return Q
 end
 
-function samplesingle(rng::AbstractRNG, node::TreeNode, modelparams::ModelParams)
+function backwardsamplesingle(rng::AbstractRNG, node::TreeNode, modelparams::ModelParams)
 	""" use backwardsampling to efficiently sample a tree consisting of a single node """
 	numcols = length(node.data.protein.sites)
 	logliks = ones(Float64, numcols, modelparams.numhiddenstates)*-Inf	
@@ -1774,6 +1780,51 @@ function samplesingle(rng::AbstractRNG, node::TreeNode, modelparams::ModelParams
 		node.data.branchpath.paths[col][end] = sampledstates[col]
 	end	
 end
+
+function forwardbackward(rng::AbstractRNG, node::TreeNode, modelparams::ModelParams)
+	numcols = length(node.data.protein.sites)
+	forwardliks = ones(Float64, numcols, modelparams.numhiddenstates)*-Inf	
+	for h=1:modelparams.numhiddenstates
+		forwardliks[1,h] = siteloglikelihood(node.data.protein.sites[1], h, node.data.protein.sites[1].aa, modelparams)
+	end
+	for col=2:numcols
+		for prevh=1:modelparams.numhiddenstates
+			for h=1:modelparams.numhiddenstates
+				ll = siteloglikelihood(node.data.protein.sites[col], h, node.data.protein.sites[col].aa, modelparams)
+				forwardliks[col,h] = logsumexp(forwardliks[col,h], forwardliks[col-1,prevh] + log(modelparams.transitionprobs[prevh,h]) + ll)
+			end
+		end
+	end
+
+	backwardliks = ones(Float64, numcols, modelparams.numhiddenstates)*-Inf
+	for h=1:modelparams.numhiddenstates
+		#backwardliks[numcols,h] = forwardliks[numcols,h]
+		backwardliks[numcols,h] = 0.0
+	end
+	for col=numcols-1:-1:1
+		for h=1:modelparams.numhiddenstates
+			for nexth=1:modelparams.numhiddenstates			
+				ll = siteloglikelihood(node.data.protein.sites[col], nexth, node.data.protein.sites[col+1].aa, modelparams)
+				backwardliks[col,h] = logsumexp(backwardliks[col,h], backwardliks[col+1,nexth] + log(modelparams.transitionprobs[h,nexth]) + ll)				
+			end
+		end
+	end
+
+	marginalprobabilities = zeros(Float64, numcols, modelparams.numhiddenstates)
+	for col=1:numcols
+		sumll = -Inf
+		for h=1:modelparams.numhiddenstates
+			marginalprobabilities[col,h] = forwardliks[col,h]+backwardliks[col,h]
+			sumll = logsumexp(sumll, marginalprobabilities[col,h])
+		end
+		for h=1:modelparams.numhiddenstates
+			marginalprobabilities[col,h] = exp(marginalprobabilities[col,h]-sumll)
+		end
+	end
+
+	return marginalprobabilities
+end
+
 
 function siteloglikelihood(site::SiteObservation, h::Int, aa::Int, modelparams::ModelParams)
 	ll = 0.0
@@ -1866,12 +1917,17 @@ end
 function observationlikelihood_aa(protein::Protein, col::Int, h::Int, modelparams::ModelParams)
 	if 1 <= col <= length(protein.sites)
 	    v = zeros(Float64, modelparams.alphabet)
+	    #=
 	    Z = -Inf
 		for aa=1:modelparams.alphabet
 			v[aa] = siteloglikelihood(protein.sites[col], h, aa, modelparams)
 			Z = CommonUtils.logsumexp(Z, v[aa])
 		end
-		return exp.(v .- Z)
+		return exp.(v .- Z)=#
+		for aa=1:modelparams.alphabet
+			v[aa] = siteloglikelihood(protein.sites[col], h, aa, modelparams)
+		end
+		return exp.(v .- maximum(v))
 	else
 		return ones(Float64, modelparams.numhiddenstates)
 	end
@@ -2339,6 +2395,12 @@ function training_example_from_json_family(rng::AbstractRNG, modelparams::ModelP
 	end
 
 	root,nodelist = initialise_tree(rng, modelparams, root, name_protein_dict, numcols, midpointroot=false)
+	if length(nodelist[1].children) == 1
+		root = nodelist[1].children[1]
+		root.parent = Nullable{TreeNode}()
+		nodelist = TreeNode[root]
+	end
+
 	return (proteins, nodelist,json_family, sequences)
 end
 
@@ -3028,15 +3090,6 @@ function samplepaths_seperate_old(rng::AbstractRNG, col::Int,proteins,nodelist::
 
 	return accepted_hidden,accepted_hidden_total,accepted_aa,accepted_aa_total, hidden_accepted, aa_accepted
 end
-
-#=
-function sample_dataset(rng::AbstractRNG, col::Int,proteins,nodelist::Array{TreeNode,1}, modelparams::ModelParams, useoldsampling::Bool=false; dosamplesiterates::Bool=false, accept_everything::Bool=false)
-	if lengths(proteins) == 1
-		samplesingle(nodelist[1], modelparams)
-	else
-		samplepaths_seperate_new(rng, col, proteins, nodelist, modelparams, useoldsampling, dosamplesiterates=dosamplesiterates, accept_everything=accept_everything)
-	end
-end=#
 
 function samplepaths_seperate_new(rng::AbstractRNG, col::Int,proteins,nodelist::Array{TreeNode,1}, modelparams::ModelParams, useoldsampling::Bool=false; dosamplesiterates::Bool=false, accept_everything::Bool=false)
 	for node in nodelist
