@@ -30,6 +30,8 @@ using NLopt
 using SpecialFunctions
 using ArgParse
 
+
+
 secondarystructure = "HBEGITSC"
 aminoacids = "ACDEFGHIKLMNPQRSTVWY"
 
@@ -85,6 +87,71 @@ mutable struct ModelParams
 		#
         new(20,aminoacidQ,LGexchangeability, rate_alpha, numrates, rates,rate_freqs,numhiddenstates,initialprobs,transitioncounts,transitionprobs,transitionrates,hiddennodes,mu,hiddenmu,matrixcache,1.0,1.0,true,true,1, ones(Float64,numhiddenstates), true)
     end
+end
+
+function  modifiedrejectionsampling(rng::AbstractRNG, Q::Array{Float64,2}, x0::Int, xt::Int, modelparams::ModelParams, key::Tuple{Int,Int,Int,Int}=(-1000,-1000,-1000,-1000))
+	maxiters1 = 1000
+	maxiters2 = 2000
+	path = Int[]
+	times = Float64[]
+	S = copy(Q)
+	for i=1:size(S,1)
+		S[i,i] = 0.0
+		S[i,:] ./= sum(S[i,:])
+	end
+
+	count = 0
+	success = true
+	while success
+		path = Int[x0]
+		times = Float64[0.0]
+		totalt = 0.0
+		if x0 != xt
+			r = rand(rng)
+			totalt += log(1.0-r*(1.0-exp(Q[path[end],path[end]])))/Q[path[end],path[end]]
+			push!(path, CommonUtils.sample(rng, S[path[end],:]))
+			push!(times, totalt)
+		end
+		if count > maxiters1
+			success = false
+			break
+		end
+		while true
+			if count > maxiters2
+				success = false
+				break
+			end
+
+			r = rand(rng)
+			samplet = log(1.0-r)/Q[path[end],path[end]]
+			totalt += samplet
+			if totalt > 1.0
+				break
+			end
+			push!(path, CommonUtils.sample(rng, S[path[end],:]))
+			push!(times, totalt)
+			count += 1
+		end
+		if path[end] == xt
+			break
+		end
+
+	end
+
+	#println("H")
+	if !success
+		if key[1] != -1000 && haskey(modelparams.matrixcache,key)
+			dummy,V,D,Vi = modelparams.matrixcache[key]
+			#println("cached")
+			path,times = CTMCs.recursivesampling(rng, Q, x0, xt, V, D, Vi)
+		else
+			path,times = CTMCs.recursivesampling(rng, Q, x0, xt)
+		end
+		#path, times = approximatesampling(rng, Q, 1.0, x0, xt)
+		return path,times,true
+	else
+		return path, times, success
+	end
 end
 
 mutable struct Sample 
@@ -333,13 +400,15 @@ function reset_matrix_cache(modelparams::ModelParams)
 	modelparams.matrixcache = Dict{Tuple{Int,Int,Int,Int}, Tuple{Array{Float64,2},Array{Complex{Float64},2},Array{Complex{Float64},1},Array{Complex{Float64},2}}}()
 end
 
-
+function getAAkey(h::Int)
+	return (-1,-1,h,0)
+end
 
 function getAAandPt(modelparams::ModelParams, prev_hmm::Int, next_hmm::Int, h::Int, rate::Int, t::Float64)
 	global countcachemisses
 	global countcachehits
 
-	key = (-1,-1,h,0)
+	key = getAAkey(h)
 	if !haskey(modelparams.matrixcache, key)		
 		countcachemisses += 1
 		Q = constructAAMatrix(modelparams, prev_hmm, next_hmm, h)
@@ -362,18 +431,21 @@ function getAAandPt(modelparams::ModelParams, prev_hmm::Int, next_hmm::Int, h::I
 	Q *= sitescale
 
 	if t < 0.0
-		return Q, Q
+		return key, Q, Q
 	else
-		return Q, absmat(real(V*Diagonal(exp.(D*t*sitescale))*Vi))
+		return key, Q, absmat(real(V*Diagonal(exp.(D*t*sitescale))*Vi))
 	end
 end
 
+function getQkey(prevh::Int, nexth::Int, aa::Int)
+	return (-1,prevh, nexth, aa)
+end
 
 function getQandPt(modelparams::ModelParams, prevh::Int, nexth::Int, aa::Int, rate::Int, t::Float64)
 	global countcachemisses
 	global countcachehits
 
-	key = (-1,prevh, nexth, aa)
+	key = getQkey(prevh,nexth,aa)
 	if !haskey(modelparams.matrixcache, key)		
 		countcachemisses += 1
 
@@ -398,9 +470,9 @@ function getQandPt(modelparams::ModelParams, prevh::Int, nexth::Int, aa::Int, ra
 	Q *= sitescale
 
 	if t < 0.0
-		return Q, Q
+		return key, Q, Q
 	else
-		return Q, absmat(real(V*Diagonal(exp.(D*t*sitescale))*Vi))
+		return key, Q, absmat(real(V*Diagonal(exp.(D*t*sitescale))*Vi))
 	end
 end
 
@@ -647,7 +719,7 @@ function backwardsampling_joint(rng::AbstractRNG, node::TreeNode, state::Int, aa
 		R = child.data.jointbranchpath.R*child.branchlength
 		liks = P[state,:].*child.data.jointbranchpath.vs[end]
 		b = CommonUtils.sample(rng,liks)
-		newpath, newtime, success = modifiedrejectionsampling(rng, R, state, b,(modelparams))
+		newpath, newtime, success = modifiedrejectionsampling(rng, R, state, b, modelparams)
 		if !success
 			return false
 		end
@@ -706,7 +778,7 @@ function backwardsampling_joint2(rng::AbstractRNG,node::TreeNode, state::Int, se
 		for z=1:length(path)-1
 			dt = child.data.jointbranchpath.time[z+1]-child.data.jointbranchpath.time[z]
 			R = child.data.jointbranchpath.Rmatrices[z]
-			samplepath, sampletimes, success = modifiedrejectionsampling(rng, R, path[z], path[z+1], (modelparams))
+			samplepath, sampletimes, success = modifiedrejectionsampling(rng, R, path[z], path[z+1], modelparams)
 			if !success
 				return false
 			end
@@ -786,7 +858,7 @@ function felsensteinhelper(node::TreeNode, selcolin::Int, incols::Array{Int,1}, 
 	index = 1
     for it in multi_iter
 		dt = (multi_iter.currtime-multi_iter.prevtime)*node.branchlength
-		R,Pi = getQandPt(modelparams, get(hiddeniter.prevstates, selcol-1, 0), get(hiddeniter.prevstates, selcol, 0), aaiter.prevstates[1], node.data.ratesbranchpath.paths[aacol][end], dt)
+		key,R,Pi = getQandPt(modelparams, get(hiddeniter.prevstates, selcol-1, 0), get(hiddeniter.prevstates, selcol, 0), aaiter.prevstates[1], node.data.ratesbranchpath.paths[aacol][end], dt)
 		#println("R ",R)
 		#println("Pi ",Pi)
 		#println(get(hiddeniter.prevstates, selcol-1, 0),"\t", get(hiddeniter.prevstates, selcol, 0),"\t", aaiter.prevstates[1], "\t", node.data.ratesbranchpath.paths[aacol][end], "\t", dt)
@@ -796,7 +868,7 @@ function felsensteinhelper(node::TreeNode, selcolin::Int, incols::Array{Int,1}, 
     	push!(node.data.branchpath.Pmatrices,Pi)
     	push!(dummytime,multi_iter.prevtime)
     	if index == 1
-    		node.data.branchpath.R, node.data.branchpath.P2 =  getQandPt(modelparams, get(hiddeniter.prevstates, selcol-1, 0), get(hiddeniter.prevstates, selcol, 0), aaiter.prevstates[1], node.data.ratesbranchpath.paths[aacol][end], node.branchlength)
+    		node.data.branchpath.key,node.data.branchpath.R, node.data.branchpath.P2 =  getQandPt(modelparams, get(hiddeniter.prevstates, selcol-1, 0), get(hiddeniter.prevstates, selcol, 0), aaiter.prevstates[1], node.data.ratesbranchpath.paths[aacol][end], node.branchlength)
     	end
     	index += 1
 	end
@@ -987,7 +1059,7 @@ function backwardsampling(rng::AbstractRNG, node::TreeNode, state::Int, aacol::I
 		R = child.data.branchpath.R
 		liks = P[state,:].*child.data.branchpath.vs[end]
 		b = CommonUtils.sample(rng,liks)
-		newpath, newtime, success = modifiedrejectionsampling(rng, R*child.branchlength, state, b,(modelparams))
+		newpath, newtime, success = modifiedrejectionsampling(rng, R*child.branchlength, state, b, modelparams,child.data.branchpath.key)
 		#println(state,"\t",P[state,:],"\t",child.data.branchpath.vs[end],"\t",liks,"\t",b, "\t", newpath,"\t",liks[b])
 		if !success
 			return false
@@ -1041,7 +1113,7 @@ function backwardsampling_old(rng::AbstractRNG,node::TreeNode, state::Int, selco
 		newtime = Float64[]
 		for z=1:length(path)-1
 			dt = child.data.branchpath.time[z+1]-child.data.branchpath.time[z]
-			samplepath, sampletimes, success = modifiedrejectionsampling(rng, child.data.branchpath.Rmatrices[z], path[z], path[z+1],(modelparams))
+			samplepath, sampletimes, success = modifiedrejectionsampling(rng, child.data.branchpath.Rmatrices[z], path[z], path[z+1], modelparams)
 			if !success
 				return false
 			end
@@ -1147,14 +1219,14 @@ function felsensteinhelper_aa(node::TreeNode, incols::Array{Int,1}, aacol::Int, 
 	index = 1
     for it in multi_iter
 		dt = (multi_iter.currtime-multi_iter.prevtime)*node.branchlength
-		R,Pi = getAAandPt(modelparams, 0, 0, hiddeniter.prevstates[1], node.data.ratesbranchpath.paths[aacol][end], dt)				
+		key,R,Pi = getAAandPt(modelparams, 0, 0, hiddeniter.prevstates[1], node.data.ratesbranchpath.paths[aacol][end], dt)				
     	Pret *= Pi
 		push!(node.data.aabranchpath.Rmatrices, R*dt)
 		push!(node.data.aabranchpath.RmatricesX, R)
     	push!(node.data.aabranchpath.Pmatrices,Pi)
     	push!(dummytime,multi_iter.prevtime)
     	if index == 1
-    		node.data.aabranchpath.R, node.data.aabranchpath.P2 = getAAandPt(modelparams, 0, 0, hiddeniter.prevstates[1], node.data.ratesbranchpath.paths[aacol][end], node.branchlength)
+    		node.data.aabranchpath.key,node.data.aabranchpath.R, node.data.aabranchpath.P2 = getAAandPt(modelparams, 0, 0, hiddeniter.prevstates[1], node.data.ratesbranchpath.paths[aacol][end], node.branchlength)
     	end
     	index += 1
 	end
@@ -1191,12 +1263,13 @@ function felsensteinresample_aa(rng::AbstractRNG, proteins::Array{Protein,1}, no
 			else
 				if modelparams.hidden_conditional_on_aa					
 					likelihoods[nodeindex,:] = observationlikelihood_aa(node.data.protein, aacol, node.data.branchpath.paths[aacol][end], modelparams)
+					#=
 					for a=1:modelparams.alphabet
 						if likelihoods[nodeindex,a] != 1.0
 							println(likelihoods)							
-							exit()
+							#exit()
 						end
-					end
+					end=#
 				else
 					for a=1:modelparams.alphabet
 						likelihoods[nodeindex,a] = 1.0
@@ -1294,7 +1367,7 @@ function backwardsampling_aa_old(rng::AbstractRNG,node::TreeNode, state::Int, se
 		newtime = Float64[]
 		for z=1:length(path)-1
 			dt = child.data.aabranchpath.time[z+1]-child.data.aabranchpath.time[z]
-			samplepath, sampletimes, success = modifiedrejectionsampling(rng, child.data.aabranchpath.Rmatrices[z], path[z], path[z+1],(modelparams))
+			samplepath, sampletimes, success = modifiedrejectionsampling(rng, child.data.aabranchpath.Rmatrices[z], path[z], path[z+1], modelparams)
 			if !success
 				return false
 			end
@@ -1380,7 +1453,7 @@ function backwardsampling_aa(rng::AbstractRNG, node::TreeNode, state::Int, aacol
 		R = child.data.aabranchpath.R
 		liks = P[state,:].*child.data.aabranchpath.vs[end]
 		b = CommonUtils.sample(rng,liks)
-		newpath, newtime, success = modifiedrejectionsampling(rng, R*child.branchlength, state, b,(modelparams))
+		newpath, newtime, success = modifiedrejectionsampling(rng, R*child.branchlength, state, b, modelparams, child.data.aabranchpath.key)
 		if !success
 			return false
 		end
@@ -1756,6 +1829,7 @@ function backwardsamplesingle(rng::AbstractRNG, node::TreeNode, modelparams::Mod
 	""" use backwardsampling to efficiently sample a tree consisting of a single node """
 	numcols = length(node.data.protein.sites)
 	logliks = ones(Float64, numcols, modelparams.numhiddenstates)*-Inf	
+	logtransitionprobs = log.(modelparams.transitionprobs)
 	for h=1:modelparams.numhiddenstates
 		logliks[1,h] = siteloglikelihood(node.data.protein.sites[1], h, node.data.protein.sites[1].aa, modelparams)
 	end
@@ -1763,7 +1837,7 @@ function backwardsamplesingle(rng::AbstractRNG, node::TreeNode, modelparams::Mod
 		for prevh=1:modelparams.numhiddenstates
 			for h=1:modelparams.numhiddenstates
 				ll = siteloglikelihood(node.data.protein.sites[col], h, node.data.protein.sites[col].aa, modelparams)
-				logliks[col,h] = logsumexp(logliks[col,h], logliks[col-1,prevh] + log(modelparams.transitionprobs[prevh,h]) + ll)
+				logliks[col,h] = logsumexp(logliks[col,h], logliks[col-1,prevh] + logtransitionprobs[prevh,h] + ll)
 			end
 		end
 	end
@@ -2251,8 +2325,8 @@ function initialise_tree_aa(rng::AbstractRNG, modelparams::ModelParams, nodelist
 				else
 					parentstate = node_h[parentnode.nodeindex,col]
 					nodestate = node_h[node.nodeindex,col]
-					V = getQandPt(modelparams, 0, 0, node_aa[parentnode.nodeindex,col], closest, 1.0)[1]
-					path,time, success = modifiedrejectionsampling(rng, V*max(0.01,node.branchlength), parentstate, nodestate, nothing)
+					V = getQandPt(modelparams, 0, 0, node_aa[parentnode.nodeindex,col], closest, 1.0)[2]
+					path,time, success = modifiedrejectionsampling(rng, V*max(0.01,node.branchlength), parentstate, nodestate, modelparams)
 					push!(paths,path)
 					push!(times,time)
 				end
@@ -2265,8 +2339,8 @@ function initialise_tree_aa(rng::AbstractRNG, modelparams::ModelParams, nodelist
 			for col=1:numcols
 				parentaastate = node_aa[parentnode.nodeindex,col]
 				nodeaastate = node_aa[node.nodeindex,col]
-				Q = getAAandPt(modelparams, 0, 0, node_h[parentnode.nodeindex,col], closest, 1.0)[1]
-				aapath,aatime,success = modifiedrejectionsampling(rng, Q*max(0.01,node.branchlength), parentaastate, nodeaastate, nothing)
+				Q = getAAandPt(modelparams, 0, 0, node_h[parentnode.nodeindex,col], closest, 1.0)[2]
+				aapath,aatime,success = modifiedrejectionsampling(rng, Q*max(0.01,node.branchlength), parentaastate, nodeaastate, modelparams)
 				push!(aapaths,aapath)
 				push!(aatimes,aatime)
 			end
@@ -2603,9 +2677,31 @@ function proposebranchlength(rng::AbstractRNG, node::TreeNode, cols::Array{Int,1
 	alpha = N+1.0
 	beta = -totalexitrate
 
-	dist = Gamma(alpha, 1.0/beta)	
-	t = rand(dist)
-	propratio = logpdf(dist, node.branchlength)-logpdf(dist,t)
+
+	priorscale = 0.20
+	#println("branch length: ", node.data.inputbranchlength)
+	priorshape = max(node.data.inputbranchlength, 1e-3)/priorscale
+	priordist = Gamma(priorshape, priorscale)
+
+	sampledist = Gamma(alpha, 1.0/beta)
+	
+	t =	max(node.data.inputbranchlength,node.branchlength,1e-6)
+	for z=1:500
+		samplet = rand(sampledist)
+		deltall = logpdf(priordist,samplet) - logpdf(priordist,t)
+		if exp(deltall) > rand(rng)
+			t = samplet
+		end
+	end
+	
+	propratio = 0.0
+
+
+
+	#propratio = logpdf(sampledist, node.branchlength)-logpdf(sampledist,t)
+
+
+
 	#println(node.name,"\t",totalexitrate,"\t",N,"\t",node.data.inputbranchlength,"\t",mean(dist),"\t",t)
 	#=
 	t =  log(1.0 - rand(rng))/totalexitrate

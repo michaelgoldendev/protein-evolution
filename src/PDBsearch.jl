@@ -240,6 +240,84 @@ function find_random_pdbs(outfile="pdbselection.fas")
 	close(fout)
 end
 
+function find_non_homologous_random_pdbs(outfile="nonhomologous.fas",homologfasta=nothing)
+	kmers2 = Array{Int,1}[]
+	kmers3 = Array{Int,1}[]
+	sequences = AbstractString[]
+	names = AbstractString[]
+	if homologfasta != nothing
+		FastaIO.FastaReader(homologfasta) do fr
+		    for (desc, seq) in fr
+		        push!(names,desc)
+		        degapped = uppercase(replace(seq, "-" => ""))
+		        degapped = replace(degapped, r"[^ACDEFGHIKLMNPQRSTVWY]" => "X")		        
+		        degapped = replace(degapped, "X" => "")
+		        push!(sequences, degapped)
+		       	push!(kmers2, freqvectorint(degapped, 2))
+		       	push!(kmers3, freqvectorint(degapped, 3))
+		    end
+		end
+	end
+
+	rng = MersenneTwister(4917104813143)
+	fout = open(outfile,"w")
+	pdbmatches = Dict{AbstractString,AbstractString}()
+	open("../data/pdbsequences.fasta") do file
+		name = ""
+		seq = ""
+		count = 0
+	    for ln in eachline(file)
+	    	if startswith(ln,">")
+	    		name = ln
+	    		seq = ""
+	    	else
+	    		count += 1
+	    		seq = ln
+	    		r = rand(rng,1:125)
+	    		if (r == 1 || r == 65) && match(r".*mol:protein.*", name) != nothing && length(seq) >= 100 
+	    			namelower = lowercase(name)
+
+	    			if !occursin("mutant", namelower) && !occursin("recombinant", namelower) && !occursin("synthetic", namelower) && !occursin("humanized", namelower) && !occursin("humanised", namelower)
+				    	nameandchain = split(name[2:end])[1]
+				    	spl2 = split(nameandchain,"_")
+				    	pdbname = spl2[1]
+				    	chain = spl2[2]
+					    
+					    if !haskey(pdbmatches, pdbname)
+					    	tv3 = freqvectorint(seq, 3)
+					    	homologous = false
+					    	k3cutoff = 0.1
+					    	for qv3 in kmers3
+						    	k3score = 1.0 - (sum(abs.(tv3 - qv3)) / sum(max.(tv3,qv3)))
+					    		if k3score > k3cutoff
+					    			homologous = true
+					    			break
+					    		end
+					    	end
+					    	if !homologous
+							    try
+						    		resolution,rvalue,freervalue = DatasetCreator.get_quality_attributes(pdbname)
+						    		if rvalue > 0.0 && rvalue < 0.25 && freervalue > 0.0 && freervalue < 0.25
+						    			push!(kmers3, tv3)
+							    		pdbmatches[pdbname] = pdbname
+							    		println(fout, ">pdb$(pdbname)_$(chain) $(name[2:end])")
+							    		println(fout, seq)
+							    		flush(fout)
+							    		DatasetCreator.fromsinglepdb(pdbname, chain, "../data/nonhomologous_singles/")
+							    	end
+							   	catch e
+
+							   	end
+						   end
+					   end
+				   end
+		    	end
+	    	end	       
+	    end
+	end
+	close(fout)
+end
+
 
 
 function percentaligned(seq1::AbstractString, seq2::AbstractString)
@@ -375,7 +453,10 @@ end
 
 						
 
-function create_from_homstrad(homstraddir="../data/homstrad_with_PDB_2019_Apr_1/", outputdir="../data/homstrad_curated/")
+function create_from_homstrad(homstraddir="../data/homstrad_with_PDB_2019_Apr_1/", outputdir="../data/homstrad_curated_highquality/")
+	if !isdir(outputdir)
+		mkdir(outputdir)
+	end
 	countdatasets = 0
 	folders = readdir(homstraddir)
 	for folder in folders
@@ -447,8 +528,8 @@ function create_from_homstrad(homstraddir="../data/homstrad_with_PDB_2019_Apr_1/
 				    	for s in selection
 				    		seqname = ""
 				    		resolution,rvalue,freervalue = DatasetCreator.get_quality_attributes(s[1])
-			    			#if rvalue > 0.0 && rvalue < 0.25 && freervalue > 0.0 && freervalue < 0.25
-			    			if rvalue > 0.0 && rvalue < 0.25
+			    			if rvalue > 0.0 && rvalue < 0.25 && freervalue > 0.0 && freervalue < 0.25
+			    			#if rvalue > 0.0 && rvalue < 0.25
 			    				seqname = string(">pdb",s[1],"_",s[2])
 						    	println(fout, seqname)
 						    	println(fout,s[3])
@@ -563,7 +644,9 @@ function find_random_pdb_families()
 	    end
 	end
 end
-create_from_homstrad()
+
+find_non_homologous_random_pdbs("nonhomologous.fasta", abspath("selectedsequences.fasta"))
+#create_from_homstrad()
 #find_random_pdb_families()
 #find_random_pdbs()
 

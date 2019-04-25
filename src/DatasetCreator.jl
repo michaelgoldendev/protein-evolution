@@ -130,6 +130,13 @@ module DatasetCreator
 			       	
 			       	proteindict["phi_psi"] =  polypeptide["phi_psi"]
 			       	proteindict["aligned_phi_psi"] = insertgaps(alignedseq, polypeptide["phi_psi"], (-1000.0,-1000.0))
+
+			       	proteindict["Ntempfactor"] =  polypeptide["Ntempfactor"]
+				   	proteindict["aligned_Ntempfactor"] = insertgaps(alignedseq, polypeptide["Ntempfactor"], 0.0)
+			   		proteindict["CAtempfactor"] =  polypeptide["CAtempfactor"]
+				   	proteindict["aligned_CAtempfactor"] = insertgaps(alignedseq, polypeptide["CAtempfactor"], 0.0)
+				   	proteindict["Ctempfactor"] =  polypeptide["Ctempfactor"]
+				   	proteindict["aligned_Ctempfactor"] = insertgaps(alignedseq, polypeptide["Ctempfactor"], 0.0)
 			       	push!(proteins, proteindict)
 		    	else
 		    		unalignedseq = uppercase(replace(alignedseq, "-" => ""))
@@ -152,6 +159,14 @@ module DatasetCreator
 			       	
 			       	proteindict["phi_psi"] = [(-1000.0,-1000.0) for c in unalignedseq]
 			       	proteindict["aligned_phi_psi"] = [(-1000.0,-1000.0) for c in alignedseq]
+
+			       	proteindict["Ntempfactor"] = [0.0 for c in unalignedseq]
+			       	proteindict["aligned_Ntempfactor"] = [0.0 for c in alignedseq]
+			       	proteindict["CAtempfactor"] = [0.0 for c in unalignedseq]
+			       	proteindict["aligned_CAtempfactor"] = [0.0 for c in alignedseq]
+			       	proteindict["Ctempfactor"] = [0.0 for c in unalignedseq]
+			       	proteindict["aligned_Ctempfactor"] = [0.0 for c in alignedseq]
+
 			       	push!(proteins, proteindict)
 		    	end
 		    end
@@ -197,6 +212,14 @@ module DatasetCreator
 	   	
 	   	proteindict["phi_psi"] =  polypeptide["phi_psi"]
 	   	proteindict["aligned_phi_psi"] = insertgaps(alignedseq, polypeptide["phi_psi"], (-1000.0,-1000.0))
+
+	   	proteindict["Ntempfactor"] =  polypeptide["Ntempfactor"]
+	   	proteindict["aligned_Ntempfactor"] = insertgaps(alignedseq, polypeptide["Ntempfactor"], 0.0)
+   		proteindict["CAtempfactor"] =  polypeptide["CAtempfactor"]
+	   	proteindict["aligned_CAtempfactor"] = insertgaps(alignedseq, polypeptide["CAtempfactor"], 0.0)
+	   	proteindict["Ctempfactor"] =  polypeptide["Ctempfactor"]
+	   	proteindict["aligned_Ctempfactor"] = insertgaps(alignedseq, polypeptide["Ctempfactor"], 0.0)
+
 	   	push!(proteins, proteindict)
 
 		jsondict["proteins"] = proteins

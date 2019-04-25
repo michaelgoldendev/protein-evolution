@@ -256,6 +256,9 @@ module Backbone
         omega_list = Float64[]
         bond_angles_list = Tuple{Float64,Float64,Float64}[]
         bond_lengths_list = Tuple{Float64,Float64,Float64}[]
+        Ntempfactor_list = Float64[]        
+        CAtempfactor_list = Float64[]
+        Ctempfactor_list = Float64[]
 
         residues = []
         for resid in resids(chain)
@@ -288,6 +291,9 @@ module Backbone
                     push!(omega_list, -1000.0)
                     push!(bond_angles_list, (-1000.0,-1000.0,-1000.0))
                     push!(bond_lengths_list, (-1000.0,-1000.0,-1000.0))
+                    push!(Ntempfactor_list, 0.0)
+                    push!(CAtempfactor_list, 0.0)
+                    push!(Ctempfactor_list, 0.0)
                     currresnumber += 1
                 end
 
@@ -300,6 +306,22 @@ module Backbone
                     end
                     if pos < length(residues) && resnumber(residues[pos])+1 == resnumber(residues[pos+1])
                         nextresi = residues[pos+1]
+                    end
+
+                    if in("N", atomnames(currresi))
+                        push!(Ntempfactor_list, tempfactor(currresi["N"]))
+                    else
+                        push!(Ntempfactor_list, 0.0)
+                    end
+                    if in("CA", atomnames(currresi))
+                        push!(CAtempfactor_list, tempfactor(currresi["CA"]))
+                    else
+                        push!(CAtempfactor_list, 0.0)
+                    end
+                    if in("C", atomnames(currresi))
+                        push!(Ctempfactor_list, tempfactor(currresi["C"]))
+                    else
+                        push!(Ctempfactor_list, 0.0)
                     end
 
                     if prevresi != nothing
@@ -354,6 +376,9 @@ module Backbone
         dict["omega"] = omega_list
         dict["bond_angles"] = bond_angles_list
         dict["bond_lengths"] = bond_lengths_list
+        dict["Ntempfactor"] = Ntempfactor_list
+        dict["CAtempfactor"] = CAtempfactor_list
+        dict["Ctempfactor"] = Ctempfactor_list
         return dict
     end
 end

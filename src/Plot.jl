@@ -125,7 +125,7 @@ function plot_nodes(modelfile)
 			end
 
 			plt[:subplots_adjust](bottom=0.2, hspace=0.5)
-			plt[:savefig]("plots/hidden/plot$(h).svg")
+			plt[:savefig]("plots/hidden/plot$(h)_nocond.png")
 			#plt[:savefig]("plots/hidden/plot$(h)_$(aminoacids[aa]).png")
 			plt[:close]
 		#end
@@ -216,6 +216,18 @@ end
 
 function plotaccuracy()
 	samplefile = string("structure.samples")
+	outputsuffix = "_4rpd_test2.png"
+	#samplefile = string("structure_random.samples")
+	#outputsuffix = "_random.png"
+	#samplefile = string("structure_seqsonly.samples")
+	#outputsuffix = "_seqonly.png"
+	#samplefile = string("structure_4rpd.samples")
+	#outputsuffix = "_4rpd.png"
+	#samplefile = string("structure_4oov.samples")
+	##outputsuffix = "_4oov.png"
+	#samplefile = string("structure_5konseqonly.samples")
+	#outputsuffix = "_5konseqonly.png"
+	
 
 	N = 100
 	startpos = 1
@@ -224,6 +236,7 @@ function plotaccuracy()
 	samples = Serialization.deserialize(fin)
 	close(fin)
 	for name in keys(samples)
+		println(name)
 		proteinsample = samples[name]
 
 		json_family = proteinsample.json_family
@@ -267,7 +280,7 @@ function plotaccuracy()
 		percfontsizes = Int[11,14,14,14,14]
 		distfontsizes = Int[10,14,14,14,14]
 		#colours = ["#65ca44", "#84d432", "#abdb20", "#d4e115", "#fce51e"]
-		colours = ["#5599ff", "#2a7fff", "#0066ff", "#0055d4", "#0044aa"]
+		colours = reverse(["#5599ff", "#2a7fff", "#0066ff", "#0055d4", "#0044aa", "#002255"])
 		
 
 		if length(distances) > 0
@@ -374,8 +387,8 @@ function plotaccuracy()
 		angle_labels = ["\$-\\pi\$","\$-\\pi/2\$", "0", "\$\\pi/2\$", "\$\\pi\$"]
 		#ax[:set_xticks](angle_tick_positions)
 		#ax[:set_yticks](angle_tick_positions)
-		plt.xticks(angle_tick_positions, angle_labels)
-		plt.yticks(angle_tick_positions, reverse(angle_labels))
+		plt.xticks(angle_tick_positions, angle_labels, fontsize=15)
+		plt.yticks(angle_tick_positions, reverse(angle_labels), fontsize=15)
 		#plt.title("Site $(col)", fontsize=15)
 		plt.xlabel("Phi (\$\\phi\$)", fontsize=15)
 		plt.ylabel("Psi (\$\\psi\$)", fontsize=15)
@@ -383,7 +396,7 @@ function plotaccuracy()
 		plt.xlim(0.0,N)
 		plt.ylim(0.0,N)
 
-		plt.savefig("plots/$(name)_4rpd_newsampler30.png", transparent=false)
+		plt.savefig("plots/$(name)$(outputsuffix)", transparent=false, dpi=600)
 		plt.close()
 	end
 end
@@ -391,7 +404,7 @@ end
 function plotstructuresamples()
 	othername = "pdb4rpd_A"
 	#othername = ""
-	samplefile = string("structure.samples")
+	samplefile = string("structure_4rpd.samples")
 
 	N = 100
 	startpos = 1
@@ -583,7 +596,8 @@ end
 #plot_nodes("models/model_h.15.thresh2.rerun.hiddenaascaling.anglescondaa.ratemode1.model")
 #plot_nodes("models/model_h.20.thresh3.rerun.hiddenaascaling.anglescondaa.ratemode1.model")
 #plot_nodes("models/model_h.10.thresh3.rerun.hiddenaascaling.anglescondaa.ratemode1.model")
-#plot_nodes("models/model_h.30.thresh2.rerun.hiddenaascaling.anglescondaa.ratemode1.model")
+#plot_nodes("models/model_h.30.thresh2.rerun.hiddenaascaling.nobranchsampling.ratemode1.model")
+#plot_nodes("models/model_h.30.thresh2.rerun.hiddenaascaling.nobranchsampling.anglescondaa15.ratemode1.model")
 #plotratenetwork("models/model_h.10.thresh3.rerun.hiddenaascaling.anglescondaa.ratemode1.model")
 plotaccuracy()
 #plotstructuresamples()

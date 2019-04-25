@@ -4,7 +4,6 @@
 *.log
 *.pdb
 *.png
-*.svg
 *.nexus
 *.nwk
 *.model
@@ -21,3 +20,6 @@ deps/deps.jl
 *.gml
 *.txt
 *.lgz
+*.fas
+*.fasta
+*.samples

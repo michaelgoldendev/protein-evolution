@@ -8,17 +8,45 @@ module CTMCs
 	push!(LOAD_PATH,string(@__DIR__,"/../../MolecularEvolution/src/"))
 	using MolecularEvolution
 
+	function absmat(M::Array{Float64,2})
+	  dim1 = size(M,1)
+	  dim2 = size(M,2)
+	  for i=1:dim1
+	    for j=1:dim2
+	      if M[i,j] <= 0.0
+	        M[i,j] = 1e-50
+	      end
+	    end
+	  end
+	  return M
+	end
+
 	function recursivesampling(rng::AbstractRNG, Q::Array{Float64,2}, a::Int, b::Int, t::Float64=1.0)
 		decomposition = eigen(Q)
 	  	D, V = decomposition.values, decomposition.vectors
 	  	Vi = inv(V)
-	  	return recursivesampling(rng, Q, V, D, Vi, a, b, t)
+	  	return recursivesampling(rng, Q, a, b, complex(V), complex(D), complex(Vi), t)
 	end
 
-	function recursivesampling(rng::AbstractRNG, Q::Array{Float64,2}, V::Array{Float64,2}, D::Array{Float64,1}, Vi::Array{Float64,2}, a::Int, b::Int, t::Float64, startt::Float64=0.0, endt::Float64=1.0, level::Int=1)
-		levelstop = 45
+	function recursivesampling(rng::AbstractRNG, Q::Array{Float64,2}, a::Int, b::Int, V::Array{Complex{Float64},2}, D::Array{Complex{Float64},1}, Vi::Array{Complex{Float64},2}, t::Float64=1.0)		
+	  	len = size(Q,1)
+	  	Pcache = Array{Float64,2}[zeros(Float64,len,len) for level=1:40]
+	  	paths,times,count = recursivesampling(Pcache, rng, Q, V, D, Vi, a, b, t)
+	  	#=
+	  	if count >= 400
+	  		println("RECURSIONS: ", count)
+	  		println("T",t)
+	  		println(paths,"\t",times)
+	  	end=#
+
+	  	return paths,times
+	end
+
+	function recursivesampling(Pcache::Array{Array{Float64,2},1}, rng::AbstractRNG, Q::Array{Float64,2}, V::Array{Complex{Float64},2}, D::Array{Complex{Float64},1}, Vi::Array{Complex{Float64},2}, a::Int, b::Int, t::Float64, startt::Float64=0.0, endt::Float64=1.0, level::Int=1)
+		levelstop = 40
 		delta = (endt-startt)/2.0
 		midt = startt + delta
+		count = 1
 		#=
 		P = exp(Q*delta)
 		v = P[a,:].*P[:,b]
@@ -26,34 +54,40 @@ module CTMCs
 		=#
 
 		#v = V[a,:].*exp.(D*delta).*Vi[:,b]
-		P = real(V*Diagonal(exp.(D*t*delta))*Vi)
+		if Pcache[level][1,1] == 0.0
+			Pcache[level] = absmat(real(V*Diagonal(exp.(D*t*delta))*Vi))
+		end
+		P = Pcache[level]
 		v = P[a,:].*P[:,b]
 		m = sample(rng, v)
 
 		cont = true
 		if a == m
-			t =  log(1.0 - rand(rng))/(Q[m,m]*t*delta)
-			if t > delta
+			samplet =  log(1.0 - rand(rng))/(Q[m,m]*t*delta)
+			if samplet > delta
 				cont = false
 			end
 		end
 		subpaths1 = Int[a]
 		subtimes1 = Float64[startt]
 		if cont && level < levelstop
-			subpaths1, subtimes1 = recursivesampling(rng, Q, V, D, Vi, a, m, t, startt, midt, level+1)
+			subpaths1, subtimes1, count1 = recursivesampling(Pcache,rng, Q, V, D, Vi, a, m, t, startt, midt, level+1)
+			count += count1
 		end
 
 		cont = true
 		if b == m
-			t =  log(1.0 - rand(rng))/(Q[m,m]*t*delta)
-			if t > delta
+			samplet =  log(1.0 - rand(rng))/(Q[m,m]*t*delta)
+			if samplet > delta
 				cont = false
 			end
 		end
+		count += 1
 		subpaths2 = Int[m]
 		subtimes2 = Float64[midt]
 		if cont  && level < levelstop
-			subpaths2, subtimes2 = recursivesampling(rng, Q, V, D, Vi, m, b, t, midt, endt, level+1)
+			subpaths2, subtimes2,count2 = recursivesampling(Pcache,rng, Q, V, D, Vi, m, b, t, midt, endt, level+1)
+			count += count2
 		end
 
 		paths = Int[subpaths1[1]]
@@ -70,7 +104,14 @@ module CTMCs
 				push!(times, subtimes2[i])
 			end
 		end
-		return paths,times
+
+		#=
+		if count >= 100000
+			println("P",P)
+			println("delta:",delta,"\t",t)
+			println("V",v)
+		end=#
+		return paths,times,count
 	end
 
 	function approximatesampling(rng::AbstractRNG, Q::Array{Float64,2}, t::Float64, a::Int, b::Int, divisions=100000)
@@ -477,109 +518,19 @@ module CTMCs
 		return path, times
 	end
 
-	export modifiedrejectionsampling3
-	function  modifiedrejectionsampling3(rng::AbstractRNG, pathdict, key::Tuple, R::Array{Float64,2}, t::Float64, x0::Int, xt::Int)
-		Q = R*t
-		path = Int[]
-		times = Float64[]
-		R = copy(Q)
-		alphabet = size(R,1)
-		for i=1:alphabet
-			R[i,i] = 0.0
-		end
-		S = copy(R)
-		for i=1:size(Q,1)
-			s = 0.0
-			for j=1:size(Q,2)
-				s += S[i,j]
-			end
-			for j=1:size(Q,2)
-				S[i,j] /= s
-			end
-		end
-
-		count = 0
-		success = false
-		while true
-			path = Int[x0]
-			times = Float64[0.0]
-			totalt = 0.0
-			if x0 != xt
-				r = rand(rng)
-				totalt += log(1.0-r*(1.0-exp(Q[path[end],path[end]])))/Q[path[end],path[end]]
-				push!(path, sample(rng, S[path[end],:]))
-				push!(times, totalt)
-			end
-
-			if count > 1000000
-				break
-			end
-
-			while true
-				r = rand(rng)
-				samplet = log(1.0-r)/Q[path[end],path[end]]
-				totalt += samplet
-				if totalt > 1.0
-					break
-				end
-				push!(path, sample(rng, S[path[end],:]))
-				push!(times, totalt)
-				count += 1
-				if count > 2000000
-					break
-				end
-			end
-
-			if path[end] == xt
-				success = true
-				break
-			end
-
-			newkey = (key[1],key[2],key[3],key[4],key[5],path[end])
-			if !haskey(pathdict, newkey)
-				pathdict[newkey] = []
-			end			
-			if length(pathdict[newkey]) < 10
-				push!(pathdict[newkey], (t, path, times))
-			end
-		end
-
-		return path, times, success
-	end
-
-	export generate
-	function generate(generator::PathSampleGenerator, a::Int, b::Int, node::TreeNode)
-		index = (node.nodeindex-1)*generator.alphabet*generator.alphabet + (a-1)*generator.alphabet + b
-		if length(generator.paths[index]) > 0
-			#println("CACHED")
-			return pop!(generator.paths[index]), pop!(generator.times[index])
-		end
-		return modifiedrejectionsampling2(generator, node, a, b)
-	end
-
+	#=
 	export modifiedrejectionsampling
-	function  modifiedrejectionsampling(rng::AbstractRNG, A::Array{Float64,2}, x0::Int, xt::Int, extradata)
-		maxiters1 = 1000000
-		maxiters2 = 2000000
+	function  modifiedrejectionsampling(rng::AbstractRNG, Q::Array{Float64,2}, x0::Int, xt::Int, extradata)
+		maxiters1 = 1000
+		maxiters2 = 2000
 		path = Int[]
 		times = Float64[]
-		Q = A
-		R = copy(Q)
-		for i=1:size(Q,1)
-			R[i,i] = 0.0
-		end
-		S = copy(R)
-		for i=1:size(Q,1)
-			s = 0.0
-			for j=1:size(Q,2)
-				s += S[i,j]
-			end
-			for j=1:size(Q,2)
-				S[i,j] /= s
-			end
+		S = copy(Q)
+		for i=1:size(S,1)
+			S[i,i] = 0.0
+			S[i,:] ./= sum(S[i,:])
 		end
 
-		#println("G",x0, " -> ", xt, " A", A)
 		count = 0
 		success = true
 		while success
@@ -617,15 +568,16 @@ module CTMCs
 			end
 
 		end
+
 		#println("H")
 		if !success
-			#paths,times = recursivesampling(rng, Q, x0, xt)
-			path, times = approximatesampling(rng, Q, 1.0, x0, xt)
+			path,times = recursivesampling(rng, Q, x0, xt)
+			#path, times = approximatesampling(rng, Q, 1.0, x0, xt)
 			return path,times,true
 		else
 			return path, times, success
 		end
-	end
+	end=#
 
 	export removevirtualjumps
 	function removevirtualjumps(path::Array{Int,1}, time::Array{Float64,1})
@@ -686,22 +638,3 @@ module CTMCs
 		ts = Float64[]
 	end
 end
-
-#=
-
-push!(LOAD_PATH,@__DIR__)
-using LG
-using Random
-
-
-rng = MersenneTwister(1)
-println(CTMCs.samplepath(rng, 1, 0.1, LGmatrix, 1, 2))
-println(CTMCs.samplepath(rng, 1, 0.08, LGmatrix, 1, 4))
-println(CTMCs.samplepath(rng, 1, 0.09, LGmatrix, 1, 7))
-println(CTMCs.samplepath(rng, 1, 0.09, LGmatrix, 1, 9))
-println(CTMCs.samplepath(rng, 1, 0.09, LGmatrix, 1, 2))
-println(CTMCs.samplepath(rng, 1, 0.45, LGmatrix, 1, 16))
-println(CTMCs.samplepath(rng, 1, 0.50, LGmatrix, 1, 2))
-#CTMCs.resetcache()
-##println(CTMCs.ts)
-println(CTMCs.pathdict)=#

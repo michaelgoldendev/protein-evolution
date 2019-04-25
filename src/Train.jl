@@ -22,12 +22,68 @@ function train(parsed_args=Dict{String,Any}())
 	maxloglikelihood = -Inf
 	noimprovement = 0
 
-	outputmodelname = string("_h.",modelparams.numhiddenstates)
-	outputmodelname = string(outputmodelname,".thresh",sitethreshold)
-	outputmodelname = string(outputmodelname, ".rerun")
+
 	if dosamplesiterates
 		modelparams.rate_alpha = 0.5
-		modelparams.rates = discretizegamma(modelparams.rate_alpha, 1.0/modelparams.rate_alpha, modelparams.numrates)
+		modelparams.rates = discretizegamma(modelparams.rate_alpha, 1.0/modelparams.rate_alpha, modelparams.numrates)		
+	end	
+
+	modelparams.usestructureobservations = usestructureobservations
+	modelparams.hidden_conditional_on_aa = false	
+	modelparams.use_bivariate_von_mises = true	 
+	modelparams.ratemode = parsed_args["ratemode"]
+	
+
+	trainingexamples = Tuple[]
+
+	#family_directories = ["../data/curated/curated_rna/", "../data/selected_families/"]
+	#family_directories = ["../data/homstrad_families/", "../data/curated_rna_virus_structures/"]	
+	#family_directories = ["../data/single_pdbs/", "../data/homstrad_families/", "../data/curated_rna_virus_structures/"]
+	#family_directories = ["../data/single_pdbs/", "../data/homstrad_families/"]
+	#family_directories = ["../data/single_pdbs/", "../data/homstrad_families/", "../data/curated/curated_rna/"]
+	#family_directories = ["../data/single_pdbs/", "../data/homstrad_families/", "../data/curated_rna_virus_structures/"] 
+	#family_directories = ["../data/single_pdbs/", "../data/homstrad_families/"] 
+	#family_directories = ["../data/homstrad_curated/", "../data/curated_rna_virus_structures/"]	
+	family_directories = ["../data/nonhomologous_singles/", "../data/homstrad_curated/", "../data/curated_rna_virus_structures/"]
+	family_names = String[]
+	traininghash = zero(UInt)
+	for family_dir in family_directories
+		family_files = filter(f -> endswith(f,".fam"), readdir(family_dir))
+		for family_file in family_files
+			full_path = abspath(joinpath(family_dir, family_file))
+			json_family = JSON.parse(open(full_path, "r"))
+			traininghash = hash(json_family, traininghash)
+			if 1 <= length(json_family["proteins"]) <= 1e10
+				training_example = training_example_from_json_family(rng, modelparams, json_family)		
+				println(json_family["newick_tree"])
+				push!(trainingexamples, training_example)
+				push!(family_names, family_file)
+				if parsed_args["maxtraininginstances"] != nothing && length(trainingexamples) == parsed_args["maxtraininginstances"]
+					break
+				end
+			end
+		end
+		if parsed_args["maxtraininginstances"] != nothing && length(trainingexamples) == parsed_args["maxtraininginstances"]
+			break
+		end
+	end
+	traininghashbase36 = string(traininghash, base=36)
+
+	#=
+	selectionout = open("selectedsequences.fasta","w")
+	count = 1
+	for (proteins,nodelist,json_family,sequences) in trainingexamples
+		for protein in json_family["proteins"]
+			println(selectionout,">",protein["name"])
+			println(selectionout,protein["sequence"])
+			count += 1
+		end
+	end
+	close(selectionout)=#
+
+	outputmodelname = string(".h",modelparams.numhiddenstates, ".",traininghashbase36)
+	outputmodelname = string(outputmodelname,".thresh",sitethreshold)
+	if dosamplesiterates
 		outputmodelname = string(outputmodelname,".samplesiterates")
 	end
 	if uselgrates
@@ -47,15 +103,10 @@ function train(parsed_args=Dict{String,Any}())
 	if parsed_args["sequenceonly"]
 		outputmodelname = string(outputmodelname,".seqonly")
 	end
-
-	modelparams.usestructureobservations = usestructureobservations
-	modelparams.hidden_conditional_on_aa = false
 	if parsed_args["angles-cond-aa"] > 0
 		outputmodelname = string(outputmodelname,".anglescondaa", parsed_args["angles-cond-aa"])
-	end 
-	modelparams.ratemode = parsed_args["ratemode"]
+	end
 	outputmodelname = string(outputmodelname,".ratemode", modelparams.ratemode)
-
 	modelfile = string("models/model", outputmodelname, ".model")
 	tracefile = string("models/trace", outputmodelname,".log")
 	familytracefile = string("models/family.trace", outputmodelname,".log")
@@ -63,7 +114,6 @@ function train(parsed_args=Dict{String,Any}())
 	if parsed_args["loadfromcache"]
 		modelparams = Serialization.deserialize(open(modelfile, "r"))
 	end
-	modelparams.use_bivariate_von_mises = true
 
 	if modelparams.numhiddenstates == 1
 		fout = open(modelfile, "w")
@@ -71,38 +121,6 @@ function train(parsed_args=Dict{String,Any}())
 		Serialization.serialize(fout, modelparams)
 		close(fout)
 		exit()
-	end
-	
-
-	trainingexamples = Tuple[]
-
-	#family_directories = ["../data/curated/curated_rna/", "../data/selected_families/"]
-	#family_directories = ["../data/homstrad_families/", "../data/curated_rna_virus_structures/"]	
-	#family_directories = ["../data/single_pdbs/", "../data/homstrad_families/", "../data/curated_rna_virus_structures/"]
-	#family_directories = ["../data/single_pdbs/", "../data/homstrad_families/"]
-	#family_directories = ["../data/single_pdbs/", "../data/homstrad_families/", "../data/curated/curated_rna/"]
-	#family_directories = ["../data/single_pdbs/", "../data/homstrad_families/", "../data/curated_rna_virus_structures/"] 
-	#family_directories = ["../data/single_pdbs/", "../data/homstrad_families/"] 
-	family_directories = ["../data/homstrad_curated/", "../data/curated_rna_virus_structures/"] 
-	family_names = String[]
-	for family_dir in family_directories
-		family_files = filter(f -> endswith(f,".fam"), readdir(family_dir))
-		for family_file in family_files
-			full_path = abspath(joinpath(family_dir, family_file))
-			json_family = JSON.parse(open(full_path, "r"))
-			if 1 <= length(json_family["proteins"]) <= 1e10
-				training_example = training_example_from_json_family(rng, modelparams, json_family)		
-				println(json_family["newick_tree"])
-				push!(trainingexamples, training_example)
-				push!(family_names, family_file)
-				if parsed_args["maxtraininginstances"] != nothing && length(trainingexamples) == parsed_args["maxtraininginstances"]
-					break
-				end
-			end
-		end
-		if parsed_args["maxtraininginstances"] != nothing && length(trainingexamples) == parsed_args["maxtraininginstances"]
-			break
-		end
 	end
 	#=
 	usedindices = Int[]
@@ -202,12 +220,12 @@ function train(parsed_args=Dict{String,Any}())
 		accepted_hidden_total = 0.0
 		accepted_aa = 0.0
 		accepted_aa_total = 0.0
-		for (proteins,nodelist,json_family,sequences) in trainingexamples
+		for (trainingindex, (proteins,nodelist,json_family,sequences)) in enumerate(trainingexamples)
 			numcols = length(proteins[1])
 
 			if length(proteins) == 1
 				backwardsamplesingle(rng, nodelist[1], modelparams)
-			else				
+			elseif (trainingindex+iter) % 4 == 0
 				accepted = zeros(Int, numcols)			
 				for i=1:maxsamplesperiter					
 					randcols = shuffle(rng, Int[i for i=1:numcols])
@@ -580,17 +598,18 @@ function train(parsed_args=Dict{String,Any}())
 		for (proteins,nodelist,json_family,sequences) in trainingexamples
 			for node in nodelist
 				if !isroot(node)
-					node.branchlength /= modelparams.branchscalingfactor
+					#node.branchlength /= modelparams.branchscalingfactor
 				end
 			end
 		end
-		modelparams.aa_exchangeablities *= modelparams.branchscalingfactor
+		#modelparams.aa_exchangeablities *= modelparams.branchscalingfactor
 		scaleaarates = mean(modelparams.aarates)
 		modelparams.aarates /= scaleaarates
 		modelparams.aa_exchangeablities *= scaleaarates
 
-		modelparams.transitionrates *= modelparams.branchscalingfactor
+		#modelparams.transitionrates *= modelparams.branchscalingfactor
 		modelparams.branchscalingfactor = 1.0
+
 
 		augmentedll_end,observationll_end, augmented_array, observation_array = calculateloglikelihood_array(modelparams, trainingexamples)
 		totalll_end = augmentedll_end+observationll_end
