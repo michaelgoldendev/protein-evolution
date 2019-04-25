@@ -8,7 +8,7 @@
 *.nwk
 *.model
 src/**/*.svg
-src/plots/*
+src/plots/**
 cache/
 data/
 obsolete/
