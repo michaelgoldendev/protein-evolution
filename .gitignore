@@ -7,6 +7,7 @@
 *.nexus
 *.nwk
 *.model
+src/plots/*.svg
 cache/
 data/
 obsolete/
