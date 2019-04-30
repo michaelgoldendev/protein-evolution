@@ -1862,19 +1862,12 @@ function backwardsamplesingle(rng::AbstractRNG, node::TreeNode, modelparams::Mod
 				liks[col,h] = siteliks[h]
 			end
 		else
-			#res = (((liks[col-1,:]')*modelparams.transitionprobs)').*siteliks
-			#=
-			res = liks[col-1,:].*(modelparams.transitionprobs*siteliks)
-			res = res .- maximum(res)
+			res = (((liks[col-1,:]')*modelparams.transitionprobs)').*siteliks
+			m = -Inf
 			for h=1:modelparams.numhiddenstates 
 				liks[col,h] = res[h]
-			end=#
-			for prevh=1:modelparams.numhiddenstates
-				for h=1:modelparams.numhiddenstates
-					liks[col,h] += liks[col-1,prevh]*modelparams.transitionprobs[prevh,h]*siteliks[h]
-				end
+				m = max(m, res[h])
 			end
-			m = maximum(liks[col,:])
 			loglikelihood += log(m)
 			liks[col,:] = liks[col,:] ./ m
 		end
