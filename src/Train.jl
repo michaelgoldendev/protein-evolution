@@ -1,5 +1,154 @@
 include("Main.jl")
 
+function estimatehmm(rng::AbstractRNG, trainingexamples, modelparams::ModelParams, numiters::Int, parsed_args)
+	loglikelihoods = Float64[]
+	for iter=1:numiters
+		if !(parsed_args["angles-cond-aa"] <= 0) && iter >= parsed_args["angles-cond-aa"]
+			modelparams.hidden_conditional_on_aa = true
+		end
+		println("PRECLUSTER ",iter)
+
+		loglikelihood = 0.0
+		for (index, (proteins,nodelist,json_family,sequences)) in enumerate(trainingexamples) 
+			for node in nodelist
+				if isleafnode(node)
+					#backwardsamplefast(rng, node, modelparams)				
+					loglikelihood += backwardsamplesingle(rng, node, modelparams)
+				end
+			end
+		end
+		push!(loglikelihoods, loglikelihood)
+		println("Log-likelihoods: ", loglikelihoods)
+
+		transitionrate_counts = ones(Float64, modelparams.numhiddenstates, modelparams.numhiddenstates)*0.01
+		transitionrate_totals = ones(Float64, modelparams.numhiddenstates, modelparams.numhiddenstates)*0.001
+		for h=1:modelparams.numhiddenstates
+			transitionrate_counts[h,h] = 0.0
+		end
+		transitionrate_events = ones(Float64, modelparams.numhiddenstates)*0.01
+		transitionrate_times = ones(Float64, modelparams.numhiddenstates)*0.001
+
+		aatransitionrate_events = ones(Float64, modelparams.alphabet, modelparams.alphabet)*0.01
+		aatransitionrate_times = ones(Float64, modelparams.alphabet, modelparams.alphabet)*0.001
+
+		aatransitionrate_counts = ones(Float64, modelparams.alphabet, modelparams.alphabet)*0.01
+		aatransitionrate_totals = ones(Float64, modelparams.alphabet, modelparams.alphabet)*0.01
+		for aa=1:modelparams.alphabet
+			aatransitionrate_counts[aa,aa] = 0.0
+		end		
+		accepted_hidden = 0.0
+		accepted_hidden_total = 0.0
+		accepted_aa = 0.0
+		accepted_aa_total = 0.0
+		for (trainingindex, (proteins,nodelist,json_family,sequences)) in enumerate(trainingexamples)
+			numcols = length(proteins[1])
+
+			for node in nodelist
+				if isleafnode(node)
+					for col=1:numcols-1					
+						modelparams.transitioncounts[node.data.branchpath.paths[col][end], node.data.branchpath.paths[col+1][end]] += 1.0					
+					end					
+					for col=1:numcols
+						modelparams.hiddennodes[node.data.branchpath.paths[col][end]].aa_node.counts[node.data.aabranchpath.paths[col][end]] += 1.0	
+					end
+				end
+			end
+
+			for h=1:modelparams.numhiddenstates
+				modelparams.hiddennodes[h].bond_lengths_node.data = Array{Float64,1}[]
+			end
+
+			for col=1:numcols
+				for node in nodelist				
+					if isleafnode(node)
+						h = node.data.branchpath.paths[col][end]
+						site = proteins[node.seqindex].sites[col]
+						if site.aa > 0
+							#modelparams.hiddennodes[h].aa_node.counts[site.aa] += 1.0
+							push!(modelparams.hiddennodes[h].phi_node.data, site.phi)
+							push!(modelparams.hiddennodes[h].omega_node.data, site.omega)
+							push!(modelparams.hiddennodes[h].psi_node.data, site.psi)
+							BivariateVonMises.add_bvm_point(modelparams.hiddennodes[h].phipsi_node, Float64[site.phi, site.psi])
+							push!(modelparams.hiddennodes[h].phi_nodes[site.aa].data, site.phi)
+							push!(modelparams.hiddennodes[h].omega_nodes[site.aa].data, site.omega)
+							push!(modelparams.hiddennodes[h].psi_nodes[site.aa].data, site.psi)
+							BivariateVonMises.add_bvm_point(modelparams.hiddennodes[h].phipsi_nodes[site.aa], Float64[site.phi, site.psi])
+							push!(modelparams.hiddennodes[h].bond_angle1_node.data, site.bond_angle1)
+							push!(modelparams.hiddennodes[h].bond_angle2_node.data, site.bond_angle2)
+							push!(modelparams.hiddennodes[h].bond_angle3_node.data, site.bond_angle3)
+							add_point(modelparams.hiddennodes[h].bond_lengths_node, Float64[site.bond_length1, site.bond_length2, site.bond_length3])
+						end
+					end
+				end
+			end			
+		end
+		estimate_hidden_transition_probs(modelparams)
+
+		for h=1:modelparams.numhiddenstates			
+			estimate_categorical(modelparams.hiddennodes[h].aa_node, 1.0)		
+			estimatevonmises(modelparams.hiddennodes[h].phi_node)
+			estimatevonmises(modelparams.hiddennodes[h].psi_node)
+			estimatevonmises(modelparams.hiddennodes[h].omega_node)
+			estimate_bvm(modelparams.hiddennodes[h].phipsi_node)
+			estimatevonmises(modelparams.hiddennodes[h].bond_angle1_node)
+			estimatevonmises(modelparams.hiddennodes[h].bond_angle2_node)
+			estimatevonmises(modelparams.hiddennodes[h].bond_angle3_node)
+			println(iter,"\t",h,"\t",modelparams.hiddennodes[h].phipsi_node.mu,"\t",modelparams.hiddennodes[h].phipsi_node.k, "\t", modelparams.hiddennodes[h].phi_node.mu, "\t", modelparams.hiddennodes[h].psi_node.mu, "\t", modelparams.hiddennodes[h].phi_node.kappa, "\t", modelparams.hiddennodes[h].psi_node.kappa)		
+			println(modelparams.hiddennodes[h].phipsi_node.count,"\t",modelparams.hiddennodes[h].phi_node.N,"\t",modelparams.hiddennodes[h].psi_node.N)
+			#println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle1_node.mu,"\t",modelparams.hiddennodes[h].bond_angle1_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle1_node.N)
+			#println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle2_node.mu,"\t",modelparams.hiddennodes[h].bond_angle2_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle2_node.N)
+			#println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle3_node.mu,"\t",modelparams.hiddennodes[h].bond_angle3_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle3_node.N)
+			#println(iter,"\t",h,"\t", modelparams.hiddennodes[h].bond_lengths_node.mvn.μ)
+			estimate_multivariate_node(modelparams.hiddennodes[h].bond_lengths_node)
+			for aa=1:modelparams.alphabet
+				estimatevonmises(modelparams.hiddennodes[h].phi_nodes[aa])
+				estimatevonmises(modelparams.hiddennodes[h].psi_nodes[aa])
+				estimatevonmises(modelparams.hiddennodes[h].omega_nodes[aa])
+				estimate_bvm(modelparams.hiddennodes[h].phipsi_nodes[aa])
+				if modelparams.hidden_conditional_on_aa
+					print(iter,"\t",h,"\t",aminoacids[aa],"\t",@sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]),"\t",modelparams.hiddennodes[h].phi_nodes[aa].mu,"\t",modelparams.hiddennodes[h].phi_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].phi_nodes[aa].N)		
+					println("\t",modelparams.hiddennodes[h].psi_nodes[aa].mu,"\t",modelparams.hiddennodes[h].psi_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].psi_nodes[aa].N)
+					#println(iter,"\t",h,"\t",aminoacids[aa],"\t",@sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]),"\t",modelparams.hiddennodes[h].omega_nodes[aa].mu,"\t",modelparams.hiddennodes[h].omega_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].omega_nodes[aa].N)						end
+				end
+			end
+			for aa=1:20
+				println(iter,"\t",h,"\t",aminoacids[aa],"\t", @sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]))
+			end			
+		end
+	end
+
+	reset_matrix_cache(modelparams)
+end
+
+function loadtrainingexamples(rng::AbstractRNG, parsed_args, family_directories, modelparams::ModelParams)
+	family_names = String[]	
+	trainingexamples = Tuple[]
+	traininghash = zero(UInt)
+	for family_dir in family_directories
+		family_files = filter(f -> endswith(f,".fam"), readdir(family_dir))
+		for family_file in family_files
+			full_path = abspath(joinpath(family_dir, family_file))
+			json_family = JSON.parse(open(full_path, "r"))
+			traininghash = hash(json_family, traininghash)
+			if 1 <= length(json_family["proteins"]) <= 1e10
+				training_example = training_example_from_json_family(rng, modelparams, json_family)		
+				println(json_family["newick_tree"])
+				push!(trainingexamples, training_example)
+				#println(getnewick(training_example[2][1]))
+				push!(family_names, family_file)
+				if parsed_args["maxtraininginstances"] != nothing && length(trainingexamples) == parsed_args["maxtraininginstances"]
+					break
+				end
+			end
+		end
+		if parsed_args["maxtraininginstances"] != nothing && length(trainingexamples) == parsed_args["maxtraininginstances"]
+			break
+		end
+	end
+	traininghashbase36 = string(traininghash, base=36)
+	return family_names,trainingexamples,traininghashbase36
+end
+
 function train(parsed_args=Dict{String,Any}()) 
 	rng = MersenneTwister(85649871544631)
 	Random.seed!(rand(rng,UInt))
@@ -34,8 +183,6 @@ function train(parsed_args=Dict{String,Any}())
 	modelparams.ratemode = parsed_args["ratemode"]
 	
 
-	trainingexamples = Tuple[]
-
 	#family_directories = ["../data/curated/curated_rna/", "../data/selected_families/"]
 	#family_directories = ["../data/homstrad_families/", "../data/curated_rna_virus_structures/"]	
 	#family_directories = ["../data/single_pdbs/", "../data/homstrad_families/", "../data/curated_rna_virus_structures/"]
@@ -44,30 +191,11 @@ function train(parsed_args=Dict{String,Any}())
 	#family_directories = ["../data/single_pdbs/", "../data/homstrad_families/", "../data/curated_rna_virus_structures/"] 
 	#family_directories = ["../data/single_pdbs/", "../data/homstrad_families/"] 
 	#family_directories = ["../data/homstrad_curated/", "../data/curated_rna_virus_structures/"]	
-	family_directories = ["../data/nonhomologous_singles/", "../data/homstrad_curated/", "../data/curated_rna_virus_structures/"]
-	family_names = String[]
-	traininghash = zero(UInt)
-	for family_dir in family_directories
-		family_files = filter(f -> endswith(f,".fam"), readdir(family_dir))
-		for family_file in family_files
-			full_path = abspath(joinpath(family_dir, family_file))
-			json_family = JSON.parse(open(full_path, "r"))
-			traininghash = hash(json_family, traininghash)
-			if 1 <= length(json_family["proteins"]) <= 1e10
-				training_example = training_example_from_json_family(rng, modelparams, json_family)		
-				println(json_family["newick_tree"])
-				push!(trainingexamples, training_example)
-				push!(family_names, family_file)
-				if parsed_args["maxtraininginstances"] != nothing && length(trainingexamples) == parsed_args["maxtraininginstances"]
-					break
-				end
-			end
-		end
-		if parsed_args["maxtraininginstances"] != nothing && length(trainingexamples) == parsed_args["maxtraininginstances"]
-			break
-		end
-	end
-	traininghashbase36 = string(traininghash, base=36)
+	family_directories = ["../data/homstrad_curated_highquality/", "../data/curated_rna_virus_structures/", "../data/nonhomologous_singles_xlarge/"]
+	#family_directories = ["../data/homstrad_curated_highquality/", "../data/curated_rna_virus_structures/"]	
+	familyiter = 5
+
+	family_names,trainingexamples,traininghashbase36 = loadtrainingexamples(rng, parsed_args, family_directories, modelparams)
 
 	#=
 	selectionout = open("selectedsequences.fasta","w")
@@ -106,6 +234,9 @@ function train(parsed_args=Dict{String,Any}())
 	if parsed_args["angles-cond-aa"] > 0
 		outputmodelname = string(outputmodelname,".anglescondaa", parsed_args["angles-cond-aa"])
 	end
+	if parsed_args["initialclustering"]
+		outputmodelname = string(outputmodelname,".initclustering")
+	end
 	outputmodelname = string(outputmodelname,".ratemode", modelparams.ratemode)
 	modelfile = string("models/model", outputmodelname, ".model")
 	tracefile = string("models/trace", outputmodelname,".log")
@@ -122,6 +253,12 @@ function train(parsed_args=Dict{String,Any}())
 		close(fout)
 		exit()
 	end
+
+	if parsed_args["initialclustering"]
+		estimatehmm(rng, trainingexamples, modelparams, 30, parsed_args)
+		family_names,trainingexamples,traininghashbase36 = loadtrainingexamples(rng, parsed_args, family_directories, modelparams)
+	end
+	
 	#=
 	usedindices = Int[]
 	selected_trainingexamples = Tuple[]
@@ -172,7 +309,6 @@ function train(parsed_args=Dict{String,Any}())
 			println(index)
 		end 
 		if length(proteins) == 1
-			println(length(nodelist))
 			backwardsamplesingle(rng, nodelist[1], modelparams)
 		else
 			numcols = length(proteins[1])
@@ -195,7 +331,7 @@ function train(parsed_args=Dict{String,Any}())
 	for iter=1:10000
 		if !(parsed_args["angles-cond-aa"] <= 0) && iter >= parsed_args["angles-cond-aa"]
 			modelparams.hidden_conditional_on_aa = true
-		end
+		end 
 
 		reset_matrix_cache(modelparams)
 		transitionrate_counts = ones(Float64, modelparams.numhiddenstates, modelparams.numhiddenstates)*0.01
@@ -225,7 +361,7 @@ function train(parsed_args=Dict{String,Any}())
 
 			if length(proteins) == 1
 				backwardsamplesingle(rng, nodelist[1], modelparams)
-			elseif (trainingindex+iter) % 4 == 0
+			elseif (trainingindex+iter) % familyiter == 0
 				accepted = zeros(Int, numcols)			
 				for i=1:maxsamplesperiter					
 					randcols = shuffle(rng, Int[i for i=1:numcols])
@@ -326,16 +462,6 @@ function train(parsed_args=Dict{String,Any}())
 				end
 			end			
 		end
-		println("Acceptance:\t",accepted_hidden/accepted_hidden_total,"\t",accepted_aa/accepted_aa_total)
-
-		for training_example in trainingexamples
-			for node in training_example[2]
-				if !isroot(node)
-					totalbranchlength_output += node.branchlength
-				end
-			end
-		end
-		modelparams.branchscalingfactor = totalbranchlength_output/totalbranchlength_input
 
 		if !independentsites
 			estimate_hidden_transition_probs(modelparams)
@@ -434,6 +560,17 @@ function train(parsed_args=Dict{String,Any}())
 			end
 			println("RATES ", modelparams.rates)
 		end=#
+
+		println("Acceptance:\t",accepted_hidden/accepted_hidden_total,"\t",accepted_aa/accepted_aa_total)
+
+		for training_example in trainingexamples
+			for node in training_example[2]
+				if !isroot(node)
+					totalbranchlength_output += node.branchlength
+				end
+			end
+		end
+		modelparams.branchscalingfactor = totalbranchlength_output/totalbranchlength_input
 
 		aahiddentransitionsrates = zeros(Float64, modelparams.numhiddenstates)
 		aahiddentransition_events = zeros(Float64, modelparams.numhiddenstates)
@@ -703,6 +840,10 @@ function parse_training_commandline()
          	help = ""
       	    arg_type = Bool
       	    default = true
+      	 "--initialclustering"
+      	 	help = ""
+          	action = :store_true
+
 	        
     end
     return parse_args(settings)

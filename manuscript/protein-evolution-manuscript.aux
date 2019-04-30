@@ -22,43 +22,52 @@
 \@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Model}{2}{subsection.2.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {2.1.1}Model of a single protein}{2}{subsubsection.2.1.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{Structural observations}{2}{section*.2}\protected@file@percent }
-\newlabel{eq:dihedral_density}{{1}{2}{Structural observations}{equation.2.1}{}}
-\newlabel{eq:angle_density}{{2}{2}{Structural observations}{equation.2.2}{}}
-\newlabel{eq:bond_density}{{3}{2}{Structural observations}{equation.2.3}{}}
-\@writefile{toc}{\contentsline {paragraph}{Structural likelihood}{2}{section*.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Hidden Markov model}{2}{section*.4}\protected@file@percent }
-\newlabel{eq:proteinlikelihood}{{4}{2}{Hidden Markov model}{equation.2.4}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Above: a depiction of a protein backbone (three amino acids long) with the $\omega $, $\phi $ and $\psi $ dihedral angles and the three additional bond angles ($\tau ^{(1)}_{i}$, $\tau ^{(2)}_{i}$, $\tau ^{(3)}_{i}$) shown. Bond angles and bond lengths are not to scale. Also shown are $\text  {C}_{\alpha }$ atoms which attach to the amino acid side-chains. Each amino acid side-chain determines the characteristic nature of each amino acid. Every amino acid position corresponds to a hidden node in the model below.\newline  Below: Graphical depiction of the model architecture showing three amino acid positions ($i-1$, $i$, and $i+1$) at two time instants ($t_0$ and $t_1$) along a single branch of a phylogenetic tree.\relax }}{3}{figure.caption.1}\protected@file@percent }
+\newlabel{eq:omega_dist}{{1}{2}{Structural observations}{equation.2.1}{}}
+\newlabel{eq:phipsi_dist}{{2}{2}{Structural observations}{equation.2.2}{}}
+\newlabel{eq:angle_density}{{3}{2}{Structural observations}{equation.2.3}{}}
+\newlabel{eq:bond_density}{{4}{2}{Structural observations}{equation.2.4}{}}
+\@writefile{toc}{\contentsline {paragraph}{Site likelihood}{2}{section*.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Hidden Markov model}{2}{section*.5}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Above: a depiction of a protein backbone (three amino acids long) with the $\omega $, $\phi $ and $\psi $ dihedral angles and the three additional bond angles ($\tau ^{(1)}_{i}$, $\tau ^{(2)}_{i}$, $\tau ^{(3)}_{i}$) shown. Bond lengths are implicit. Bond angles and bond lengths are not to scale. Also shown are $\text  {C}_{\alpha }$ atoms which attach to the amino acid side-chains. Each amino acid side-chain determines the characteristic nature of each amino acid. Every amino acid position corresponds to a hidden node in the model below.\newline  Below: Graphical depiction of the model architecture showing three amino acid positions ($i-1$, $i$, and $i+1$) at two time instants ($t_0$ and $t_1$) along a single branch of a phylogenetic tree. Note that $S_{i}(t)=\leavevmode@ifvmode {\setbox \z@ \hbox {\mathsurround \z@ $\nulldelimiterspace \z@ \left (\vcenter to\@ne \big@size {}\right .$}\box \z@ }H_{i}(t),A_{i}(t)\leavevmode@ifvmode {\setbox \z@ \hbox {\mathsurround \z@ $\nulldelimiterspace \z@ \left )\vcenter to\@ne \big@size {}\right .$}\box \z@ }$.\relax }}{3}{figure.caption.1}\protected@file@percent }
 \providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
-\newlabel{fig:model-structure}{{1}{3}{Above: a depiction of a protein backbone (three amino acids long) with the $\omega $, $\phi $ and $\psi $ dihedral angles and the three additional bond angles ($\tau ^{(1)}_{i}$, $\tau ^{(2)}_{i}$, $\tau ^{(3)}_{i}$) shown. Bond angles and bond lengths are not to scale. Also shown are $\text {C}_{\alpha }$ atoms which attach to the amino acid side-chains. Each amino acid side-chain determines the characteristic nature of each amino acid. Every amino acid position corresponds to a hidden node in the model below.\newline Below: Graphical depiction of the model architecture showing three amino acid positions ($i-1$, $i$, and $i+1$) at two time instants ($t_0$ and $t_1$) along a single branch of a phylogenetic tree.\relax }{figure.caption.1}{}}
+\newlabel{fig:model-structure}{{1}{3}{Above: a depiction of a protein backbone (three amino acids long) with the $\omega $, $\phi $ and $\psi $ dihedral angles and the three additional bond angles ($\tau ^{(1)}_{i}$, $\tau ^{(2)}_{i}$, $\tau ^{(3)}_{i}$) shown. Bond lengths are implicit. Bond angles and bond lengths are not to scale. Also shown are $\text {C}_{\alpha }$ atoms which attach to the amino acid side-chains. Each amino acid side-chain determines the characteristic nature of each amino acid. Every amino acid position corresponds to a hidden node in the model below.\newline Below: Graphical depiction of the model architecture showing three amino acid positions ($i-1$, $i$, and $i+1$) at two time instants ($t_0$ and $t_1$) along a single branch of a phylogenetic tree. Note that $S_{i}(t)=\big (H_{i}(t),A_{i}(t)\big )$.\relax }{figure.caption.1}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Ramachandran plots depicting empirical distributions of $\phi $ and $\psi $ angle combinations under three different amino acid contexts. Glycine has the smallest amino acid side-chain and is therefore the least constrained. Alanine has a larger side-chain than glycine, constraining most $\phi $ and $\psi $ angle to lie near a single peak. When alanine precedes proline in the peptide backbone, the $\phi $ and $\psi $ angle combinations previously favoured become sterically hindered {\color  {orange} MG: is this the correct terminology?}, favouring angle combinations at multiple peaks.\relax }}{3}{figure.caption.4}\protected@file@percent }
+\newlabel{fig:ramachandranempirical}{{2}{3}{Ramachandran plots depicting empirical distributions of $\phi $ and $\psi $ angle combinations under three different amino acid contexts. Glycine has the smallest amino acid side-chain and is therefore the least constrained. Alanine has a larger side-chain than glycine, constraining most $\phi $ and $\psi $ angle to lie near a single peak. When alanine precedes proline in the peptide backbone, the $\phi $ and $\psi $ angle combinations previously favoured become sterically hindered \revcom {MG: is this the correct terminology?}, favouring angle combinations at multiple peaks.\relax }{figure.caption.4}{}}
 \citation{choi2008basing}
 \citation{Garcia-Portugues:ads,Golden2017}
-\citation{choi2008basing}
+\newlabel{eq:proteinlikelihood}{{5}{4}{Hidden Markov model}{equation.2.5}{}}
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {2.1.2}Evolutionary model}{4}{subsubsection.2.1.2}\protected@file@percent }
-\newlabel{eq:ratematrix}{{5}{4}{Evolutionary model}{equation.2.5}{}}
-\@writefile{toc}{\contentsline {paragraph}{Stationary probability of proteins}{4}{section*.5}\protected@file@percent }
-\newlabel{eq:stationary_dist}{{6}{4}{Stationary probability of proteins}{equation.2.6}{}}
-\@writefile{toc}{\contentsline {paragraph}{Time-reversibility}{4}{section*.6}\protected@file@percent }
+\newlabel{eq:ratematrix}{{6}{4}{Evolutionary model}{equation.2.6}{}}
+\citation{choi2008basing}
+\citation{felsenstein1981evolutionary}
+\@writefile{toc}{\contentsline {paragraph}{Stationary probability of proteins}{5}{section*.6}\protected@file@percent }
+\newlabel{eq:stationary_dist}{{7}{5}{Stationary probability of proteins}{equation.2.7}{}}
+\@writefile{toc}{\contentsline {paragraph}{Time-reversibility}{5}{section*.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Dataset likelihood}{5}{section*.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Inference}{5}{subsection.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.1}Branch path inference: a phylogeny}{5}{subsubsection.2.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.2}Inference: a single protein}{5}{subsubsection.2.2.2}\protected@file@percent }
+\citation{fruhwirth1994data}
 \citation{gilks1995markov}
 \citation{gilks1995markov}
 \citation{gilks1995markov}
 \bibstyle{natbib}
 \bibdata{refs}
 \bibcite{choi2008basing}{{1}{2008}{{Choi {\em  et~al.}}}{{Choi, Redelings, and Thorne}}}
-\bibcite{Garcia-Portugues:ads}{{2}{2018}{{Garc{\'i}a-Portugu{\'e}s {\em  et~al.}}}{{Garc{\'i}a-Portugu{\'e}s, Golden, S{\o }rensen, Mardia, Hamelryck, and Hein}}}
-\bibcite{gilks1995markov}{{3}{1995}{{Gilks {\em  et~al.}}}{{Gilks, Richardson, and Spiegelhalter}}}
-\bibcite{Golden2017}{{4}{2017}{{Golden {\em  et~al.}}}{{Golden, Garc{\'i}a-Portugu{\'e}s, S{\o }rensen, Mardia, Hamelryck, and Hein}}}
-\@writefile{toc}{\contentsline {paragraph}{Dataset likelihood}{5}{section*.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Model training}{5}{subsection.2.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.1}Datasets}{5}{subsubsection.2.2.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.2}Parameter estimation}{5}{subsubsection.2.2.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}Inference}{5}{subsection.2.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.1}Gibbs sampling}{5}{subsubsection.2.3.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {3}Results and Discussion}{5}{section.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Benchmarks of ancestral sequence reconstruction}{5}{subsection.3.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {4}Conclusions}{5}{section.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {5}Software availability}{5}{section.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {6}Acknowledgements}{5}{section.6}\protected@file@percent }
-\bibcite{Parsons2005}{{5}{2005}{{Parsons {\em  et~al.}}}{{Parsons, Holmes, Rojas, Tsai, and Strauss}}}
-\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces  Ancestral sequence reconstruction benchmarks\relax }}{6}{table.caption.8}\protected@file@percent }
-\newlabel{tab:sequencereconstruction}{{1}{6}{Ancestral sequence reconstruction benchmarks\relax }{table.caption.8}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.3}Backbone structure inference}{6}{subsubsection.2.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}Model training}{6}{subsection.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.1}Datasets}{6}{subsubsection.2.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.2}Model estimation}{6}{subsubsection.2.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3}Results and Discussion}{6}{section.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Benchmarks of ancestral sequence reconstruction}{6}{subsection.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4}Conclusions}{6}{section.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5}Software availability}{6}{section.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6}Acknowledgements}{6}{section.6}\protected@file@percent }
+\bibcite{felsenstein1981evolutionary}{{2}{1981}{{Felsenstein}}{{Felsenstein}}}
+\bibcite{fruhwirth1994data}{{3}{1994}{{Fr{\"u}hwirth-Schnatter}}{{Fr{\"u}hwirth-Schnatter}}}
+\bibcite{Garcia-Portugues:ads}{{4}{2018}{{Garc{\'i}a-Portugu{\'e}s {\em  et~al.}}}{{Garc{\'i}a-Portugu{\'e}s, Golden, S{\o }rensen, Mardia, Hamelryck, and Hein}}}
+\bibcite{gilks1995markov}{{5}{1995}{{Gilks {\em  et~al.}}}{{Gilks, Richardson, and Spiegelhalter}}}
+\bibcite{Golden2017}{{6}{2017}{{Golden {\em  et~al.}}}{{Golden, Garc{\'i}a-Portugu{\'e}s, S{\o }rensen, Mardia, Hamelryck, and Hein}}}
+\bibcite{Parsons2005}{{7}{2005}{{Parsons {\em  et~al.}}}{{Parsons, Holmes, Rojas, Tsai, and Strauss}}}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces  Ancestral sequence reconstruction benchmarks\relax }}{7}{table.caption.9}\protected@file@percent }
+\newlabel{tab:sequencereconstruction}{{1}{7}{Ancestral sequence reconstruction benchmarks\relax }{table.caption.9}{}}

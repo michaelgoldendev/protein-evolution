@@ -3,13 +3,15 @@
 \BOOKMARK [2][-]{subsection.2.1}{Model}{section.2}% 3
 \BOOKMARK [3][-]{subsubsection.2.1.1}{Model of a single protein}{subsection.2.1}% 4
 \BOOKMARK [3][-]{subsubsection.2.1.2}{Evolutionary model}{subsection.2.1}% 5
-\BOOKMARK [2][-]{subsection.2.2}{Model training}{section.2}% 6
-\BOOKMARK [3][-]{subsubsection.2.2.1}{Datasets}{subsection.2.2}% 7
-\BOOKMARK [3][-]{subsubsection.2.2.2}{Parameter estimation}{subsection.2.2}% 8
-\BOOKMARK [2][-]{subsection.2.3}{Inference}{section.2}% 9
-\BOOKMARK [3][-]{subsubsection.2.3.1}{Gibbs sampling}{subsection.2.3}% 10
-\BOOKMARK [1][-]{section.3}{Results and Discussion}{}% 11
-\BOOKMARK [2][-]{subsection.3.1}{Benchmarks of ancestral sequence reconstruction}{section.3}% 12
-\BOOKMARK [1][-]{section.4}{Conclusions}{}% 13
-\BOOKMARK [1][-]{section.5}{Software availability}{}% 14
-\BOOKMARK [1][-]{section.6}{Acknowledgements}{}% 15
+\BOOKMARK [2][-]{subsection.2.2}{Inference}{section.2}% 6
+\BOOKMARK [3][-]{subsubsection.2.2.1}{Branch path inference: a phylogeny}{subsection.2.2}% 7
+\BOOKMARK [3][-]{subsubsection.2.2.2}{Inference: a single protein}{subsection.2.2}% 8
+\BOOKMARK [3][-]{subsubsection.2.2.3}{Backbone structure inference}{subsection.2.2}% 9
+\BOOKMARK [2][-]{subsection.2.3}{Model training}{section.2}% 10
+\BOOKMARK [3][-]{subsubsection.2.3.1}{Datasets}{subsection.2.3}% 11
+\BOOKMARK [3][-]{subsubsection.2.3.2}{Model estimation}{subsection.2.3}% 12
+\BOOKMARK [1][-]{section.3}{Results and Discussion}{}% 13
+\BOOKMARK [2][-]{subsection.3.1}{Benchmarks of ancestral sequence reconstruction}{section.3}% 14
+\BOOKMARK [1][-]{section.4}{Conclusions}{}% 15
+\BOOKMARK [1][-]{section.5}{Software availability}{}% 16
+\BOOKMARK [1][-]{section.6}{Acknowledgements}{}% 17

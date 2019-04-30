@@ -173,6 +173,7 @@ function binarize!(tree::TreeNode)
     nodes = getnodelist(tree)
     counter = 0
     for n in nodes
+    	binarized = false
         while length(n.children) > 2
             c1 = pop!(n.children)
             c2 = pop!(n.children)
@@ -182,8 +183,18 @@ function binarize!(tree::TreeNode)
             c1.parent = Nullable{TreeNode}(n.children[end])
             c2.parent = Nullable{TreeNode}(n.children[end])
             n.children[end].parent = Nullable{TreeNode}(n)
+            binarized = true
+        end
+        if binarized
+        	totalbranchlength = sum(Float64[n.branchlength for n in n.children])
+        	avglen = totalbranchlength/length(n.children)
+        	for c in n.children
+        		c.branchlength = avglen
+        	end
         end
     end
+
+
 end
 
 function nodedistances(nodelist::Array{TreeNode,1})
@@ -1295,7 +1306,7 @@ function felsensteinresample_aa(rng::AbstractRNG, proteins::Array{Protein,1}, no
 				righttransprobs,Pmatrices_right,vs_right = felsensteinhelper_aa(nodelist[rightchildindex], cols, aacol, likelihoods[rightchildindex,:], modelparams)
         		likelihoods[nodeindex, :] = (lefttransprobs*likelihoods[leftchildindex,:]).*(righttransprobs*likelihoods[rightchildindex,:])
         		if modelparams.hidden_conditional_on_aa
-        			# TODO add something here!!!!
+        			# TODO add something here for internal nodes!!!!
         		end
 
         		m = maximum(likelihoods[nodeindex,:])
@@ -1825,6 +1836,68 @@ function constructHiddenMatrix(modelparams::ModelParams, prevh_hmm::Int, nexth_h
     return Q
 end
 
+
+function backwardsamplesingle(rng::AbstractRNG, node::TreeNode, modelparams::ModelParams)
+	""" use backwardsampling to efficiently sample a tree consisting of a single node """
+	numcols = length(node.data.protein.sites)
+	liks = zeros(Float64, numcols, modelparams.numhiddenstates)
+	siteliks = zeros(Float64, modelparams.numhiddenstates)
+	loglikelihood = 0.0
+	for col=1:numcols
+		m = -Inf
+		for h=1:modelparams.numhiddenstates
+			aa = node.data.protein.sites[col].aa
+			siteliks[h] = siteloglikelihood(node.data.protein.sites[col], h, aa, modelparams)
+			if aa > 0
+				 siteliks[h] += log(modelparams.hiddennodes[h].aa_node.probs[aa])
+			end
+
+			m = max(m, siteliks[h])
+		end
+		loglikelihood += m
+		siteliks = exp.(siteliks .- m)
+
+		if col == 1
+			for h=1:modelparams.numhiddenstates
+				liks[col,h] = siteliks[h]
+			end
+		else
+			#res = (((liks[col-1,:]')*modelparams.transitionprobs)').*siteliks
+			#=
+			res = liks[col-1,:].*(modelparams.transitionprobs*siteliks)
+			res = res .- maximum(res)
+			for h=1:modelparams.numhiddenstates 
+				liks[col,h] = res[h]
+			end=#
+			for prevh=1:modelparams.numhiddenstates
+				for h=1:modelparams.numhiddenstates
+					liks[col,h] += liks[col-1,prevh]*modelparams.transitionprobs[prevh,h]*siteliks[h]
+				end
+			end
+			m = maximum(liks[col,:])
+			loglikelihood += log(m)
+			liks[col,:] = liks[col,:] ./ m
+		end
+	end
+	loglikelihood += log(sum(liks[numcols,:]))
+	#println(liks)
+
+	col = numcols
+	sampledstates = zeros(Int, numcols)
+	sampledstates[col] = CommonUtils.sample(rng, liks[col,:])
+	while col > 1
+		col -= 1
+		sampledstates[col] = CommonUtils.sample(rng, liks[col,:].*modelparams.transitionprobs[:,sampledstates[col+1]])
+	end
+
+	for col=1:numcols
+		node.data.branchpath.paths[col][end] = sampledstates[col]
+	end
+
+	return loglikelihood
+end
+
+#=
 function backwardsamplesingle(rng::AbstractRNG, node::TreeNode, modelparams::ModelParams)
 	""" use backwardsampling to efficiently sample a tree consisting of a single node """
 	numcols = length(node.data.protein.sites)
@@ -1853,7 +1926,7 @@ function backwardsamplesingle(rng::AbstractRNG, node::TreeNode, modelparams::Mod
 	for col=1:numcols
 		node.data.branchpath.paths[col][end] = sampledstates[col]
 	end	
-end
+end=#
 
 function forwardbackward(rng::AbstractRNG, node::TreeNode, modelparams::ModelParams)
 	numcols = length(node.data.protein.sites)
@@ -2680,17 +2753,22 @@ function proposebranchlength(rng::AbstractRNG, node::TreeNode, cols::Array{Int,1
 
 	priorscale = 0.20
 	#println("branch length: ", node.data.inputbranchlength)
+	if node.data.inputbranchlength <= 0.0
+		println(node.name,"\t",node.data.inputbranchlength)
+	end
 	priorshape = max(node.data.inputbranchlength, 1e-3)/priorscale
 	priordist = Gamma(priorshape, priorscale)
 
 	sampledist = Gamma(alpha, 1.0/beta)
 	
-	t =	max(node.data.inputbranchlength,node.branchlength,1e-6)
-	for z=1:500
-		samplet = rand(sampledist)
-		deltall = logpdf(priordist,samplet) - logpdf(priordist,t)
-		if exp(deltall) > rand(rng)
-			t = samplet
+	t =	node.branchlength
+	if t > 0.0
+		for z=1:500
+			samplet = rand(sampledist)
+			deltall = logpdf(priordist,samplet) - logpdf(priordist,t)
+			if exp(deltall) > rand(rng)
+				t = samplet
+			end
 		end
 	end
 	

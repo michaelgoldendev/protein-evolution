@@ -7,6 +7,17 @@ Choi, S.~C., Redelings, B.~D., and Thorne, J.~L. 2008.
 \newblock {\em Philosophical Transactions of the Royal Society B: Biological
   Sciences\/}, {363}(1512): 3931--3939.
 
+\bibitem[Felsenstein(1981)Felsenstein]{felsenstein1981evolutionary}
+Felsenstein, J. 1981.
+\newblock {Evolutionary trees from {DNA} sequences: a maximum likelihood
+  approach}.
+\newblock {\em Journal of molecular evolution\/}, {17}(6): 368--376.
+
+\bibitem[Fr{\"u}hwirth-Schnatter(1994)Fr{\"u}hwirth-Schnatter]{fruhwirth1994data}
+Fr{\"u}hwirth-Schnatter, S. 1994.
+\newblock {Data augmentation and dynamic linear models}.
+\newblock {\em Journal of time series analysis\/}, {15}(2): 183--202.
+
 \bibitem[Garc{\'i}a-Portugu{\'e}s {\em et~al.}(2018)Garc{\'i}a-Portugu{\'e}s,
   Golden, S{\o}rensen, Mardia, Hamelryck, and Hein]{Garcia-Portugues:ads}
 Garc{\'i}a-Portugu{\'e}s, E., Golden, M., S{\o}rensen, M., Mardia, K.~V.,

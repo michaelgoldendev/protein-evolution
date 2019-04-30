@@ -274,7 +274,7 @@ function find_non_homologous_random_pdbs(outfile="nonhomologous.fas",homologfast
 	    		count += 1
 	    		seq = ln
 	    		r = rand(rng,1:125)
-	    		if (r == 1 || r == 65) && match(r".*mol:protein.*", name) != nothing && length(seq) >= 100 
+	    		if (r == 1 || r == 16 || r == 65 || r == 32 || r == 48  || r == 72 || r == 98 || r == 114) && match(r".*mol:protein.*", name) != nothing && length(seq) >= 100 
 	    			namelower = lowercase(name)
 
 	    			if !occursin("mutant", namelower) && !occursin("recombinant", namelower) && !occursin("synthetic", namelower) && !occursin("humanized", namelower) && !occursin("humanised", namelower)
@@ -303,7 +303,7 @@ function find_non_homologous_random_pdbs(outfile="nonhomologous.fas",homologfast
 							    		println(fout, ">pdb$(pdbname)_$(chain) $(name[2:end])")
 							    		println(fout, seq)
 							    		flush(fout)
-							    		DatasetCreator.fromsinglepdb(pdbname, chain, "../data/nonhomologous_singles/")
+							    		DatasetCreator.fromsinglepdb(pdbname, chain, "../data/nonhomologous_singles_xlarge/")
 							    	end
 							   	catch e
 

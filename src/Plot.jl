@@ -7,6 +7,189 @@ using PyPlot
 using AngleUtils
 using StatsBase
 
+#=
+function cluster()
+	rng = MersenneTwister(840184110481014)
+	family_directories = ["../data/nonhomologous_singles_xlarge/","../data/homstrad_curated_highquality/", "../data/curated_rna_virus_structures/"]
+	#family_directories = []
+	family_names = String[]
+	traininghash = zero(UInt)
+	count = 1
+	philist = Float64[]
+	psilist = Float64[]
+	maxsize = 1000
+	k = 30
+	for family_dir in family_directories
+		family_files = filter(f -> endswith(f,".fam"), readdir(family_dir))
+		for family_file in family_files
+			full_path = abspath(joinpath(family_dir, family_file))
+			json_family = JSON.parse(open(full_path, "r"))
+			for z=1:length(json_family["proteins"])
+				sequence = json_family["proteins"][z]["sequence"]
+				for (pos,(phi,psi)) in enumerate(json_family["proteins"][z]["phi_psi"])
+					if phi > -100.0 && psi > -100.0
+						if length(philist) < maxsize
+							push!(philist,phi)
+							push!(psilist,psi)
+						else
+							r = rand(rng,1:maxsize)
+							philist[r] = phi
+							psilist[r] = psi
+						end
+					end
+				end
+				count += 1
+			end
+			if count > 500
+				break
+			end
+		end
+	end	
+
+	len = length(philist)
+	mediods = Int[rand(rng,1:len) for i=1:k]
+	assignments = Int[rand(rng,1:k) for r=1:len]
+	for iter=1:100
+		for m=1:k
+			for a=1:len
+
+			end
+		end
+	end
+end=#
+
+function index(i::Int, j::Int, dim1::Int, dim2::Int)
+	reti = i
+	while reti < 1
+		reti += dim1
+	end
+	while reti > dim1
+		reti -= dim1
+	end
+
+	retj = j
+	while retj < 1
+		retj += dim1
+	end
+	while retj > dim2
+		retj -= dim2
+	end
+
+	return reti,retj
+end
+
+function createfilter(dim::Int,std::Float64)
+	#'dist = Normal(0,std)
+	dist = Cauchy(0.0,std)
+	filt = zeros(Float64,dim,dim)
+	d = div(dim,2)
+	for i=1:dim
+		for j=1:dim
+			a = i - d - 1
+			b = j - d - 1
+			filt[i,j] = pdf(dist,a)*pdf(dist,b)
+		end
+	end
+	return filt./sum(filt)
+end
+
+function smoothmat(mat::Array{Float64,2},dim=13,std=2.0)
+	filt =  createfilter(dim,std)
+	d = div(size(filt,1),2)
+	out = zeros(Float64, size(mat,1), size(mat,2))
+	for i=1:size(mat,1)
+		for j=1:size(mat,2)
+			for x=-d:d
+				for y=-d:d
+					a,b = index(i+x,j+y,size(mat,1),size(mat,2))
+					out[i,j] += filt[x+d+1,y+d+1]*mat[a,b]
+				end
+			end
+		end
+	end
+	return out
+end
+
+function plot_empirical()
+	#json_family["proteins"][seqnametoindex[name]]["aligned_phi_psi"][col]
+	N = 500
+	fontsize = 24
+
+	conditions = []
+	#push!(conditions, ("Glycine","glycine", function(seq,pos) seq[pos] == 'G' end))
+	push!(conditions, ("Alanine","alanine", function(seq,pos) seq[pos] == 'A' end))
+	push!(conditions, ("Alanine before Proline", "alaninebeforeproline", function(seq,pos) seq[pos] == 'A' && seq[pos+1] == 'P' end))
+
+	matrices = []
+	maxval = 0.0
+	for (title,name,cond) in conditions
+		mat = zeros(Float64, N, N)
+		family_directories = ["../data/nonhomologous_singles_xlarge/","../data/homstrad_curated_highquality/", "../data/curated_rna_virus_structures/"]
+		#family_directories = []
+		family_names = String[]
+		traininghash = zero(UInt)
+		count = 1
+		for family_dir in family_directories
+			family_files = filter(f -> endswith(f,".fam"), readdir(family_dir))
+			for family_file in family_files
+				full_path = abspath(joinpath(family_dir, family_file))
+				json_family = JSON.parse(open(full_path, "r"))
+				for z=1:length(json_family["proteins"])
+					sequence = json_family["proteins"][z]["sequence"]
+					for (pos,(phi,psi)) in enumerate(json_family["proteins"][z]["phi_psi"])
+						if phi > -100.0 && psi > -100.0 && pos < length(sequence) && cond(sequence,pos)
+							x = round(Int, 1 + (mod2pi(phi+pi) / pi / 2.0)*(N-1))
+							y = round(Int, 1 + (mod2pi(psi+pi) / pi / 2.0)*(N-1))
+							mat[y,x] += 1.0
+						end
+					end
+					count += 1
+				end
+				if count > 1000
+					#break
+				end
+			end
+		end		
+
+		mat = smoothmat(mat)
+		mat ./= sum(mat)
+		push!(matrices,mat)
+
+		m =  maximum(mat)
+		maxval = max(maxval,m)
+		println("MAXIMUM ", m)
+	end
+
+	for ((title,name,cond),mat) in zip(conditions,matrices)
+		mat = mat./maxval
+		fig = plt.figure(figsize=(8,8))
+		plt.rc("text", usetex=true)
+		plt.rc("font", family="serif")
+		plt.clf()		
+
+		ax = plt.imshow(mat, vmin=0.0, vmax=1.0)
+
+		angle_tick_positions = [0, div(N-1,4), div(N-1,2), div((N-1)*3,4), N-1]
+		angle_labels = ["\$-\\pi\$","\$-\\pi/2\$", "0", "\$\\pi/2\$", "\$\\pi\$"]
+		#ax[:set_xticks](angle_tick_positions)
+		#ax[:set_yticks](angle_tick_positions)
+		plt.xticks(angle_tick_positions, angle_labels, fontsize=fontsize)
+		plt.yticks(angle_tick_positions, reverse(angle_labels), fontsize=fontsize)
+		plt.title(title, fontsize=28)
+		plt.xlabel("Phi (\$\\phi\$)", fontsize=fontsize)
+		plt.ylabel("Psi (\$\\psi\$)", fontsize=fontsize, labelpad=-22)
+		cb = plt.colorbar(shrink=0.805)
+		cb.set_label(label="Normalised density",size=20)
+		cb.ax.tick_params(labelsize=20)
+
+		plt.xlim(0.0,N)
+		plt.ylim(0.0,N)
+
+		plt.savefig("plots/ramachandran_$(name).png", transparent=true)
+		plt.close()
+	end
+end
+
 function plot_nodes(modelfile)
 
 	fin = open(modelfile, "r")
@@ -216,7 +399,7 @@ end
 
 function plotaccuracy()
 	samplefile = string("structure.samples")
-	outputsuffix = "_4rpd_test2.png"
+	outputsuffix = "_4rpd_test16_correctmodel_fixed"
 	#samplefile = string("structure_random.samples")
 	#outputsuffix = "_random.png"
 	#samplefile = string("structure_seqsonly.samples")
@@ -231,6 +414,7 @@ function plotaccuracy()
 
 	N = 100
 	startpos = 1
+	fontsize = 24
 
 	fin = open(samplefile, "r")	
 	samples = Serialization.deserialize(fin)
@@ -250,7 +434,7 @@ function plotaccuracy()
 		hiddenfreqs = (modelparams.transitionprobs^100)[1,:]
 
 		numcols = length(proteinsample.aasamples[1])
-		fig = plt.figure(figsize=(7,6))
+		fig = plt.figure(figsize=(8,8))
 		plt.rc("text", usetex=true)
 		plt.rc("font", family="serif")
 
@@ -273,12 +457,12 @@ function plotaccuracy()
 		rs = Float64[0.5, 1.0, 1.5, 2.0]
 		rcolours = ["wo", "wo", "wo", "wo"]
 
-		cpos = [0.0, 0.375-0.025, 0.75-0.025, 1.25-0.025, 1.75-0.025]
+		cpos = [0.0, 0.380-0.025, 0.75-0.025, 1.25-0.025, 1.75-0.025]
 		rs = Float64[0.25, 0.5, 1.0, 1.5, 2.0]
-		distlabelr = rs .+ 0.045
+		distlabelr = rs .+ 0.065
 		distlabelr[1] = 0.17
-		percfontsizes = Int[11,14,14,14,14]
-		distfontsizes = Int[10,14,14,14,14]
+		percfontsizes = Int[21,22,24,24,24]
+		distfontsizes = Int[20,24,24,24,24]
 		#colours = ["#65ca44", "#84d432", "#abdb20", "#d4e115", "#fce51e"]
 		colours = reverse(["#5599ff", "#2a7fff", "#0066ff", "#0055d4", "#0044aa", "#002255"])
 		
@@ -308,12 +492,9 @@ function plotaccuracy()
 		for (colour,percfontsize,distfontsize,c,d,r) in zip(colours,percfontsizes,distfontsizes,cpos,distlabelr,rs)
 			perc =	@sprintf("%d", positionofvalue(distances,r)*100.0)
 			theta = acos(1.0 - c*c/2.0)/2.0
-			plt.text(0.5*N,(0.5+(theta/pi))*N, string("$(perc){\\footnotesize{\\%}}"), fontsize=percfontsize, color=colour,  horizontalalignment="center", verticalalignment="center")
+			plt.text(0.5*N,(0.5+(theta/pi))*N, string("$(perc){\\normalsize{\\%}}"), fontsize=percfontsize, color=colour,  horizontalalignment="center", verticalalignment="center")
 			theta = angulardist_to_angle(d)/2.0
 			plt.text((0.5+(theta/pi))*N,(0.5+(theta/pi))*N, string(r), fontsize=distfontsize, color=colour,  horizontalalignment="left", verticalalignment="center")
-
-			percfontsize = 12
-			distfontsize = 12
 		end
 
 		for (colour,r) in zip(colours,rs)
@@ -387,11 +568,11 @@ function plotaccuracy()
 		angle_labels = ["\$-\\pi\$","\$-\\pi/2\$", "0", "\$\\pi/2\$", "\$\\pi\$"]
 		#ax[:set_xticks](angle_tick_positions)
 		#ax[:set_yticks](angle_tick_positions)
-		plt.xticks(angle_tick_positions, angle_labels, fontsize=15)
-		plt.yticks(angle_tick_positions, reverse(angle_labels), fontsize=15)
+		plt.xticks(angle_tick_positions, angle_labels, fontsize=fontsize)
+		plt.yticks(angle_tick_positions, reverse(angle_labels), fontsize=fontsize)
 		#plt.title("Site $(col)", fontsize=15)
-		plt.xlabel("Phi (\$\\phi\$)", fontsize=15)
-		plt.ylabel("Psi (\$\\psi\$)", fontsize=15)
+		plt.xlabel("Phi (\$\\phi\$)", fontsize=fontsize)
+		plt.ylabel("Psi (\$\\psi\$)", fontsize=fontsize, labelpad=-22)
 
 		plt.xlim(0.0,N)
 		plt.ylim(0.0,N)
@@ -404,7 +585,8 @@ end
 function plotstructuresamples()
 	othername = "pdb4rpd_A"
 	#othername = ""
-	samplefile = string("structure_4rpd.samples")
+	plotname = "pdb5kon_A"
+	samplefile = string("structure.samples")
 
 	N = 100
 	startpos = 1
@@ -413,6 +595,9 @@ function plotstructuresamples()
 	samples = Serialization.deserialize(fin)
 	close(fin)
 	for name in keys(samples)
+		if name != plotname
+			continue
+		end
 		proteinsample = samples[name]
 
 		json_family = proteinsample.json_family
@@ -471,9 +656,11 @@ function plotstructuresamples()
 						for (j, y) in enumerate(range(-pi,stop=pi,length=N))
 							#mat[N-j+1,i] += pdf(modelparams.hiddennodes[h].phi_nodes[aa].dist, x)*pdf(modelparams.hiddennodes[h].psi_nodes[aa].dist, y)*modelparams.hiddennodes[h].aa_node.probs[aa]
 							if modelparams.hidden_conditional_on_aa
-								mat[N-j+1,i] += BivariateVonMises.pdf(modelparams.hiddennodes[h].phipsi_nodes[aa], Float64[x,y])
+								#mat[N-j+1,i] += BivariateVonMises.pdf(modelparams.hiddennodes[h].phipsi_nodes[aa], Float64[x,y])
+								mat[j,i] += BivariateVonMises.pdf(modelparams.hiddennodes[h].phipsi_nodes[aa], Float64[x,y])
 							else
-								mat[N-j+1,i] += BivariateVonMises.pdf(modelparams.hiddennodes[h].phipsi_node, Float64[x,y])
+								#mat[N-j+1,i] += BivariateVonMises.pdf(modelparams.hiddennodes[h].phipsi_node, Float64[x,y])
+								mat[j,i] += BivariateVonMises.pdf(modelparams.hiddennodes[h].phipsi_node, Float64[x,y])
 							end
 						end
 					end
@@ -525,7 +712,8 @@ function plotstructuresamples()
 				phi,psi = proteinsample.json_family["proteins"][seqnametoindex[name]]["aligned_phi_psi"][col]
 				aa = proteinsample.json_family["proteins"][seqnametoindex[name]]["aligned_sequence"][col]
 				x = ((phi+pi)/(2.0*pi))*N
-				y = (1.0-((psi+pi)/(2.0*pi)))*N
+				#y = (1.0-((psi+pi)/(2.0*pi)))*N
+				y = (((psi+pi)/(2.0*pi)))*N
 				#plt.plot(x, y, "o", "None", markersize=12, markeredgecolor="k")
 				plt.text(x+1*(100.0/N),y+1*(100.0/N), string("\\textsf{\\textbf{",aa,"}}"), color="white",  horizontalalignment="center", verticalalignment="center")
 
@@ -534,7 +722,8 @@ function plotstructuresamples()
 					aa = proteinsample.json_family["proteins"][seqnametoindex[othername]]["aligned_sequence"][col]
 					if phihomolog > -100.0 && psihomolog > -100.0
 						x = ((phihomolog+pi)/(2.0*pi))*N
-						y = (1.0-((psihomolog+pi)/(2.0*pi)))*N
+						#y = (1.0-((psihomolog+pi)/(2.0*pi)))*N
+						y = (((psihomolog+pi)/(2.0*pi)))*N
 						#plt.plot(x, y, "o", "None", markersize=10, markeredgecolor="r")
 						plt.text(x+1*(100.0/N),y+1*(100.0/N), string("\\textsf{\\textbf{",aa,"}}"), color="red",  horizontalalignment="center", verticalalignment="center")
 					end
@@ -555,7 +744,7 @@ function plotstructuresamples()
 				plt.xlim(0.0,N)
 				plt.ylim(0.0,N)
 
-				plt.savefig("plots/$(name)_site$(col).png", transparent=true)
+				plt.savefig("plots/samples/$(name)_site$(col).png", transparent=true)
 				plt.close()
 			end
 		end
@@ -601,3 +790,5 @@ end
 #plotratenetwork("models/model_h.10.thresh3.rerun.hiddenaascaling.anglescondaa.ratemode1.model")
 plotaccuracy()
 #plotstructuresamples()
+#plot_empirical()
+#cluster()
