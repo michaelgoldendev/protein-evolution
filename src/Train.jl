@@ -366,8 +366,8 @@ function train(parsed_args=Dict{String,Any}())
 	if parsed_args["angles-cond-aa"] > 0
 		outputmodelname = string(outputmodelname,".anglescondaa", parsed_args["angles-cond-aa"])
 	end
-	if parsed_args["initialclustering"]
-		outputmodelname = string(outputmodelname,".initclustering")
+	if parsed_args["precluster"]
+		outputmodelname = string(outputmodelname,".precluster")
 	end
 	outputmodelname = string(outputmodelname,".ratemode", modelparams.ratemode)
 	modelfile = string("models/model", outputmodelname, ".model")
@@ -386,7 +386,7 @@ function train(parsed_args=Dict{String,Any}())
 		exit()
 	end
 
-	if parsed_args["initialclustering"]
+	if parsed_args["precluster"]
 		estimatehmm(rng, trainingexamples, modelparams, 30, parsed_args)
 		family_names,trainingexamples,traininghashbase36 = loadtrainingexamples(rng, parsed_args, family_directories, modelparams)
 	end
@@ -444,7 +444,7 @@ function train(parsed_args=Dict{String,Any}())
 			backwardsamplesingle(rng, nodelist[1], modelparams)
 		else
 			numcols = length(proteins[1])
-			for i=1:3
+			for i=1:2
 				randcols = shuffle(rng, Int[i for i=1:numcols])
 				for col in randcols
 					samplepaths_seperate_new(rng,col,proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates, accept_everything=true)
@@ -488,18 +488,27 @@ function train(parsed_args=Dict{String,Any}())
 		accepted_hidden_total = 0.0
 		accepted_aa = 0.0
 		accepted_aa_total = 0.0
+		totalhiddentime = 0.0
+		totalaatime = 0.0
 		for (trainingindex, (proteins,nodelist,json_family,sequences)) in enumerate(trainingexamples)
 			numcols = length(proteins[1])
 
 			if length(proteins) == 1
 				backwardsamplesingle(rng, nodelist[1], modelparams)
-			elseif (trainingindex+iter) % familyiter == 0
+			else
+				maxsamplesthisiter = maxsamplesperiter
+				samplehiddenstates = (trainingindex+iter) % familyiter == 0
+				if !samplehiddenstates
+					maxsamplesthisiter = 1
+				end
 				accepted = zeros(Int, numcols)			
-				for i=1:maxsamplesperiter					
+				for i=1:maxsamplesthisiter					
 					randcols = shuffle(rng, Int[i for i=1:numcols])
 					for col in randcols
 						if accepted[col] < sitethreshold || i % 20 == 0 || (col > 1 && accepted[col-1] < sitethreshold) || (col < numcols && accepted[col+1] < sitethreshold) 
-							a1,a2,a3,a4, hidden_accepted, aa_accepted = samplepaths_seperate_new(rng,col,proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates)
+							a1,a2,a3,a4, hidden_accepted, aa_accepted, hiddentime, aatime = samplepaths_seperate_new(rng,col,proteins,nodelist, modelparams, samplehiddenstates=samplehiddenstates, dosamplesiterates=dosamplesiterates)
+							totalhiddentime += hiddentime
+							totalaatime += aatime
 							accepted_hidden += a1
 							accepted_hidden_total += a2
 							accepted_aa += a3
@@ -512,6 +521,7 @@ function train(parsed_args=Dict{String,Any}())
 					min_accepted = minimum(accepted)
 					if min_accepted >= sitethreshold					
 						println("min_accepted ", min_accepted," out of ", i, " mean is ", mean(accepted))
+						println(totalhiddentime,"\t",totalaatime)
 						break
 					end
 
@@ -972,7 +982,7 @@ function parse_training_commandline()
          	help = ""
       	    arg_type = Bool
       	    default = true
-      	 "--initialclustering"
+      	 "--precluster"
       	 	help = ""
           	action = :store_true
 
