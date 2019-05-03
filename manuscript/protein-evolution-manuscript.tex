@@ -345,7 +345,26 @@ X_{b}(t) \sim p(X_{b}(t)|H_{b}(t),A_{b}(t)).
 \subsection{Model training}
 
 \subsubsection{Datasets}
-4500 single protein structures, and 1500 aligned families consisting of two or more proteins (with $XXX\%$ of those having corresponding structures).
+\begin{table*}%	
+	\centering
+	\caption{\label{tab:datasets} Composition of training datasets}
+	\begin{tabularx}{0.91\linewidth}{lccc}
+		\toprule 
+		Category & Number in & Amino acid & Structural\\
+		& category & observations & observations\\
+		\midrule
+		One sequence (no structure) &  310 & 84,806 & 0\\
+		Two sequences (no structures) & 208 & 138,892 & 0\\
+		Three or more sequences (no structures) & 118 & 390,913 & 0\\
+		One structure (one corresponding sequence) & 4,565 & 1,259,635 & 1,259,342\\
+		One structure (two or more sequences) &  192 & 147,679 & 58,887\\
+		Two structures (two or more sequences) &  81 & 72,331 & 50,982\\
+		Three or more structures (three or more sequences) & 18 & 44,273 & 20,745\\
+		\midrule
+		Total & 5,492 & 2,138,529 & 1,389,956\\
+		\bottomrule
+	\end{tabularx}
+\end{table*}
 
 \subsubsection{Model estimation}
 Stochastic EM (StEM, \citet{gilks1995markov}) was used to train the model. StEM  is a stochastic version of the well known Expectation-Maximization algorithm \citep{gilks1995markov}. Its distinguishing feature is that the E-step consists of filling in the values of the latent variables using sampling. Only a single value is sampled. StEM is attractive due to its computational efficiency and its tendency to avoid getting stuck in local minima \citep{gilks1995markov}.
@@ -358,7 +377,7 @@ Z_{d}^{(k)}\sim p(\mathcal{B}_d|\mathcal{D}_d,\Psi^{(k)}).
 In the M-step the samples from the previous E-step, were used to update the hidden node parameters ($\hat{\Psi}$) using efficient sufficient statistics (ESSs).
 
 
-
+\iffalse
 \begin{table*}
 	\captionsetup{justification=centering}
 	\caption{\label{tab:sequencereconstruction} Ancestral sequence reconstruction benchmarks}	
@@ -371,7 +390,7 @@ In the M-step the samples from the previous E-step, were used to update the hidd
 	\bottomrule
 	\end{tabularx}
 \end{table*}
-
+\fi
 
 %%% Results and discussion %%%
 \section{Results and Discussion}

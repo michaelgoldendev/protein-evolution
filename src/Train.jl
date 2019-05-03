@@ -120,7 +120,62 @@ function estimatehmm(rng::AbstractRNG, trainingexamples, modelparams::ModelParam
 	reset_matrix_cache(modelparams)
 end
 
+function datasummary(countdict, keylist)
+	totalaminoacidcounts = 0
+	totalstructuralcounts = 0
+	totalsequences = 0
+	totalstructures = 0
+	for key in keylist
+		combinationcounts, aminoacidcounts, structuralcounts = countdict[key]
+		totalaminoacidcounts += aminoacidcounts
+		totalstructuralcounts += structuralcounts
+		totalsequences += key[1]*combinationcounts
+		totalstructures += key[2]*combinationcounts
+	end
+	println("Number in category: ", sum(Int[countdict[key][1] for key in keylist]))
+	println("Amino acid site observations: $(totalaminoacidcounts) (avg. $(@sprintf("%0.1f", totalaminoacidcounts/totalsequences)))")
+	println("Structural site observations: $(totalstructuralcounts) (avg. $(@sprintf("%0.1f", totalstructuralcounts/totalstructures)))")
+	println("Total sequences: ", totalsequences)
+	println("Total structures: ", totalstructures)
+end
+
+function printsummary(countdict)
+	println("Exactly one sequence")
+	datasummary(countdict, Tuple{Int,Int}[key for key in filter(x -> x[1] == 1 && x[2] == 0, keys(countdict))])
+	println("")
+
+	println("Exactly two sequences")
+	datasummary(countdict, Tuple{Int,Int}[key for key in filter(x -> x[1] == 2 && x[2] == 0, keys(countdict))])
+	println("")
+
+	println("Three or more sequences")
+	datasummary(countdict, Tuple{Int,Int}[key for key in filter(x -> x[1] >= 3 && x[2] == 0, keys(countdict))])
+	println("")
+
+	println("Exactly one sequence and structure")
+	datasummary(countdict, Tuple{Int,Int}[key for key in filter(x -> x[1] == 1 && x[2] == 1, keys(countdict))])
+	println("")
+
+	println("Exactly one structure (and two or more sequences)")
+	datasummary(countdict, Tuple{Int,Int}[key for key in filter(x -> x[1] >= 2 && x[2] == 1, keys(countdict))])
+	println("")
+
+	println("Exactly two structures")
+	datasummary(countdict, Tuple{Int,Int}[key for key in filter(x -> x[2] == 2, keys(countdict))])
+	println("")
+
+	println("Three or more structures")
+	datasummary(countdict, Tuple{Int,Int}[key for key in filter(x -> x[2] >= 3, keys(countdict))])
+	println("")
+
+	println("Total")
+	datasummary(countdict, Tuple{Int,Int}[key for key in keys(countdict)])
+	println("")
+	println("================================================")
+end
+
 function loadtrainingexamples(rng::AbstractRNG, parsed_args, family_directories, modelparams::ModelParams)
+	countdict = Dict{Tuple{Int,Int},Tuple{Int,Int,Int}}()
 	family_names = String[]	
 	trainingexamples = Tuple[]
 	traininghash = zero(UInt)
@@ -131,11 +186,54 @@ function loadtrainingexamples(rng::AbstractRNG, parsed_args, family_directories,
 			json_family = JSON.parse(open(full_path, "r"))
 			traininghash = hash(json_family, traininghash)
 			if 1 <= length(json_family["proteins"]) <= 1e10
-				training_example = training_example_from_json_family(rng, modelparams, json_family)		
-				println(json_family["newick_tree"])
+				training_example = training_example_from_json_family(rng, modelparams, json_family)
+				if rand(rng) < 0.01
+					println(json_family["newick_tree"])
+				end
 				push!(trainingexamples, training_example)
 				#println(getnewick(training_example[2][1]))
 				push!(family_names, family_file)
+
+				numsequences = 0
+				numstructures = 0
+				aminoacidcounts = 0
+				structuralcounts = 0
+				for p in json_family["proteins"]
+					hasstructure = false
+					for (phi,psi) in p["phi_psi"]
+						if phi > -100.0 || psi > -100.0
+							hasstructure = true
+							structuralcounts += 1
+						end
+					end
+					for aa in p["sequence"]
+						if aa != 'X' && aa != '-'
+							aminoacidcounts += 1
+						end
+					end
+
+					numsequences += 1
+					if hasstructure
+						numstructures += 1
+					end
+				end
+				key = (numsequences, numstructures)
+				vals = get(countdict, key, (0,0,0))
+				vals = (vals[1]+1, vals[2]+aminoacidcounts, vals[3]+structuralcounts)
+				countdict[key] = vals
+
+				if rand(rng) < 0.01
+					#println(countdict)
+					#println("Exactly one sequence: ", sum(Int[countdict[key][1] for key in filter(x -> x[1] == 1 && x[2] == 0, keys(countdict))]))
+					#println("Exactly two sequences: ", sum(Int[countdict[key][1] for key in filter(x -> x[1] == 2 && x[2] == 0, keys(countdict))]))
+					#println("Three or more sequences: ", sum(Int[countdict[key][1] for key in filter(x -> x[1] >= 3 && x[2] == 0, keys(countdict))]))
+					#println("Exactly one sequence and structure: ", sum(Int[countdict[key][1] for key in filter(x -> x[1] == 1 && x[2] == 1, keys(countdict))]))
+					#println("Exactly one structure (and two or more sequences): ", sum(Int[countdict[key][1] for key in filter(x -> x[1] >= 2 && x[2] == 1, keys(countdict))]))
+					#println("Exactly two structures: ", sum(Int[countdict[key][1] for key in filter(x -> x[2] == 2, keys(countdict))]))
+					#println("Three or more structures: ", sum(Int[countdict[key][1] for key in filter(x -> x[2] >= 3, keys(countdict))]))
+					printsummary(countdict)
+				end
+
 				if parsed_args["maxtraininginstances"] != nothing && length(trainingexamples) == parsed_args["maxtraininginstances"]
 					break
 				end
@@ -145,6 +243,8 @@ function loadtrainingexamples(rng::AbstractRNG, parsed_args, family_directories,
 			break
 		end
 	end
+	printsummary(countdict)
+
 	traininghashbase36 = string(traininghash, base=36)
 	return family_names,trainingexamples,traininghashbase36
 end
@@ -196,6 +296,38 @@ function train(parsed_args=Dict{String,Any}())
 	familyiter = 5
 
 	family_names,trainingexamples,traininghashbase36 = loadtrainingexamples(rng, parsed_args, family_directories, modelparams)
+
+	#=
+	countdict = Dict{Tuple{Int,Int},Int}()
+	for (index, (proteins,nodelist,json_family,sequences)) in enumerate(trainingexamples)
+		numsequences = 0
+		numstructures = 0
+		for p in json_family["proteins"]
+			hasstructure = false
+			for (phi,psi) in p["phi_psi"]
+				if phi > -100.0 && psi > -100.0
+					hasstructure = true
+					break
+				end
+			end
+
+			numsequences += 1
+			if hasstructure
+				numstructures += 1
+			end
+		end
+		key = (numsequences, numstructures)
+		numinstances = get(countdict, key, 0)
+		numinstances += 1
+		countdict[key] = numinstances
+		println(countdict)
+		println("Sequences only: ", sum(Int[countdict[key] for key in filter(x -> x[2] == 0, keys(countdict))]))
+		println("Exactly one structure: ", sum(Int[countdict[key] for key in filter(x -> x[2] == 1, keys(countdict))]))
+		println("Exactly two structures: ", sum(Int[countdict[key] for key in filter(x -> x[2] == 2, keys(countdict))]))
+		println("Three or more structures: ", sum(Int[countdict[key] for key in filter(x -> x[2] >= 3, keys(countdict))]))
+	end
+	exit()
+	=#
 
 	#=
 	selectionout = open("selectedsequences.fasta","w")
