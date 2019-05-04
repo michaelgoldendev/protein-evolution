@@ -174,6 +174,66 @@ function printsummary(countdict)
 	println("================================================")
 end
 
+function stripfamily(json_family)
+	startindex = typemax(Int)
+	endindex = 1
+	for protein in json_family["proteins"]
+		alignedsequence = protein["aligned_sequence"]
+		#println(length(alignedsequence))
+		#println(alignedsequence)
+		for i=1:length(alignedsequence)
+			if !(alignedsequence[i] == '-' || alignedsequence[i] == 'X')
+				startindex = min(startindex, i)
+				break
+			end
+		end
+		for i=length(alignedsequence):-1:1
+			if !(alignedsequence[i] == '-' || alignedsequence[i] == 'X')
+				endindex = max(endindex, i)
+				break
+			end
+		end
+	end	
+	println("startindex: ", startindex)
+	println("endindex: ", endindex)	
+	startgaps = Int[]
+	endgaps = Int[]
+	for protein in json_family["proteins"]
+		alignedsequence = protein["aligned_sequence"]
+		push!(startgaps, count(x -> x == 'X', alignedsequence[1:startindex-1]))
+		push!(endgaps, count(x -> x == 'X', alignedsequence[endindex:end]))
+	end
+	for (index, protein) in enumerate(json_family["proteins"])
+		protein["sequence"] = protein["sequence"][startgaps[index]+1:end-endgaps[index]]
+		protein["aligned_sequence"] = protein["aligned_sequence"][startindex:endindex]
+
+		protein["bond_angles"] = protein["bond_angles"][startgaps[index]+1:end-endgaps[index]]
+		protein["aligned_bond_angles"] = protein["aligned_bond_angles"][startindex:endindex]
+
+		protein["bond_lengths"] = protein["bond_lengths"][startgaps[index]+1:end-endgaps[index]]
+		protein["aligned_bond_lengths"] = protein["aligned_bond_lengths"][startindex:endindex]
+		
+		protein["omega"] = protein["omega"][startgaps[index]+1:end-endgaps[index]]
+		protein["aligned_omega"] = protein["aligned_omega"][startindex:endindex]
+
+		protein["phi_psi"] = protein["phi_psi"][startgaps[index]+1:end-endgaps[index]]
+		protein["aligned_phi_psi"] = protein["aligned_phi_psi"][startindex:endindex]
+
+		if haskey(protein, "Ntempfactor")
+			protein["Ntempfactor"] = protein["Ntempfactor"][startgaps[index]+1:end-endgaps[index]]
+			protein["aligned_Ntempfactor"] = protein["aligned_Ntempfactor"][startindex:endindex]
+
+			protein["CAtempfactor"] = protein["CAtempfactor"][startgaps[index]+1:end-endgaps[index]]
+			protein["aligned_CAtempfactor"] = protein["aligned_CAtempfactor"][startindex:endindex]
+
+			protein["Ctempfactor"] = protein["Ctempfactor"][startgaps[index]+1:end-endgaps[index]]
+			protein["aligned_Ctempfactor"] = protein["aligned_Ctempfactor"][startindex:endindex]
+		end
+	end 
+	#println(startgaps,"\t",endgaps)
+
+end
+
 function loadtrainingexamples(rng::AbstractRNG, parsed_args, family_directories, modelparams::ModelParams)
 	countdict = Dict{Tuple{Int,Int},Tuple{Int,Int,Int}}()
 	family_names = String[]	
@@ -184,6 +244,7 @@ function loadtrainingexamples(rng::AbstractRNG, parsed_args, family_directories,
 		for family_file in family_files
 			full_path = abspath(joinpath(family_dir, family_file))
 			json_family = JSON.parse(open(full_path, "r"))
+			stripfamily(json_family)
 			traininghash = hash(json_family, traininghash)
 			if 1 <= length(json_family["proteins"]) <= 1e10
 				training_example = training_example_from_json_family(rng, modelparams, json_family)
@@ -293,7 +354,7 @@ function train(parsed_args=Dict{String,Any}())
 	#family_directories = ["../data/homstrad_curated/", "../data/curated_rna_virus_structures/"]	
 	family_directories = ["../data/homstrad_curated_highquality/", "../data/curated_rna_virus_structures/", "../data/nonhomologous_singles_xlarge/"]
 	#family_directories = ["../data/homstrad_curated_highquality/", "../data/curated_rna_virus_structures/"]	
-	familyiter = 5
+	familyiter = 1
 
 	family_names,trainingexamples,traininghashbase36 = loadtrainingexamples(rng, parsed_args, family_directories, modelparams)
 
@@ -489,7 +550,8 @@ function train(parsed_args=Dict{String,Any}())
 		accepted_aa = 0.0
 		accepted_aa_total = 0.0
 		totalhiddentime = 0.0
-		totalaatime = 0.0
+		totalaatime = 0.0		
+		starttime = time()
 		for (trainingindex, (proteins,nodelist,json_family,sequences)) in enumerate(trainingexamples)
 			numcols = length(proteins[1])
 
@@ -497,10 +559,16 @@ function train(parsed_args=Dict{String,Any}())
 				backwardsamplesingle(rng, nodelist[1], modelparams)
 			else
 				maxsamplesthisiter = maxsamplesperiter
+				if (trainingindex+iter) % familyiter != 0
+					maxsamplesthisiter = 1
+				end
+				samplehiddenstates = true
+								#=
+				maxsamplesthisiter = maxsamplesperiter
 				samplehiddenstates = (trainingindex+iter) % familyiter == 0
 				if !samplehiddenstates
 					maxsamplesthisiter = 1
-				end
+				end=#
 				accepted = zeros(Int, numcols)			
 				for i=1:maxsamplesthisiter					
 					randcols = shuffle(rng, Int[i for i=1:numcols])
@@ -519,9 +587,10 @@ function train(parsed_args=Dict{String,Any}())
 						end
 					end
 					min_accepted = minimum(accepted)
-					if min_accepted >= sitethreshold					
+					if min_accepted >= sitethreshold
+						elapsedtime = time()-starttime					
 						println("min_accepted ", min_accepted," out of ", i, " mean is ", mean(accepted))
-						println(totalhiddentime,"\t",totalaatime)
+						println(totalhiddentime,"\t",totalaatime,"\t",family_names[trainingindex],"\t", elapsedtime)
 						break
 					end
 

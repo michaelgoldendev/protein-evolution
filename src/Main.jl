@@ -867,23 +867,37 @@ function felsensteinhelper(node::TreeNode, selcolin::Int, incols::Array{Int,1}, 
 	vs = Array{Float64,1}[]
 	dummytime = Float64[]
 	index = 1
-    for it in multi_iter
-		dt = (multi_iter.currtime-multi_iter.prevtime)*node.branchlength
+	fastsample = true
+	if fastsample
+		dt = node.branchlength
 		key,R,Pi = getQandPt(modelparams, get(hiddeniter.prevstates, selcol-1, 0), get(hiddeniter.prevstates, selcol, 0), aaiter.prevstates[1], node.data.ratesbranchpath.paths[aacol][end], dt)
-		#println("R ",R)
-		#println("Pi ",Pi)
-		#println(get(hiddeniter.prevstates, selcol-1, 0),"\t", get(hiddeniter.prevstates, selcol, 0),"\t", aaiter.prevstates[1], "\t", node.data.ratesbranchpath.paths[aacol][end], "\t", dt)
-		Pret *= Pi
+		node.data.branchpath.key = key
+		node.data.branchpath.R = R
+		node.data.branchpath.P2 = Pi
+		Pret = Pi
 		push!(node.data.branchpath.Rmatrices, R*dt)
 		push!(node.data.branchpath.RmatricesX, R)
     	push!(node.data.branchpath.Pmatrices,Pi)
-    	push!(dummytime,multi_iter.prevtime)
-    	if index == 1
-    		node.data.branchpath.key,node.data.branchpath.R, node.data.branchpath.P2 =  getQandPt(modelparams, get(hiddeniter.prevstates, selcol-1, 0), get(hiddeniter.prevstates, selcol, 0), aaiter.prevstates[1], node.data.ratesbranchpath.paths[aacol][end], node.branchlength)
-    	end
-    	index += 1
+    	push!(dummytime,0.0)
+	else
+	    for it in multi_iter
+			dt = (multi_iter.currtime-multi_iter.prevtime)*node.branchlength
+			key,R,Pi = getQandPt(modelparams, get(hiddeniter.prevstates, selcol-1, 0), get(hiddeniter.prevstates, selcol, 0), aaiter.prevstates[1], node.data.ratesbranchpath.paths[aacol][end], dt)
+			#println("R ",R)
+			#println("Pi ",Pi)
+			#println(get(hiddeniter.prevstates, selcol-1, 0),"\t", get(hiddeniter.prevstates, selcol, 0),"\t", aaiter.prevstates[1], "\t", node.data.ratesbranchpath.paths[aacol][end], "\t", dt)
+			Pret *= Pi
+			push!(node.data.branchpath.Rmatrices, R*dt)
+			push!(node.data.branchpath.RmatricesX, R)
+	    	push!(node.data.branchpath.Pmatrices,Pi)
+	    	push!(dummytime,multi_iter.prevtime)
+	    	if index == 1
+	    		node.data.branchpath.key , node.data.branchpath.R, node.data.branchpath.P2 =  getQandPt(modelparams, get(hiddeniter.prevstates, selcol-1, 0), get(hiddeniter.prevstates, selcol, 0), aaiter.prevstates[1], node.data.ratesbranchpath.paths[aacol][end], node.branchlength)
+	    	end
+	    	index += 1
+		end
+		push!(dummytime,1.0)
 	end
-	push!(dummytime,1.0)
 
     tempv = copy(v)
     pushfirst!(vs,v)
@@ -974,6 +988,7 @@ function felsensteinresample(rng::AbstractRNG, proteins::Array{Protein,1}, nodel
 			backwardsampling_old(rng,nodelist[1], rootstate, selcol, modelparams)
 		else
 			return backwardsampling(rng,nodelist[1], rootstate, selcol, modelparams)
+			#return backwardsampling_stack(rng, nodelist, rootstate, selcol, modelparams)
 		end
 	else
 		return Z
@@ -1109,7 +1124,131 @@ function backwardsampling_loglikelihood(nodelist::Array{TreeNode,1}, aacol::Int,
 	return ll
 end
 
+function proposallikelihood_stack(nodelist::Array{TreeNode,1}, selcol::Int, modelparams::ModelParams, inpaths::Array{Array{Int,1},1}=Array{Int,1}[], intimes::Array{Array{Float64,1},1}=Array{Float64,1}[])	
+	loglikelihood = 0.0
+	for node in nodelist
+		if !isroot(node)	
+			times = node.data.branchpath.times[selcol]
+			paths = node.data.branchpath.paths[selcol]
+			if length(intimes) > 0
+				times = intimes[node.nodeindex]
+				paths = inpaths[node.nodeindex]
+			end
 
+			combinedpaths = Int[paths[1]]
+			combinedtimes = Float64[0.0]
+			Rindices = Int[1]
+			i1 = 2
+			i2 = 2			
+			while true
+				if i1 <= length(times) && i2 <= length(node.data.branchpath.time)-1
+					t1 = times[i1]
+					t2 = node.data.branchpath.time[i2]
+					if t1 < t2
+						push!(combinedpaths, paths[i1])
+						t1 = times[i1]		
+						push!(combinedtimes, t1)	
+						push!(Rindices, Rindices[end])
+						i1 += 1
+					elseif t2 < t1
+						push!(combinedpaths, combinedpaths[end])
+						t2 = node.data.branchpath.time[i2]
+						push!(combinedtimes, t2)
+						push!(Rindices,i2)
+						i2 += 1
+					else
+						push!(combinedpaths, paths[i1])
+						t1 = times[i1]		
+						push!(combinedtimes, t1)
+						push!(Rindices, Rindices[end])			
+						i1 += 1
+						i2 += 1
+					end
+				elseif i1 <= length(times)	
+					push!(combinedpaths, paths[i1])				
+					t1 = times[i1]		
+					push!(combinedtimes, t1)	
+					push!(Rindices, Rindices[end])			
+					i1 += 1
+				elseif i2 <= length(node.data.branchpath.time)-1
+					push!(combinedpaths, combinedpaths[end])
+					t2 = node.data.branchpath.time[i2]
+					push!(combinedtimes, t2)
+					push!(Rindices,i2)
+					i2 += 1
+				else
+					break
+				end
+			end
+			#=
+			if length(times) > 2 && length(node.data.branchpath.time)-1 > 2
+				println("A ", times,"\t", paths)
+				println("B ", node.data.branchpath.time)
+				println("C ", combinedtimes, "\t", combinedpaths)
+				println("D ", Rindices)
+				println("E ", length(intimes))
+			end=#
+			for z=1:length(Rindices)-1
+				Rindex = Rindices[z]
+				dt = combinedtimes[z+1] - combinedtimes[z]
+				a = combinedpaths[z]
+				b = combinedpaths[z+1]
+				if a != b
+					loglikelihood += log(node.data.branchpath.RmatricesX[Rindex][a,b]*node.branchlength)
+				else
+					loglikelihood += node.data.branchpath.RmatricesX[Rindex][a,a]*dt*node.branchlength
+				end
+			end
+			Rindex = Rindices[end]
+			a = combinedpaths[end]
+			dt = 1.0 - combinedtimes[end]
+			loglikelihood += node.data.branchpath.RmatricesX[Rindex][a,a]*dt*node.branchlength
+			#=
+			if length(times[node.nodeindex]) > 2 && length(node.data.branchpath.time)-1 > 2
+				
+				println("ll= ", loglikelihood)
+			end=#
+		end
+	end
+	return loglikelihood
+end
+
+function backwardsampling_stack(rng::AbstractRNG, nodelist::Array{TreeNode,1}, rootstate::Int, selcol::Int,modelparams::ModelParams)
+	states = zeros(Int, length(nodelist))
+	states[1] = rootstate
+	for node in nodelist
+		state = states[node.nodeindex]
+		for child in node
+			if states[child.nodeindex] == 0
+				path = Int[state]
+				for (Pi,v) in zip(child.data.branchpath.Pmatrices, child.data.branchpath.vs)
+					liks = Pi[path[end],:].*v			
+					samplestate = CommonUtils.sample(rng,liks)
+					push!(path,samplestate)			
+				end
+				states[child.nodeindex] = path[end]
+
+				newpath = Int[]
+				newtime = Float64[]
+				for z=1:length(path)-1
+					dt = child.data.branchpath.time[z+1]-child.data.branchpath.time[z]
+					samplepath, sampletimes, success = modifiedrejectionsampling(rng, child.data.branchpath.Rmatrices[z], path[z], path[z+1], modelparams)
+					if !success
+						return false
+					end
+					append!(newpath,samplepath)
+					append!(newtime,(sampletimes*dt) .+ child.data.branchpath.time[z])
+				end
+
+				newpath, newtime = removevirtualjumps(newpath, newtime)
+				child.data.branchpath.paths[selcol] = newpath
+				child.data.branchpath.times[selcol] = newtime
+			end
+		end
+	end
+	#println("states ",states)
+	return true
+end
 
 function backwardsampling_old(rng::AbstractRNG,node::TreeNode, state::Int, selcol::Int,modelparams::ModelParams)
 	for child in node
@@ -1228,18 +1367,32 @@ function felsensteinhelper_aa(node::TreeNode, incols::Array{Int,1}, aacol::Int, 
 	Pret = Matrix{Float64}(I, modelparams.alphabet, modelparams.alphabet)
 	node.data.aabranchpath.R = Pret
 	index = 1
-    for it in multi_iter
-		dt = (multi_iter.currtime-multi_iter.prevtime)*node.branchlength
+	fastsample = true
+	if fastsample
+		dt = node.branchlength
 		key,R,Pi = getAAandPt(modelparams, 0, 0, hiddeniter.prevstates[1], node.data.ratesbranchpath.paths[aacol][end], dt)				
-    	Pret *= Pi
+		node.data.aabranchpath.key = key
+		node.data.aabranchpath.R = R
+		node.data.aabranchpath.P2 = Pi
+		Pret = Pi
 		push!(node.data.aabranchpath.Rmatrices, R*dt)
 		push!(node.data.aabranchpath.RmatricesX, R)
     	push!(node.data.aabranchpath.Pmatrices,Pi)
-    	push!(dummytime,multi_iter.prevtime)
-    	if index == 1
-    		node.data.aabranchpath.key,node.data.aabranchpath.R, node.data.aabranchpath.P2 = getAAandPt(modelparams, 0, 0, hiddeniter.prevstates[1], node.data.ratesbranchpath.paths[aacol][end], node.branchlength)
-    	end
-    	index += 1
+    	push!(dummytime,0.0)
+	else
+	    for it in multi_iter
+			dt = (multi_iter.currtime-multi_iter.prevtime)*node.branchlength
+			key,R,Pi = getAAandPt(modelparams, 0, 0, hiddeniter.prevstates[1], node.data.ratesbranchpath.paths[aacol][end], dt)				
+	    	Pret *= Pi
+			push!(node.data.aabranchpath.Rmatrices, R*dt)
+			push!(node.data.aabranchpath.RmatricesX, R)
+	    	push!(node.data.aabranchpath.Pmatrices,Pi)
+	    	push!(dummytime,multi_iter.prevtime)
+	    	if index == 1
+	    		node.data.aabranchpath.key,node.data.aabranchpath.R, node.data.aabranchpath.P2 = getAAandPt(modelparams, 0, 0, hiddeniter.prevstates[1], node.data.ratesbranchpath.paths[aacol][end], node.branchlength)
+	    	end
+	    	index += 1
+		end
 	end
 	push!(dummytime,1.0)
 
@@ -2876,10 +3029,12 @@ function samplepaths_seperate_new(rng::AbstractRNG, col::Int,proteins,nodelist::
 			temppath = Array{Int,1}[copy(node.data.branchpath.paths[col]) for node in nodelist]
 			temptimes = Array{Float64,1}[copy(node.data.branchpath.times[col]) for node in nodelist]
 			site1 = augmentedloglikelihood(nodelist, cols, modelparams)	
-			cont = felsensteinresample(rng, proteins, nodelist, col, cols,col, modelparams)
+			cont = felsensteinresample(rng, proteins, nodelist, col, cols, col, modelparams)
 			prop1 = hidden_proposal_likelihood(nodelist, col, modelparams, temppath, temptimes)
+			#prop1 = proposallikelihood_stack(nodelist, col, modelparams, temppath, temptimes)	
 			site2 = augmentedloglikelihood(nodelist, cols, modelparams)	
 			prop2 = hidden_proposal_likelihood(nodelist, col, modelparams)
+			#prop2 = proposallikelihood_stack(nodelist, col, modelparams)
 			if cont && exp((site2-site1)+(prop1-prop2)) > rand(rng)
 				accepted_hidden += 1.0
 				hidden_accepted = true
@@ -2904,9 +3059,9 @@ function samplepaths_seperate_new(rng::AbstractRNG, col::Int,proteins,nodelist::
 		temppath = Array{Int,1}[copy(node.data.aabranchpath.paths[col]) for node in nodelist]
 		temptimes = Array{Float64,1}[copy(node.data.aabranchpath.times[col]) for node in nodelist]	
 		site1 = augmentedloglikelihood(nodelist, cols, modelparams)
-		cont = felsensteinresample_aa(rng, proteins, nodelist, cols, col, modelparams)
-		site2 = augmentedloglikelihood(nodelist, cols, modelparams)
+		cont = felsensteinresample_aa(rng, proteins, nodelist, cols, col, modelparams)		
 		prop1 = aa_proposal_likelihood(nodelist, col, modelparams, temppath, temptimes)
+		site2 = augmentedloglikelihood(nodelist, cols, modelparams)
 		prop2 = aa_proposal_likelihood(nodelist, col, modelparams)
 		if cont && exp((site2-site1)+(prop1-prop2)) > rand(rng)			
 			aa_accepted = true
