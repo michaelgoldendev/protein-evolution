@@ -1125,28 +1125,42 @@ function backwardsampling_loglikelihood(nodelist::Array{TreeNode,1}, aacol::Int,
 end
 
 function proposallikelihood_stack(nodelist::Array{TreeNode,1}, selcol::Int, modelparams::ModelParams, inpaths::Array{Array{Int,1},1}=Array{Int,1}[], intimes::Array{Array{Float64,1},1}=Array{Float64,1}[])	
+	rootnode = nodelist[1]
+	len = length(rootnode.data.branchpath.paths)
+	prevh = 0
+	if selcol > 1
+		prevh = rootnode.data.branchpath.paths[selcol-1][end]
+	end
+	nexth = 0
+	if selcol < len
+		nexth = rootnode.data.branchpath.paths[selcol+1][end]
+	end
+	freqs = gethiddeninitialprobs(modelparams, prevh, nexth, rootnode.data.aabranchpath.paths[selcol][end])	
 	loglikelihood = 0.0
 	for node in nodelist
-		if !isroot(node)	
-			times = node.data.branchpath.times[selcol]
-			paths = node.data.branchpath.paths[selcol]
-			if length(intimes) > 0
-				times = intimes[node.nodeindex]
-				paths = inpaths[node.nodeindex]
-			end
+		time = node.data.branchpath.times[selcol]
+		path = node.data.branchpath.paths[selcol]
+		if length(intimes) > 0
+			time = intimes[node.nodeindex]
+			path = inpaths[node.nodeindex]
+		end
 
-			combinedpaths = Int[paths[1]]
+		if isroot(node)
+			h = path[end]
+			loglikelihood += log(freqs[h])
+		else
+			combinedpaths = Int[path[1]]
 			combinedtimes = Float64[0.0]
 			Rindices = Int[1]
 			i1 = 2
 			i2 = 2			
 			while true
-				if i1 <= length(times) && i2 <= length(node.data.branchpath.time)-1
-					t1 = times[i1]
+				if i1 <= length(time) && i2 <= length(node.data.branchpath.time)-1
+					t1 = time[i1]
 					t2 = node.data.branchpath.time[i2]
 					if t1 < t2
-						push!(combinedpaths, paths[i1])
-						t1 = times[i1]		
+						push!(combinedpaths, path[i1])
+						t1 = time[i1]		
 						push!(combinedtimes, t1)	
 						push!(Rindices, Rindices[end])
 						i1 += 1
@@ -1157,16 +1171,16 @@ function proposallikelihood_stack(nodelist::Array{TreeNode,1}, selcol::Int, mode
 						push!(Rindices,i2)
 						i2 += 1
 					else
-						push!(combinedpaths, paths[i1])
-						t1 = times[i1]		
+						push!(combinedpaths, path[i1])
+						t1 = time[i1]		
 						push!(combinedtimes, t1)
 						push!(Rindices, Rindices[end])			
 						i1 += 1
 						i2 += 1
 					end
-				elseif i1 <= length(times)	
-					push!(combinedpaths, paths[i1])				
-					t1 = times[i1]		
+				elseif i1 <= length(time)	
+					push!(combinedpaths, path[i1])				
+					t1 = time[i1]		
 					push!(combinedtimes, t1)	
 					push!(Rindices, Rindices[end])			
 					i1 += 1
@@ -1188,6 +1202,7 @@ function proposallikelihood_stack(nodelist::Array{TreeNode,1}, selcol::Int, mode
 				println("D ", Rindices)
 				println("E ", length(intimes))
 			end=#
+
 			for z=1:length(Rindices)-1
 				Rindex = Rindices[z]
 				dt = combinedtimes[z+1] - combinedtimes[z]
@@ -1195,9 +1210,8 @@ function proposallikelihood_stack(nodelist::Array{TreeNode,1}, selcol::Int, mode
 				b = combinedpaths[z+1]
 				if a != b
 					loglikelihood += log(node.data.branchpath.RmatricesX[Rindex][a,b]*node.branchlength)
-				else
-					loglikelihood += node.data.branchpath.RmatricesX[Rindex][a,a]*dt*node.branchlength
 				end
+				loglikelihood += node.data.branchpath.RmatricesX[Rindex][a,a]*dt*node.branchlength
 			end
 			Rindex = Rindices[end]
 			a = combinedpaths[end]
