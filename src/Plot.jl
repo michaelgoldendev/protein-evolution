@@ -399,7 +399,7 @@ end
 
 function plotaccuracy()
 	samplefile = string("structure.samples")
-	outputsuffix = "_4rpd_test26_correctmodel_model30sampled_samplescaling"
+	outputsuffix = "_4rpd_test27_correctmodel_model30sampled_samplescaling"
 	#samplefile = string("structure_random.samples")
 	#outputsuffix = "_random.png"
 	#samplefile = string("structure_seqsonly.samples")

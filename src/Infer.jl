@@ -281,7 +281,7 @@ function infer(parsed_args=Dict{String,Any}())
 	numcols = length(proteins[1])
 	mcmcwriter = open("$(outputprefix).log", "w")
 	treewriter = open("$(outputprefix).mcmc.log", "w")
-	print(mcmcwriter, "iter\ttotalll\tpathll\tsequencell\tobservationll\tscalingfactor\talpha")
+	print(mcmcwriter, "iter\ttotalll\tpathll\tsequencell\tobservationll\tscalingfactor\talpha\tsecondsperiter")
 
 	blindseq_writers = Dict{String,Any}()
 	for blindnodename in blindproteins
@@ -373,7 +373,7 @@ function infer(parsed_args=Dict{String,Any}())
 	sequencescoresatmax = Float64[]
 	ratetotals = zeros(Float64, numcols)
 	for iter=1:10000
-
+		starttime = time()
 		if iter > 10 && samplebranchlengths
 			println("$(iter).1 Sampling branch lengths START")
 			randindex = rand(2:length(nodelist))
@@ -484,7 +484,8 @@ function infer(parsed_args=Dict{String,Any}())
 			sequencell += felsensteinresample_aa(rng, proteins, nodelist, Int[col], col, modelparams, false)
 		end
 		observationll = observationloglikelihood(proteins, nodelist, modelparams)
-		print(mcmcwriter, iter-1,"\t",augmentedll+observationll,"\t",augmentedll,"\t",sequencell,"\t",observationll,"\t",modelparams.scalingfactor, "\t", modelparams.rate_alpha)
+		elapsedtime = time()-starttime 
+		print(mcmcwriter, iter-1,"\t",augmentedll+observationll,"\t",augmentedll,"\t",sequencell,"\t",observationll,"\t",modelparams.scalingfactor, "\t", modelparams.rate_alpha, "\t",elapsedtime)
 		for blindnodename in blindproteins
 			print(mcmcwriter,"\t",sequencescores[blindnodename][end])
 		end

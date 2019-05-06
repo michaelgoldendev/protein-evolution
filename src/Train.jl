@@ -355,12 +355,8 @@ function sampletraininginstances(iter::Int, rng::AbstractRNG, trainingexamples, 
 				end
 				min_accepted = minimum(accepted)
 				if min_accepted >= sitethreshold
-					elapsedtime = time()-starttime					
-					println("min_accepted ", min_accepted," out of ", i, " mean is ", mean(accepted))
-					println(totalhiddentime,"\t",totalaatime,"\t",family_names[trainingindex],"\t", elapsedtime)
 					break
 				end
-
 
 				if samplebranchlengths && (i <= sitethreshold || i % 10 == 0)
 					for node in nodelist
@@ -374,6 +370,10 @@ function sampletraininginstances(iter::Int, rng::AbstractRNG, trainingexamples, 
 					end
 				end
 			end
+			elapsedtime = time()-starttime
+			min_accepted = minimum(accepted)
+			println("min_accepted ", min_accepted, " mean is ", mean(accepted))
+			println(totalhiddentime,"\t",totalaatime,"\t",family_names[trainingindex],"\t", elapsedtime)
 		end
 
 		for col=1:numcols-1
@@ -560,7 +560,7 @@ function train(parsed_args=Dict{String,Any}())
 	if parsed_args["angles-cond-aa"] > 0
 		outputmodelname = string(outputmodelname,".anglescondaa", parsed_args["angles-cond-aa"])
 	end
-	if parsed_args["precluster"]
+	if parsed_args["precluster"] > 0
 		outputmodelname = string(outputmodelname,".precluster")
 	end
 	outputmodelname = string(outputmodelname,".ratemode", modelparams.ratemode)
@@ -580,8 +580,8 @@ function train(parsed_args=Dict{String,Any}())
 		exit()
 	end
 
-	if parsed_args["precluster"]
-		estimatehmm(rng, trainingexamples, modelparams, 30, parsed_args)
+	if parsed_args["precluster"] > 0
+		estimatehmm(rng, trainingexamples, modelparams, parsed_args["precluster"], parsed_args)
 		family_names,trainingexamples,traininghashbase36 = loadtrainingexamples(rng, parsed_args, family_directories, modelparams)
 	end
 	
@@ -1009,18 +1009,18 @@ function parse_training_commandline()
 
     add_arg_group(settings, "training")
     @add_arg_table settings begin
-        "numhiddenstates"
+    	"numhiddenstates"
         	help = "train a model with this number of hidden states"
          	arg_type = Int
          	required = true
-         "--sitethreshold"
+     	"--sitethreshold"
          	arg_type = Int
          	help = "the minimum number of successful site resamplings required at each protein site at each iteration (maximum number of attempts is MAXSAMPLESPERITER)"
          	default = 3
-         "--maxsamplesperiter"
+     	"--maxsamplesperiter"
          	arg_type = Int
-         	default = 500
-         "--trainingdirs"
+         	default = 5
+     	"--trainingdirs"
          	help = "comma-seperated list of directories that contain training instance files to be used for training"
         	arg_type = String
     	"--traininginstances"
@@ -1057,8 +1057,8 @@ function parse_training_commandline()
       	    arg_type = Bool
       	    default = true
       	 "--precluster"
-      	 	help = ""
-          	action = :store_true
+      	 	arg_type = Int
+         	default = 30
 
 	        
     end

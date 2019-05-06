@@ -28,9 +28,11 @@ module CTMCs
 	  	return recursivesampling(rng, Q, a, b, complex(V), complex(D), complex(Vi), t)
 	end
 
+	Pcache = Array{Float64,2}[zeros(Float64,1,1) for level=1:40]
 	function recursivesampling(rng::AbstractRNG, Q::Array{Float64,2}, a::Int, b::Int, V::Array{Complex{Float64},2}, D::Array{Complex{Float64},1}, Vi::Array{Complex{Float64},2}, t::Float64=1.0)		
-	  	len = size(Q,1)
-	  	Pcache = Array{Float64,2}[zeros(Float64,len,len) for level=1:40]
+	  	for level=1:40
+	  		Pcache[level][1,1] = 0.0
+	  	end 
 	  	paths,times,count = recursivesampling(Pcache, rng, Q, V, D, Vi, a, b, t)
 	  	#=
 	  	if count >= 400
