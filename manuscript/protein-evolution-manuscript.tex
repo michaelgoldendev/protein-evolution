@@ -304,10 +304,25 @@ Time-reversibility implies that at any rooting of the tree can be used if the eq
 The likelihood of a given dataset $\mathcal{D}_d$ of proteins related by a tree $\mathcal{T}_d$ consisting of a set of branch paths $\mathcal{B}_d$  is given as follows:
 \begin{align}
 p(\mathcal{D}_d|\mathcal{T}_d,\mathcal{B}_d,\hat{\theta})=\notag\\
-p(P_{root})\prod_{b \in \mathcal{B}_d} p\big(X_{s}(t_{end})\,|\,H_{b}(t_{end}),A_{b}(t_{end}),\hat{\theta}\big)\notag\\ 
+p(P_{root})\prod_{b \in \mathcal{B}_d} p\big(X_{b}(t_{end})\,|\,H_{b}(t_{end}),A_{b}(t_{end}),\hat{\theta}\big)\notag\\ 
 \times \big[e^{R_{b_{n}}(t_{end}-t_{n})} \prod_{k=1}^{n}  e^{-R_{b_{k}b_{k}}(t_{k}-t_{k-1})} R_{b_{k-1}b_{k}} \big].
 \end{align}
 The first term, $p(P_{root})$, is the probability of the protein, $P_{root}$, at the root of the tree. The outermost product is a product over branches in $\mathcal{B}_d$, where the first term is the likelihood of any structural observations at the tip of each branch. The terms in square brackets represent the likelihood of the the hidden states and amino acids along a branch paths, as specified the rate matrix $R$. The first term in square parentheses is the probability that no events occur after the last event in a given branch path, whereas the second term is the probability of the events in a branch path and the waiting times between them.
+
+\subsection{Model parameters}
+The number of model parameters is a function of $h$, the number of hidden states:
+\begin{equation*}
+\begin{array}{ccc}
+	\text{vM for }\omega: & 20\times2\times h\\
+	\text{bvM for }\phi,\psi: & 20\times5\times h\\
+	\text{vMs for }\tau_{1},\tau_{2},\tau_{3}: & 3\times2\times h\\
+	\text{MVN for }b_{1},b_{2},b_{3} & 3\times8\times h\\
+	\text{AA freqs.} & (20-1)\times h\\
+	\text{AA exchangeability matrix} & 190\\
+	\text{Hidden transition prob. matrix} & h^{2}-h\\
+	\text{Hidden rate matrix} & (h^{2}-h)/2
+\end{array}
+\end{equation*}
 
 \subsection{Inference}
 
@@ -392,10 +407,29 @@ In the M-step the samples from the previous E-step, were used to update the hidd
 \end{table*}
 \fi
 
+\subsection{Calculation of angular distances}\label{sec:angulardistance}
+For benchmarking and comparison purposes, the angular cosine distance was used to measure distances between pairs of dihedral angles, $\langle\phi_{a},\psi_{a}\rangle$ and $\langle\phi_{b},\psi_{b}\rangle$. It is defined as follows \citep{downs2002circular}:
+\begin{align}
+d(\langle\phi_{a},\psi_{a}\rangle,\langle\phi_{b},\psi_{b}\rangle)\notag\\
+=\sqrt{4-2\cos(\phi_{a}-\phi_{b})-2\cos(\psi_{a}-\psi_{b})}.
+\label{eq:angular_distance}
+\end{align}
+The maximum possible distance is $\sqrt{8} \approx 2.828$. Angular distance defined in this way has the property that when $\phi_{a}-\phi_{b}\approx 0$ and $\psi_{a}-\psi_{b}\approx 0$ are near zero it may be approximated by the Euclidean distance -- using the small angle approximation for cosine ($\cos\theta\approx1-\frac{\theta^{2}}{2}$  when $\theta$ is near zero):
+\begin{align*}
+d(\langle\phi_{a},\psi_{a}\rangle,\langle\phi_{b},\psi_{b}\rangle)\\ \approx\sqrt{4-2(1-(\phi_{a}-\phi_{b})^{2}/2)-2(1-(\psi_{a}-\psi_{b})^{2}/2)}\\
+=\sqrt{(\phi_{a}-\phi_{b})^{2}+(\psi_{a}-\psi_{b})^{2}}.
+\end{align*}
+
 %%% Results and discussion %%%
 \section{Results and Discussion}
 
 \subsection{Benchmarks of ancestral sequence reconstruction}
+\begin{figure*}
+	\centering
+	\includegraphics[width=2.0\columnwidth]{figures/benchmarks-target-plot.pdf}
+	\caption{The angular cosine distance \eqref{eq:angular_distance} was used to compare our model's predictions of phi-psi angles in PDB 5KON under four increasingly informative observation conditions (1-4). The plots show the percentage of phi-psi angles correctly predicted within five different cosine angular distance radii (0.25, 0.5, 1.0, 1.5, and 2.0; dashed blue lines). If the centre of the plot is taken to be location of each of the true phi-psi angles in PDB 5KON, the goal is to the maximise the percentage of angles predicted within the innermost radius.}%
+	\label{fig:benchmarkstarget}%
+\end{figure*}
 	
 %%% Conclusions %%%
 \section{Conclusions}

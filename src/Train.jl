@@ -1,4 +1,6 @@
-include("Main.jl")
+using Distributed
+
+@everywhere include("Main.jl")
 
 function estimatehmm(rng::AbstractRNG, trainingexamples, modelparams::ModelParams, numiters::Int, parsed_args)
 	loglikelihoods = Float64[]
@@ -194,8 +196,8 @@ function stripfamily(json_family)
 			end
 		end
 	end	
-	println("startindex: ", startindex)
-	println("endindex: ", endindex)	
+	#println("startindex: ", startindex)
+	#println("endindex: ", endindex)	
 	startgaps = Int[]
 	endgaps = Int[]
 	for protein in json_family["proteins"]
@@ -310,72 +312,9 @@ function loadtrainingexamples(rng::AbstractRNG, parsed_args, family_directories,
 	return family_names,trainingexamples,traininghashbase36
 end
 
-function sampletraininginstances(iter::Int, rng::AbstractRNG, trainingexamples, modelparams::ModelParams; maxsamplesperiter::Int=500, familyiter::Int=5, sitethreshold::Int=2, dosamplesiterates::Bool=true, samplebranchlengths::Bool=true, family_names::Array{String,1})
-	totalbranchlength_output = 0.0
-	accepted_hidden = 0.0
-	accepted_hidden_total = 0.0
-	accepted_aa = 0.0
-	accepted_aa_total = 0.0
-	totalhiddentime = 0.0
-	totalaatime = 0.0		
-	starttime = time()
+function estimate_parameters(iter::Int,trainingexamples, modelparams::ModelParams; independentsites::Bool=false, learnrates::Bool=true, hiddenaascaling::Bool=true, uselgrates::Bool=false)
 	for (trainingindex, (proteins,nodelist,json_family,sequences)) in enumerate(trainingexamples)
 		numcols = length(proteins[1])
-
-		if length(proteins) == 1
-			backwardsamplesingle(rng, nodelist[1], modelparams)
-		else
-			maxsamplesthisiter = maxsamplesperiter
-			if (trainingindex+iter) % familyiter != 0
-				maxsamplesthisiter = 1
-			end
-			samplehiddenstates = true
-							#=
-			maxsamplesthisiter = maxsamplesperiter
-			samplehiddenstates = (trainingindex+iter) % familyiter == 0
-			if !samplehiddenstates
-				maxsamplesthisiter = 1
-			end=#
-			accepted = zeros(Int, numcols)			
-			for i=1:maxsamplesthisiter					
-				randcols = shuffle(rng, Int[i for i=1:numcols])
-				for col in randcols
-					if accepted[col] < sitethreshold || i % 20 == 0 || (col > 1 && accepted[col-1] < sitethreshold) || (col < numcols && accepted[col+1] < sitethreshold) 
-						a1,a2,a3,a4, hidden_accepted, aa_accepted, hiddentime, aatime = samplepaths_seperate_new(rng,col,proteins,nodelist, modelparams, samplehiddenstates=samplehiddenstates, dosamplesiterates=dosamplesiterates)
-						totalhiddentime += hiddentime
-						totalaatime += aatime
-						accepted_hidden += a1
-						accepted_hidden_total += a2
-						accepted_aa += a3
-						accepted_aa_total += a4
-						if hidden_accepted
-							accepted[col] += 1
-						end						
-					end
-				end
-				min_accepted = minimum(accepted)
-				if min_accepted >= sitethreshold
-					break
-				end
-
-				if samplebranchlengths && (i <= sitethreshold || i % 10 == 0)
-					for node in nodelist
-						if !isroot(node)
-							t,propratio = proposebranchlength(rng, node, Int[col for col=1:numcols], modelparams)
-							node.branchlength = t
-							#events = mean([length(p)-1.0 for p in node.data.branchpath.paths])
-							#aa_events = mean([length(p)-1.0 for p in node.data.aabranchpath.paths])
-							#println(node.nodeindex,"\t",node.data.inputbranchlength,"\t",node.branchlength,"\t",events,"\t",aa_events)
-						end
-					end
-				end
-			end
-			elapsedtime = time()-starttime
-			min_accepted = minimum(accepted)
-			println("min_accepted ", min_accepted, " mean is ", mean(accepted))
-			println(totalhiddentime,"\t",totalaatime,"\t",family_names[trainingindex],"\t", elapsedtime)
-		end
-
 		for col=1:numcols-1
 			for node in nodelist
 				if isroot(node)
@@ -438,9 +377,285 @@ function sampletraininginstances(iter::Int, rng::AbstractRNG, trainingexamples, 
 					end
 				end
 			end
+		end		
+	end
+
+	transitionrate_counts = ones(Float64, modelparams.numhiddenstates, modelparams.numhiddenstates)*0.01
+	transitionrate_totals = ones(Float64, modelparams.numhiddenstates, modelparams.numhiddenstates)*0.001
+	for h=1:modelparams.numhiddenstates
+		transitionrate_counts[h,h] = 0.0
+	end
+	transitionrate_events = ones(Float64, modelparams.numhiddenstates)*0.01
+	transitionrate_times = ones(Float64, modelparams.numhiddenstates)*0.001
+
+	aatransitionrate_events = ones(Float64, modelparams.alphabet, modelparams.alphabet)*0.01
+	aatransitionrate_times = ones(Float64, modelparams.alphabet, modelparams.alphabet)*0.001
+
+	aatransitionrate_counts = ones(Float64, modelparams.alphabet, modelparams.alphabet)*0.01
+	aatransitionrate_totals = ones(Float64, modelparams.alphabet, modelparams.alphabet)*0.01
+	for aa=1:modelparams.alphabet
+		aatransitionrate_counts[aa,aa] = 0.0
+	end
+
+	if !independentsites
+		estimate_hidden_transition_probs(modelparams)
+	else
+		estimate_hidden_mixture(modelparams)
+	end
+
+	for h=1:modelparams.numhiddenstates			
+		estimate_categorical(modelparams.hiddennodes[h].aa_node, 1.0)		
+		estimatevonmises(modelparams.hiddennodes[h].phi_node)
+		estimatevonmises(modelparams.hiddennodes[h].psi_node)
+		estimatevonmises(modelparams.hiddennodes[h].omega_node)
+		estimate_bvm(modelparams.hiddennodes[h].phipsi_node)
+		estimatevonmises(modelparams.hiddennodes[h].bond_angle1_node)
+		estimatevonmises(modelparams.hiddennodes[h].bond_angle2_node)
+		estimatevonmises(modelparams.hiddennodes[h].bond_angle3_node)
+		println(iter,"\t",h,"\t",modelparams.hiddennodes[h].phipsi_node.mu,"\t",modelparams.hiddennodes[h].phipsi_node.k, "\t", modelparams.hiddennodes[h].phi_node.mu, "\t", modelparams.hiddennodes[h].psi_node.mu, "\t", modelparams.hiddennodes[h].phi_node.kappa, "\t", modelparams.hiddennodes[h].psi_node.kappa)		
+		println(modelparams.hiddennodes[h].phipsi_node.count,"\t",modelparams.hiddennodes[h].phi_node.N,"\t",modelparams.hiddennodes[h].psi_node.N)
+		#println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle1_node.mu,"\t",modelparams.hiddennodes[h].bond_angle1_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle1_node.N)
+		#println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle2_node.mu,"\t",modelparams.hiddennodes[h].bond_angle2_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle2_node.N)
+		#println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle3_node.mu,"\t",modelparams.hiddennodes[h].bond_angle3_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle3_node.N)
+		#println(iter,"\t",h,"\t", modelparams.hiddennodes[h].bond_lengths_node.mvn.μ)
+		estimate_multivariate_node(modelparams.hiddennodes[h].bond_lengths_node)
+		for aa=1:modelparams.alphabet
+			estimatevonmises(modelparams.hiddennodes[h].phi_nodes[aa])
+			estimatevonmises(modelparams.hiddennodes[h].psi_nodes[aa])
+			estimatevonmises(modelparams.hiddennodes[h].omega_nodes[aa])
+			estimate_bvm(modelparams.hiddennodes[h].phipsi_nodes[aa])
+			if modelparams.hidden_conditional_on_aa
+				print(iter,"\t",h,"\t",aminoacids[aa],"\t",@sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]),"\t",modelparams.hiddennodes[h].phi_nodes[aa].mu,"\t",modelparams.hiddennodes[h].phi_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].phi_nodes[aa].N)		
+				println("\t",modelparams.hiddennodes[h].psi_nodes[aa].mu,"\t",modelparams.hiddennodes[h].psi_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].psi_nodes[aa].N)
+				#println(iter,"\t",h,"\t",aminoacids[aa],"\t",@sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]),"\t",modelparams.hiddennodes[h].omega_nodes[aa].mu,"\t",modelparams.hiddennodes[h].omega_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].omega_nodes[aa].N)						end
+			end
+		end
+		for aa=1:20
+			println(iter,"\t",h,"\t",aminoacids[aa],"\t", @sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]))
 		end			
 	end
-	return totalbranchlength_output,accepted_hidden,accepted_hidden_total,accepted_aa,accepted_aa_total,totalhiddentime,totalaatime
+	
+	#=
+	for training_example in trainingexamples
+		for node in training_example[2]
+			if !isroot(node)
+				totalbranchlength_output += node.branchlength
+			end
+		end
+	end
+	modelparams.branchscalingfactor = totalbranchlength_output/totalbranchlength_input
+	=#
+
+	aahiddentransitionsrates = zeros(Float64, modelparams.numhiddenstates)
+	aahiddentransition_events = zeros(Float64, modelparams.numhiddenstates)
+	if learnrates
+		if hiddenaascaling
+			for (proteins,nodelist,json_family,sequences) in trainingexamples
+				numcols = length(proteins[1])
+				inputcols =  Int[col for col=1:numcols]
+				for col in inputcols
+					cols = Int[col]
+					selcol = 1
+
+					for node in nodelist
+						if !isroot(node)
+							
+							multi_iter = MultiBranchPathIterator(BranchPathIterator[BranchPathIterator(node.data.branchpath,cols), BranchPathIterator(node.data.aabranchpath,Int[col])])
+							hiddeniter = multi_iter.branchpathiterators[1]
+							aaiter = multi_iter.branchpathiterators[2]
+							for it in multi_iter
+								dt = (multi_iter.currtime-multi_iter.prevtime)
+								
+								changecol = selcol
+
+								for aa=1:modelparams.alphabet
+									thisaa = aaiter.prevstates[1]
+									if thisaa != aa
+										aaentry = getaaentry(modelparams, get(hiddeniter.prevstates, changecol-1, 0), get(hiddeniter.prevstates, changecol+1, 0), hiddeniter.prevstates[changecol], thisaa, aa, node.data.ratesbranchpath.paths[col][end])
+										h = hiddeniter.prevstates[changecol]
+										aahiddentransitionsrates[h] += aaentry*dt*node.branchlength/modelparams.aarates[h]
+									end
+								end
+
+								changecol = 0
+								if multi_iter.branchpathindex == 1
+									changecol = hiddeniter.mincol
+								else
+									changecol = aaiter.mincol
+								end
+								if multi_iter.branchpathindex == 1 && hiddeniter.mincol == selcol
+									
+								else multi_iter.branchpathindex == 2
+									h = hiddeniter.prevstates[1]
+									aahiddentransition_events[h] += 1.0
+								end
+							end
+						end
+					end
+				end
+			end
+			modelparams.aarates = aahiddentransitionsrates./aahiddentransition_events
+			modelparams.aarates /= mean(modelparams.aarates)
+		end
+		println("AARATES", modelparams.aarates)
+
+		aatransitions = 0
+		hiddentransitions = 0
+		for (proteins,nodelist,json_family,sequences) in trainingexamples
+			numcols = length(proteins[1])
+			inputcols =  Int[col for col=1:numcols]
+			for col in inputcols
+				cols = Int[]
+				selcol = 1
+				if col > 1
+					push!(cols,col-1)
+					selcol = 2
+				end
+				push!(cols,col)
+				if col < numcols
+					push!(cols,col+1)
+				end
+
+				for node in nodelist
+					if !isroot(node)
+						
+						multi_iter = MultiBranchPathIterator(BranchPathIterator[BranchPathIterator(node.data.branchpath,cols), BranchPathIterator(node.data.aabranchpath,Int[col])])
+						hiddeniter = multi_iter.branchpathiterators[1]
+						aaiter = multi_iter.branchpathiterators[2]
+						for it in multi_iter
+							dt = (multi_iter.currtime-multi_iter.prevtime)
+							
+							changecol = selcol
+							for h=1:modelparams.numhiddenstates
+								thish = hiddeniter.prevstates[changecol]
+								if thish != h
+									hiddenrateentry = gethiddenentry(modelparams, get(hiddeniter.prevstates, changecol-1, 0), get(hiddeniter.prevstates, changecol+1, 0), thish, h, aaiter.prevstates[1], node.data.ratesbranchpath.paths[col][end])
+									#transitionrate_times[thish] += hiddenrateentry*dt*node.branchlength/modelparams.transitionrates[thish,h]
+									transitionrate_totals[thish, h] += hiddenrateentry*dt*node.branchlength/modelparams.transitionrates[thish,h]
+								end
+							end
+
+							for aa=1:modelparams.alphabet
+								thisaa = aaiter.prevstates[1]
+								if thisaa != aa
+									aaentry = getaaentry(modelparams, get(hiddeniter.prevstates, changecol-1, 0), get(hiddeniter.prevstates, changecol+1, 0), hiddeniter.prevstates[changecol], thisaa, aa, node.data.ratesbranchpath.paths[col][end])
+									aatransitionrate_times[thisaa, aa] += aaentry*dt*node.branchlength/modelparams.aa_exchangeablities[thisaa, aa]
+								end
+							end
+
+							changecol = 0
+							if multi_iter.branchpathindex == 1
+								changecol = hiddeniter.mincol
+							else
+								changecol = aaiter.mincol
+							end
+							if multi_iter.branchpathindex == 1 && hiddeniter.mincol == selcol
+								transitionrate_counts[hiddeniter.prevstates[changecol], hiddeniter.currstates[changecol]] += 1.0
+								transitionrate_events[hiddeniter.prevstates[changecol]] += 1.0
+								hiddentransitions += 1
+							else multi_iter.branchpathindex == 2
+								aatransitionrate_events[aaiter.prevstates[1], aaiter.currstates[1]] += 1.0
+								aatransitions += 1
+							end
+						end
+					end
+				end
+			end
+		end
+
+		for h=1:modelparams.numhiddenstates
+			modelparams.transitionrates[h,h] = 0.0			
+			for h2=1:modelparams.numhiddenstates
+				if h != h2
+					modelparams.transitionrates[h,h2] = (transitionrate_counts[h,h2]+transitionrate_counts[h2,h])/(transitionrate_totals[h,h2]+transitionrate_totals[h2,h])
+					modelparams.transitionrates[h,h] -= modelparams.transitionrates[h,h2]
+				end
+			end
+		end
+
+		println("HQ", modelparams.transitionrates)	
+		aatransitionrates = zeros(Float64, modelparams.alphabet, modelparams.alphabet)
+		for aa1=1:modelparams.alphabet
+			aatransitionrates[aa1,aa1] = 0.0
+			for aa2=1:modelparams.alphabet
+				if aa1 != aa2
+					aatransitionrates[aa1,aa2] = (aatransitionrate_events[aa1,aa2]+aatransitionrate_events[aa2,aa1])/(aatransitionrate_times[aa1,aa2]+aatransitionrate_times[aa2,aa1])
+					aatransitionrates[aa1,aa1] -= aatransitionrates[aa1,aa2]
+				end
+			end
+		end	
+		println("AQ",aatransitionrates)		
+		println("LG",[sum(LGexchangeability[aa,:]) for aa=1:20])
+		if !uselgrates
+			modelparams.aa_exchangeablities = aatransitionrates
+		end
+
+		#modelparams.rates = rate_cat_events./rate_cat_times
+		#println("RATES ", modelparams.rates)
+	end
+	#optimize_gamma(rng, trainingexamples, modelparams)
+
+	#println("LL ", rates_likelihood(trainingexamples, modelparams))
+	#optimizerates3(trainingexamples,modelparams)
+	
+	#=
+	if (iter) % 5 == 0
+		optimizerates(trainingexamples, modelparams)
+	end
+	=#
+	println("Hidden transitions: ", hiddentransitions)
+	println("AA transitions: ", aatransitions)
+	reset_matrix_cache(modelparams)
+	for (proteins,nodelist,json_family,sequences) in trainingexamples
+		for node in nodelist
+			if !isroot(node)
+				#node.branchlength /= modelparams.branchscalingfactor
+			end
+		end
+	end
+	#modelparams.aa_exchangeablities *= modelparams.branchscalingfactor
+	scaleaarates = mean(modelparams.aarates)
+	modelparams.aarates /= scaleaarates
+	modelparams.aa_exchangeablities *= scaleaarates
+end
+
+function parallelsample(iter::Int, rng::AbstractRNG, trainingexamples::Array{Tuple,1}, modelparams::ModelParams; maxsamplesperiter::Int=500, familyiter::Int=5, sitethreshold::Int=2, dosamplesiterates::Bool=true, samplebranchlengths::Bool=true, family_names::Array{String,1},accept_everything::Bool=false)
+	totalbranchlength_output  = 0.0
+	accepted_hidden = 0.0 
+	accepted_hidden_total = 0.0
+	accepted_aa = 0.0 
+	accepted_aa_total = 0.0 
+	totalhiddentime = 0.0 
+	totalaatime = 0.0 
+	threads = max(1,(nprocs()-1)*2)
+	trainingexamplestemp = Tuple[]
+	refs = []
+	starttime = time()
+	for t=1:threads
+		trainingexamples_subset = trainingexamples[t:threads:end]
+		trng = MersenneTwister(rand(rng, UInt32)+t)
+		ref = @spawn sampletraininginstances(iter, trng, trainingexamples_subset, deepcopy(modelparams), maxsamplesperiter=maxsamplesperiter, familyiter=familyiter, sitethreshold=sitethreshold, dosamplesiterates=dosamplesiterates, samplebranchlengths=samplebranchlengths, family_names=family_names, accept_everything=accept_everything)
+		push!(refs,ref)
+	end
+	trainingexamples_subsets = Array{Tuple,1}[]
+	for (proc, ref) in enumerate(refs)
+		trainingexamples_subset,totalbranchlength_output_temp,accepted_hidden_temp,accepted_hidden_total_temp,accepted_aa_temp,accepted_aa_total_temp,totalhiddentime_temp,totalaatime_temp = fetch(ref)
+		totalbranchlength_output += totalbranchlength_output_temp
+		accepted_hidden += accepted_hidden_temp
+		accepted_hidden_total += accepted_hidden_total_temp
+		accepted_aa += accepted_aa_temp
+		accepted_aa_total += accepted_aa_total_temp
+		totalhiddentime += totalhiddentime_temp
+		totalaatime += totalaatime_temp
+		#append!(trainingexamplestemp, trainingexamples_subset)
+		push!(trainingexamples_subsets, trainingexamples_subset)
+		elapsedtime = time()-starttime
+		println("$(proc) completed after $(elapsedtime)")
+	end
+	for t=1:length(trainingexamples)
+		push!(trainingexamplestemp, trainingexamples_subsets[(t-1)%threads+1][div(t-1,threads)+1])
+	end
+	return trainingexamplestemp, totalbranchlength_output,accepted_hidden,accepted_hidden_total,accepted_aa,accepted_aa_total,totalhiddentime,totalaatime
 end
 
 function train(parsed_args=Dict{String,Any}()) 
@@ -629,7 +844,10 @@ function train(parsed_args=Dict{String,Any}())
 			end
 		end
 	end
-
+	println("Init.")
+	trainingexamples, = parallelsample(0, rng, trainingexamples, modelparams, maxsamplesperiter=2, sitethreshold=2, dosamplesiterates=dosamplesiterates, samplebranchlengths=samplebranchlengths, family_names=family_names, accept_everything=true)
+	println("Finished.")
+	#=
 	for (index, (proteins,nodelist,json_family,sequences)) in enumerate(trainingexamples)
 		if index % 50 == 0
 			println(index)
@@ -650,7 +868,7 @@ function train(parsed_args=Dict{String,Any}())
 				samplepaths_seperate_new(rng,col,proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates)
 			end
 		end
-	end 
+	end=#
 
 	logwriter = open(tracefile, "w")
 	println(logwriter, "iter\tll\taall\tstructurell\tpathll")
@@ -660,306 +878,51 @@ function train(parsed_args=Dict{String,Any}())
 		end 
 
 		reset_matrix_cache(modelparams)
-		transitionrate_counts = ones(Float64, modelparams.numhiddenstates, modelparams.numhiddenstates)*0.01
-		transitionrate_totals = ones(Float64, modelparams.numhiddenstates, modelparams.numhiddenstates)*0.001
-		for h=1:modelparams.numhiddenstates
-			transitionrate_counts[h,h] = 0.0
-		end
-		transitionrate_events = ones(Float64, modelparams.numhiddenstates)*0.01
-		transitionrate_times = ones(Float64, modelparams.numhiddenstates)*0.001
-
-		aatransitionrate_events = ones(Float64, modelparams.alphabet, modelparams.alphabet)*0.01
-		aatransitionrate_times = ones(Float64, modelparams.alphabet, modelparams.alphabet)*0.001
-
-		aatransitionrate_counts = ones(Float64, modelparams.alphabet, modelparams.alphabet)*0.01
-		aatransitionrate_totals = ones(Float64, modelparams.alphabet, modelparams.alphabet)*0.01
-		for aa=1:modelparams.alphabet
-			aatransitionrate_counts[aa,aa] = 0.0
-		end
-
-		totalbranchlength_output,accepted_hidden,accepted_hidden_total,accepted_aa,accepted_aa_total,totalhiddentime,totalaatime = sampletraininginstances(iter, rng, trainingexamples, modelparams, maxsamplesperiter=maxsamplesperiter, familyiter=familyiter, sitethreshold=sitethreshold, dosamplesiterates=dosamplesiterates, samplebranchlengths=samplebranchlengths, family_names=family_names)
-
-		if !independentsites
-			estimate_hidden_transition_probs(modelparams)
-		else
-			estimate_hidden_mixture(modelparams)
-		end
-
-		for h=1:modelparams.numhiddenstates			
-			estimate_categorical(modelparams.hiddennodes[h].aa_node, 1.0)		
-			estimatevonmises(modelparams.hiddennodes[h].phi_node)
-			estimatevonmises(modelparams.hiddennodes[h].psi_node)
-			estimatevonmises(modelparams.hiddennodes[h].omega_node)
-			estimate_bvm(modelparams.hiddennodes[h].phipsi_node)
-			estimatevonmises(modelparams.hiddennodes[h].bond_angle1_node)
-			estimatevonmises(modelparams.hiddennodes[h].bond_angle2_node)
-			estimatevonmises(modelparams.hiddennodes[h].bond_angle3_node)
-			println(iter,"\t",h,"\t",modelparams.hiddennodes[h].phipsi_node.mu,"\t",modelparams.hiddennodes[h].phipsi_node.k, "\t", modelparams.hiddennodes[h].phi_node.mu, "\t", modelparams.hiddennodes[h].psi_node.mu, "\t", modelparams.hiddennodes[h].phi_node.kappa, "\t", modelparams.hiddennodes[h].psi_node.kappa)		
-			println(modelparams.hiddennodes[h].phipsi_node.count,"\t",modelparams.hiddennodes[h].phi_node.N,"\t",modelparams.hiddennodes[h].psi_node.N)
-			#println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle1_node.mu,"\t",modelparams.hiddennodes[h].bond_angle1_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle1_node.N)
-			#println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle2_node.mu,"\t",modelparams.hiddennodes[h].bond_angle2_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle2_node.N)
-			#println(iter,"\t",h,"\t",modelparams.hiddennodes[h].bond_angle3_node.mu,"\t",modelparams.hiddennodes[h].bond_angle3_node.kappa,"\t",modelparams.hiddennodes[h].bond_angle3_node.N)
-			#println(iter,"\t",h,"\t", modelparams.hiddennodes[h].bond_lengths_node.mvn.μ)
-			estimate_multivariate_node(modelparams.hiddennodes[h].bond_lengths_node)
-			for aa=1:modelparams.alphabet
-				estimatevonmises(modelparams.hiddennodes[h].phi_nodes[aa])
-				estimatevonmises(modelparams.hiddennodes[h].psi_nodes[aa])
-				estimatevonmises(modelparams.hiddennodes[h].omega_nodes[aa])
-				estimate_bvm(modelparams.hiddennodes[h].phipsi_nodes[aa])
-				if modelparams.hidden_conditional_on_aa
-					print(iter,"\t",h,"\t",aminoacids[aa],"\t",@sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]),"\t",modelparams.hiddennodes[h].phi_nodes[aa].mu,"\t",modelparams.hiddennodes[h].phi_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].phi_nodes[aa].N)		
-					println("\t",modelparams.hiddennodes[h].psi_nodes[aa].mu,"\t",modelparams.hiddennodes[h].psi_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].psi_nodes[aa].N)
-					#println(iter,"\t",h,"\t",aminoacids[aa],"\t",@sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]),"\t",modelparams.hiddennodes[h].omega_nodes[aa].mu,"\t",modelparams.hiddennodes[h].omega_nodes[aa].kappa,"\t",modelparams.hiddennodes[h].omega_nodes[aa].N)						end
-				end
-			end
-			for aa=1:20
-				println(iter,"\t",h,"\t",aminoacids[aa],"\t", @sprintf("%0.3f", modelparams.hiddennodes[h].aa_node.probs[aa]))
-			end			
-		end
-		
-
 		#=
-		if learnrates
-			rate_cat_events = ones(Float64, modelparams.numrates)*0.01
-			rate_cat_times = ones(Float64, modelparams.numrates)*0.001	
-			for (proteins,nodelist,json_family,sequences) in trainingexamples
-				numcols = length(proteins[1])
-				inputcols =  Int[col for col=1:numcols]
-				for col in inputcols
-					cols = Int[]
-					selcol = 1
-					if col > 1
-						push!(cols,col-1)
-						selcol = 2
-					end
-					push!(cols,col)
-					if col < numcols
-						push!(cols,col+1)
-					end
+		totalbranchlength_output  = 0.0
+		accepted_hidden = 0.0 
+		accepted_hidden_total = 0.0
+		accepted_aa = 0.0 
+		accepted_aa_total = 0.0 
+		totalhiddentime = 0.0 
+		totalaatime = 0.0 
+		threads = max(1,(nprocs()-1)*4)
+		trainingexamplestemp = Tuple[]
+		refs = []
+		starttime = time()
+		for t=1:threads
+			trainingexamples_subset = trainingexamples[t:threads:end]
+			modelparamstemp = deepcopy(modelparams)
+			ref = @spawn sampletraininginstances(iter, rng, trainingexamples_subset, modelparamstemp, maxsamplesperiter=maxsamplesperiter, familyiter=familyiter, sitethreshold=sitethreshold, dosamplesiterates=dosamplesiterates, samplebranchlengths=samplebranchlengths, family_names=family_names)
+			push!(refs,ref)
+		end
+		trainingexamples_subsets = Array{Tuple,1}[]
+		for (proc, ref) in enumerate(refs)
+			trainingexamples_subset,totalbranchlength_output_temp,accepted_hidden_temp,accepted_hidden_total_temp,accepted_aa_temp,accepted_aa_total_temp,totalhiddentime_temp,totalaatime_temp = fetch(ref)
+			totalbranchlength_output += totalbranchlength_output_temp
+			accepted_hidden += accepted_hidden_temp
+			accepted_hidden_total += accepted_hidden_total_temp
+			accepted_aa += accepted_aa_temp
+			accepted_aa_total += accepted_aa_total_temp
+			totalhiddentime += totalhiddentime_temp
+			totalaatime += totalaatime_temp
+			#append!(trainingexamplestemp, trainingexamples_subset)
+			push!(trainingexamples_subsets, trainingexamples_subset)
+			elapsedtime = time()-starttime
+			println("$(proc) completed after $(elapsedtime)")
+		end
+		for t=1:length(trainingexamples)
+			push!(trainingexamplestemp, trainingexamples_subsets[(t-1)%threads+1][div(t-1,threads)+1])
+		end
+		trainingexamples = trainingexamplestemp
+		=#
+		trainingexamples, totalbranchlength_output,accepted_hidden,accepted_hidden_total,accepted_aa,accepted_aa_total,totalhiddentime,totalaatime = parallelsample(iter, rng, trainingexamples, modelparams, maxsamplesperiter=maxsamplesperiter, familyiter=familyiter, sitethreshold=sitethreshold, dosamplesiterates=dosamplesiterates, samplebranchlengths=samplebranchlengths, family_names=family_names)
 
-					for node in nodelist
-						if !isroot(node)
-							
-							multi_iter = MultiBranchPathIterator(BranchPathIterator[BranchPathIterator(node.data.branchpath,cols), BranchPathIterator(node.data.aabranchpath,Int[col])])
-							hiddeniter = multi_iter.branchpathiterators[1]
-							aaiter = multi_iter.branchpathiterators[2]
-							for it in multi_iter
-								dt = (multi_iter.currtime-multi_iter.prevtime)
-								
-								changecol = selcol
-								rate_entry = entry(modelparams, get(hiddeniter.prevstates, changecol-1, 0), get(hiddeniter.prevstates, changecol+1, 0), hiddeniter.prevstates[changecol], hiddeniter.prevstates[changecol], aaiter.prevstates[1], aaiter.prevstates[1], node.data.ratesbranchpath.paths[col][end], node.data.ratesbranchpath.paths[col][end])
-								rate_cat_times[node.data.ratesbranchpath.paths[col][end]] += -rate_entry*dt*node.branchlength/modelparams.rates[node.data.ratesbranchpath.paths[col][end]]
+		#trainingexamples_subset,totalbranchlength_output,accepted_hidden,accepted_hidden_total,accepted_aa,accepted_aa_total,totalhiddentime,totalaatime = sampletraininginstances(iter, rng, trainingexamples, modelparams, maxsamplesperiter=maxsamplesperiter, familyiter=familyiter, sitethreshold=sitethreshold, dosamplesiterates=dosamplesiterates, samplebranchlengths=samplebranchlengths, family_names=family_names)
 
-								changecol = 0
-								if multi_iter.branchpathindex == 1
-									changecol = hiddeniter.mincol
-								else
-									changecol = aaiter.mincol
-								end
-								if multi_iter.branchpathindex == 1 && hiddeniter.mincol == selcol
-									rate_cat_events[node.data.ratesbranchpath.paths[col][end]] += 1.0	
-								end
-								if multi_iter.branchpathindex == 2
-									rate_cat_events[node.data.ratesbranchpath.paths[col][end]] += 1.0
-								end
-							end
-						end
-					end
-				end
-			end
-			#modelparams.rates = rate_cat_events./rate_cat_times
-			for r=1:modelparams.numrates
-				alpha = rate_cat_events[r]+1.0
-				beta = rate_cat_times[r]
-				dist = Gamma(alpha, 1.0/beta)
-				modelparams.rates[r] = rand(dist)
-			end
-			println("RATES ", modelparams.rates)
-		end=#
 
 		println("Acceptance:\t",accepted_hidden/accepted_hidden_total,"\t",accepted_aa/accepted_aa_total)
-
-		for training_example in trainingexamples
-			for node in training_example[2]
-				if !isroot(node)
-					totalbranchlength_output += node.branchlength
-				end
-			end
-		end
-		modelparams.branchscalingfactor = totalbranchlength_output/totalbranchlength_input
-
-		aahiddentransitionsrates = zeros(Float64, modelparams.numhiddenstates)
-		aahiddentransition_events = zeros(Float64, modelparams.numhiddenstates)
-		if learnrates
-			if hiddenaascaling
-				for (proteins,nodelist,json_family,sequences) in trainingexamples
-					numcols = length(proteins[1])
-					inputcols =  Int[col for col=1:numcols]
-					for col in inputcols
-						cols = Int[col]
-						selcol = 1
-
-						for node in nodelist
-							if !isroot(node)
-								
-								multi_iter = MultiBranchPathIterator(BranchPathIterator[BranchPathIterator(node.data.branchpath,cols), BranchPathIterator(node.data.aabranchpath,Int[col])])
-								hiddeniter = multi_iter.branchpathiterators[1]
-								aaiter = multi_iter.branchpathiterators[2]
-								for it in multi_iter
-									dt = (multi_iter.currtime-multi_iter.prevtime)
-									
-									changecol = selcol
-
-									for aa=1:modelparams.alphabet
-										thisaa = aaiter.prevstates[1]
-										if thisaa != aa
-											aaentry = getaaentry(modelparams, get(hiddeniter.prevstates, changecol-1, 0), get(hiddeniter.prevstates, changecol+1, 0), hiddeniter.prevstates[changecol], thisaa, aa, node.data.ratesbranchpath.paths[col][end])
-											h = hiddeniter.prevstates[changecol]
-											aahiddentransitionsrates[h] += aaentry*dt*node.branchlength/modelparams.aarates[h]
-										end
-									end
-
-									changecol = 0
-									if multi_iter.branchpathindex == 1
-										changecol = hiddeniter.mincol
-									else
-										changecol = aaiter.mincol
-									end
-									if multi_iter.branchpathindex == 1 && hiddeniter.mincol == selcol
-										
-									else multi_iter.branchpathindex == 2
-										h = hiddeniter.prevstates[1]
-										aahiddentransition_events[h] += 1.0
-									end
-								end
-							end
-						end
-					end
-				end
-				modelparams.aarates = aahiddentransitionsrates./aahiddentransition_events
-				modelparams.aarates /= mean(modelparams.aarates)
-			end
-			println("AARATES", modelparams.aarates)
-
-			aatransitions = 0
-			hiddentransitions = 0
-			for (proteins,nodelist,json_family,sequences) in trainingexamples
-				numcols = length(proteins[1])
-				inputcols =  Int[col for col=1:numcols]
-				for col in inputcols
-					cols = Int[]
-					selcol = 1
-					if col > 1
-						push!(cols,col-1)
-						selcol = 2
-					end
-					push!(cols,col)
-					if col < numcols
-						push!(cols,col+1)
-					end
-
-					for node in nodelist
-						if !isroot(node)
-							
-							multi_iter = MultiBranchPathIterator(BranchPathIterator[BranchPathIterator(node.data.branchpath,cols), BranchPathIterator(node.data.aabranchpath,Int[col])])
-							hiddeniter = multi_iter.branchpathiterators[1]
-							aaiter = multi_iter.branchpathiterators[2]
-							for it in multi_iter
-								dt = (multi_iter.currtime-multi_iter.prevtime)
-								
-								changecol = selcol
-								for h=1:modelparams.numhiddenstates
-									thish = hiddeniter.prevstates[changecol]
-									if thish != h
-										hiddenrateentry = gethiddenentry(modelparams, get(hiddeniter.prevstates, changecol-1, 0), get(hiddeniter.prevstates, changecol+1, 0), thish, h, aaiter.prevstates[1], node.data.ratesbranchpath.paths[col][end])
-										#transitionrate_times[thish] += hiddenrateentry*dt*node.branchlength/modelparams.transitionrates[thish,h]
-										transitionrate_totals[thish, h] += hiddenrateentry*dt*node.branchlength/modelparams.transitionrates[thish,h]
-									end
-								end
-
-								for aa=1:modelparams.alphabet
-									thisaa = aaiter.prevstates[1]
-									if thisaa != aa
-										aaentry = getaaentry(modelparams, get(hiddeniter.prevstates, changecol-1, 0), get(hiddeniter.prevstates, changecol+1, 0), hiddeniter.prevstates[changecol], thisaa, aa, node.data.ratesbranchpath.paths[col][end])
-										aatransitionrate_times[thisaa, aa] += aaentry*dt*node.branchlength/modelparams.aa_exchangeablities[thisaa, aa]
-									end
-								end
-
-								changecol = 0
-								if multi_iter.branchpathindex == 1
-									changecol = hiddeniter.mincol
-								else
-									changecol = aaiter.mincol
-								end
-								if multi_iter.branchpathindex == 1 && hiddeniter.mincol == selcol
-									transitionrate_counts[hiddeniter.prevstates[changecol], hiddeniter.currstates[changecol]] += 1.0
-									transitionrate_events[hiddeniter.prevstates[changecol]] += 1.0
-									hiddentransitions += 1
-								else multi_iter.branchpathindex == 2
-									aatransitionrate_events[aaiter.prevstates[1], aaiter.currstates[1]] += 1.0
-									aatransitions += 1
-								end
-							end
-						end
-					end
-				end
-			end
-
-			for h=1:modelparams.numhiddenstates
-				modelparams.transitionrates[h,h] = 0.0			
-				for h2=1:modelparams.numhiddenstates
-					if h != h2
-						modelparams.transitionrates[h,h2] = (transitionrate_counts[h,h2]+transitionrate_counts[h2,h])/(transitionrate_totals[h,h2]+transitionrate_totals[h2,h])
-						modelparams.transitionrates[h,h] -= modelparams.transitionrates[h,h2]
-					end
-				end
-			end
-
-			println("HQ", modelparams.transitionrates)	
-			aatransitionrates = zeros(Float64, modelparams.alphabet, modelparams.alphabet)
-			for aa1=1:modelparams.alphabet
-				aatransitionrates[aa1,aa1] = 0.0
-				for aa2=1:modelparams.alphabet
-					if aa1 != aa2
-						aatransitionrates[aa1,aa2] = (aatransitionrate_events[aa1,aa2]+aatransitionrate_events[aa2,aa1])/(aatransitionrate_times[aa1,aa2]+aatransitionrate_times[aa2,aa1])
-						aatransitionrates[aa1,aa1] -= aatransitionrates[aa1,aa2]
-					end
-				end
-			end	
-			println("AQ",aatransitionrates)		
-			println("LG",[sum(LGexchangeability[aa,:]) for aa=1:20])
-			if !uselgrates
-				modelparams.aa_exchangeablities = aatransitionrates
-			end
-
-			#modelparams.rates = rate_cat_events./rate_cat_times
-			#println("RATES ", modelparams.rates)
-		end
-		#optimize_gamma(rng, trainingexamples, modelparams)
-
-		#println("LL ", rates_likelihood(trainingexamples, modelparams))
-		#optimizerates3(trainingexamples,modelparams)
-		
-		#=
-		if (iter) % 5 == 0
-			optimizerates(trainingexamples, modelparams)
-		end
-		=#
-		println("Hidden transitions: ", hiddentransitions)
-		println("AA transitions: ", aatransitions)
-		reset_matrix_cache(modelparams)
-		for (proteins,nodelist,json_family,sequences) in trainingexamples
-			for node in nodelist
-				if !isroot(node)
-					#node.branchlength /= modelparams.branchscalingfactor
-				end
-			end
-		end
-		#modelparams.aa_exchangeablities *= modelparams.branchscalingfactor
-		scaleaarates = mean(modelparams.aarates)
-		modelparams.aarates /= scaleaarates
-		modelparams.aa_exchangeablities *= scaleaarates
-
+		estimate_parameters(iter,trainingexamples, modelparams; independentsites=independentsites, learnrates=learnrates, hiddenaascaling=hiddenaascaling, uselgrates=uselgrates)
 		#modelparams.transitionrates *= modelparams.branchscalingfactor
 		modelparams.branchscalingfactor = 1.0
 

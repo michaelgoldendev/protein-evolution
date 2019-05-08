@@ -1,6 +1,8 @@
 include("Main.jl")
+using StructurePlots
 
 using TraitAssociation
+using Dates
 
 function transitionmatrix(sequences::Array{String,1}, curri::Int, nexti::Int)
 	transprobs = zeros(Float64,20,20)
@@ -102,81 +104,6 @@ function infer(parsed_args=Dict{String,Any}())
 
 	datafile = parsed_args["dataset"]
 	newickfile = ""
-	if datafile == nothing
-		#=
-		family_dir = "../data/families/"
-		family_files = filter(f -> endswith(f,".fam"), readdir(family_dir))
-		family_file = joinpath(family_dir, family_files[11])
-		
-		#family_file = "../data/families/alpha-amylase_NC.ali_23.fam"
-
-		full_path = abspath(family_file)
-		json_family = JSON.parse(open(full_path, "r"))
-		training_example = training_example_from_json_family(rng, modelparams, json_family, blindproteins=blindproteins, scalebranchlengths=samplebranchlengths)		
-		println(json_family["newick_tree"])
-		if length(training_example[2][1].children) == 1
-			root = training_example[2][1].children[1]
-			root.parent = Nullable{TreeNode}()
-			training_example = (training_example[1], TreeNode[root], training_example[3], training_example[4])
-		end
-		proteins,nodelist,json_family,sequences = training_example=#
-		
-		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/alignments/HCV_REF_2014_ns5b_PRO_curated.fasta"), blindproteins=blindproteins)
-		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/alignments/hiv-curated-sel.fasta"), blindproteins=blindproteins)
-
-		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/H1N1_selection2.fas"), newickfile=abspath("../data/influenza_a/HA/H1N1_selection2_rooted.fas.nwk"), blindproteins=blindproteins)
-		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/selection3.fasta"), newickfile=abspath("../data/influenza_a/HA/selection3.fasta.nwk"), blindproteins=blindproteins)
-		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/selection3.fasta"), newickfile=abspath("tree.mean.branch.consensus.nwk"), blindproteins=blindproteins)
-
-
-		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/influenza_a/HA/selection4.fasta"), newickfile=abspath("tree.mean.branch.consensus.nwk"), blindproteins=blindproteins)
-
-		#proteins,nodelist,sequences = training_example_from_sequence_alignment(rng, modelparams, abspath("../data/hiv/curated6.fasta"), newickfile=abspath("../data/hiv/curated6.nwk"), blindproteins=blindproteins)
-		
-		
-		#datafile = abspath("../data/influenza_a/HA/selection3.fasta")
-		#newickfile= abspath("../data/influenza_a/HA/selection3.fasta.nwk")	
-		#newickfile= abspath("tree.mean.branch.consensus.nwk")		
-		#blindproteins = String["6n41.pdb_1951"]
-		#modelparams.rate_alpha = 0.153
-		#blindproteins = String[]
-
-		
-		#datafile = abspath("../data/hiv/curated6.fasta")
-		#newickfile=abspath("../data/hiv/curated6.nwk")	
-		#newickfile=abspath("tree.mean.branch.consensus.nwk")	
-		#blindproteins = String["B.US.1978.SF4.KJ704795"]
-		#blindproteins = String[]
-
-		#datafile = abspath("../data/test_data/hiv_pol_selection.fasta")
-		#newickfile=abspath("../data/test_data/hiv_pol_selection.fasta.nwk")	
-		#blindproteins = String["CPZ.GA.1988.GAB1.X52154"]
-
-		#datafile = abspath("../data/test_data/westnile_dengue_selection.fasta")
-		#newickfile=abspath("../data/test_data/westnile_dengue_selection.fasta.nwk")
-		#blindproteins = String["AEN02430.1"]
-		#blindproteins = String[]
-
-		#datafile = abspath("../data/diverse_rna_virus_structures/human_poliovirus_1_VP3.select.fasta.muscle.fas.selection.fas.fam")
-		#blindstructures =  String["pdb1z7z_3", "pdb4q4w_3", "pdb5o5b_3", "pdb1eah_3", "pdb3jbg_3"]
-		#blindstructures =  String["pdb1z7z_3", "pdb4q4w_3", "pdb5o5b_3", "pdb1eah_3"]
-		#blindstructures =  String["pdb1z7z_3", "pdb4q4w_3", "pdb1eah_3", "pdb3jbg_3"]
-		#blindstructures =  String["pdb1z7z_3", "pdb5o5b_3", "pdb1eah_3", "pdb3jbg_3"]
-		#blindproteins = String[]
-
-		datafile = abspath("../data/diverse_rna_virus_structures/norovirus_capsid_P_selection.fas.fam")
-		#blindproteins =  String["pdb5kon_A", "pdb4oos_A", "pdb2obr_A", "pdb4oov_A", "pdb3skb_A", "pdb4rpd_A", "KC462195|NA", "KF712507|VP1"] # random
-		#blindproteins =  String["pdb4oos_A", "pdb2obr_A", "pdb4oov_A", "pdb3skb_A", "pdb4rpd_A"]
-		#blindstructures =  String["pdb5kon_A", "pdb4oos_A", "pdb2obr_A", "pdb4oov_A", "pdb3skb_A", "pdb4rpd_A"] # blind all structures
-		#blindproteins =  String["pdb4oos_A", "pdb2obr_A", "pdb4oov_A", "pdb3skb_A", "pdb4rpd_A"] # blind sequences and structures
-		blindstructures =  String["pdb5kon_A", "pdb4oos_A", "pdb2obr_A", "pdb4oov_A", "pdb3skb_A"] # , "pdb4rpd_A"
-		#blindproteins =  String["pdb4oos_A", "pdb2obr_A", "pdb4oov_A", "pdb3skb_A", "KC462195|NA", "KF712507|VP1", "pdb4rpd_A"] # "pdb5kon_A"
-		#blindstructures =  String["pdb5kon_A", "pdb2obr_A", "pdb3skb_A", "pdb4rpd_A", "pdb4oos_A"] # "pdb4oov_A"
-
-		#datafile = abspath("../data/test_data/maise_streak_virus_coat_protein_selection.fasta")
-		#newickfile = abspath("../data/test_data/maise_streak_virus_coat_protein_selection.rooted.nwk")	
-		#blindproteins = String["ACF40553.1"]
-	end
 
 	modelparams.numrates = 1
 	if dosamplesiterates
@@ -240,8 +167,6 @@ function infer(parsed_args=Dict{String,Any}())
 		println(marginalprobs)
 		exit()
 	end
-	#..\data\single_pdbs\pdb1bv3_A.fam
-	#..\data\homstrad_curated\A2M_B.selection.fam
 
 	LGreconstruction_score = 0.0
 	if length(blindproteins) > 0		
@@ -259,15 +184,24 @@ function infer(parsed_args=Dict{String,Any}())
 		reset_matrix_cache(modelparams)
 	end
 
-	structuresamples = Dict{String,Sample}()
+	structuresamples = Dict{String,Any}()
 	for name in blindstructures
 		structuresamples[name] = Sample(name, modelparams)
 	end
+	structuresamples["metadata:blindproteins"] = blindproteins
+	structuresamples["metadata:blindstructures"] = blindstructures
 
 
-
-
-	outputprefix = string("output/",basename(modelfile),".",basename(datafile))
+	
+	outdir = string("output/", Dates.format(Dates.now(), "yyyy-mm-dd.HH\\hMM\\mSS\\s.s"), ".", string(hash(parsed_args), base=36), "/")
+	println(outdir)
+	if !isdir(outdir)
+		mkpath(outdir)
+	end
+	outputprefix = string(outdir,"output")
+	fout = open(joinpath(outdir,"arguments.json"),"w")
+	JSON.print(fout, parsed_args)
+	close(fout)
 
 	println("Initialisation finished.")
 
@@ -372,7 +306,8 @@ function infer(parsed_args=Dict{String,Any}())
 	maxaugmentedll = -Inf
 	sequencescoresatmax = Float64[]
 	ratetotals = zeros(Float64, numcols)
-	for iter=1:10000
+	maxiters = parsed_args["maxiters"]
+	for iter=1:maxiters
 		starttime = time()
 		if iter > 10 && samplebranchlengths
 			println("$(iter).1 Sampling branch lengths START")
@@ -402,29 +337,14 @@ function infer(parsed_args=Dict{String,Any}())
 		println("$(iter).2 Sampling sites START")
 		randcols = shuffle(rng, Int[i for i=1:numcols])
 		for col in randcols
-			
-			
-			#=
-			if iter % 2 == 0
-				a1,a2,a3,a4, accepted_hidden, accepted_aa = samplepaths_simultaneous(rng, col, proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates, accept_everything=(iter<=3))
-				#a1,a2,a3,a4, accepted_hidden, accepted_aa = samplepaths(rng, col, proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates, accept_everything=(iter<=3))
-				if accepted_hidden
-					count_hidden_acceptance[col] += 1.0
-				end			
-				count_hidden_total[col] += 1.0
-			else=#
-				#a1,a2,a3,a4, accepted_hidden, accepted_aa = samplepaths_simultaneous(rng, col, proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates, accept_everything=(iter<=3))
-				a1,a2,a3,a4, accepted_hidden, accepted_aa = samplepaths_seperate_new(rng, col, proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates, accept_everything=(iter<=3))
-				if accepted_hidden
-					count_hidden_acceptance[col] += 1.0
-				end			
-				count_hidden_total[col] += 1.0
-				
-				#samplepaths(rng, col, proteins,nodelist, modelparams)
-			#end
+			a1,a2,a3,a4, accepted_hidden, accepted_aa = samplepaths_seperate_new(rng, col, proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates, accept_everything=(iter<=3))
+			if accepted_hidden
+				count_hidden_acceptance[col] += 1.0
+			end			
+			count_hidden_total[col] += 1.0
 		end
-		println(sort(count_hidden_acceptance./count_hidden_total))
-		println(mean(count_hidden_acceptance./count_hidden_total))
+		println("min acceptance: ", minimum(count_hidden_acceptance./count_hidden_total))
+		println("mean acceptance: ", mean(count_hidden_acceptance./count_hidden_total))
 		println("$(iter).2 Sampling sites DONE")
 
 		println("$(iter).3 Sampling blind nodes START")
@@ -439,7 +359,6 @@ function infer(parsed_args=Dict{String,Any}())
 						end
 					end
 					println(selnode.name)		
-					#sequence, phi_psi, omega, bond_angles, bond_lengths = protein_to_lists(sampletreenode(rng, selnode, modelparams, alignedsequence))
 					try
 						println(blindseq_writers[selnode.name], ">sample$(iter)")
 						println(blindseq_writers[selnode.name], sampledseq)
@@ -498,7 +417,7 @@ function infer(parsed_args=Dict{String,Any}())
 			maxaugmentedll = augmentedll
 			sequencescoresatmax = Float64[sequencescores[blindnodename][end] for blindnodename in blindproteins]
 		end
-		println("maxll","\t",sequencescoresatmax,"\t", maxaugmentedll)
+		#println("maxll","\t",sequencescoresatmax,"\t", maxaugmentedll)
 
 		for node in nodelist
 			if !isroot(node)				
@@ -681,21 +600,23 @@ function infer(parsed_args=Dict{String,Any}())
 				ratecat = nodelist[1].data.ratesbranchpath.paths[col][end]
 				ratetotals[col] += modelparams.rates[ratecat]
 			end
-
-			println("rates: ",ratetotals./iter)
 		end
 
 		if iter % 1 == 0
 
+			othernames = AbstractString[]
 			for selnode in nodelist
-				if selnode.name in blindstructures
+				if selnode.seqindex > 0
 					sequence, phi_psi, omega, bond_angles, bond_lengths = protein_to_lists(sampletreenode(rng,selnode,modelparams,sequences[selnode.seqindex]))
 					phipsi_real = Tuple{Float64,Float64}[(p[1],p[2]) for p in json_family["proteins"][selnode.seqindex]["aligned_phi_psi"]]
+					if count(x -> x[1] > -100.0 || x[2] > -100.0, phipsi_real) > 0 && !(selnode.name in blindstructures) && !(selnode.name in blindproteins)
+						push!(othernames,selnode.name)
+					end
 					#angulardist = angular_rmsd(phi_psi, phipsi_real)
-					println("LENGTHS ", length(phi_psi), "\t", length(phipsi_real))
+					#println("LENGTHS ", length(phi_psi), "\t", length(phipsi_real))
 					angulardist = angular_rmsd_percentile(phi_psi, phipsi_real)
 					
-					println("angular_rmsd ($(selnode.name)): ", angulardist)
+					#println("angular_rmsd ($(selnode.name)): ", angulardist)
 
 					key = selnode.name
 				    structurescoresarray = get(structurescores, key, Float64[])
@@ -733,12 +654,25 @@ function infer(parsed_args=Dict{String,Any}())
 						structuresamples[selnode.name].json_family = json_family
 					end
 
-					reset_matrix_cache(modelparams)					
+					reset_matrix_cache(modelparams, false)
 				end
 			end
-			fout = open(string("structure.samples"), "w")
-			Serialization.serialize(fout, structuresamples)
-			close(fout)
+
+			if iter % 5 == 0
+				samplesfile = string("$(outputprefix).samples")
+
+				fout = open(samplesfile, "w")
+				Serialization.serialize(fout, structuresamples)
+				close(fout)
+
+				StructurePlots.plotaccuracy(samplesfile)
+
+				if iter % 100 == 0
+					println(othernames)
+					StructurePlots.plotstructuresamples(samplesfile, othernames)
+				end
+			end
+
 		end
 		for name in blindstructures
 			print(mcmcwriter,"\t",structurescores[name][end])
@@ -795,6 +729,10 @@ function parse_inference_commandline()
         "--samplesiterates"
         	help = ""
           	action = :store_true
+        "--maxiters"
+        	help = ""
+        	arg_type = Int
+        	default = typemax(Int)
     end
 
 

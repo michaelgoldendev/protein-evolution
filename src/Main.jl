@@ -90,8 +90,8 @@ mutable struct ModelParams
 end
 
 function  modifiedrejectionsampling(rng::AbstractRNG, Q::Array{Float64,2}, x0::Int, xt::Int, modelparams::ModelParams, key::Tuple{Int,Int,Int,Int}=(-1000,-1000,-1000,-1000))
-	maxiters1 = 10000
-	maxiters2 = 20000
+	maxiters1 = 1000
+	maxiters2 = 2000
 	path = Int[]
 	times = Float64[]
 	S = copy(Q)
@@ -408,10 +408,12 @@ end
 
 countcachemisses = 0
 countcachehits = 0
-function reset_matrix_cache(modelparams::ModelParams)
+function reset_matrix_cache(modelparams::ModelParams, printflag::Bool=true)
 	global countcachemisses
 	global countcachehits
-	println("RESET: CACHE HITS $(countcachehits) / $(countcachehits+countcachemisses) ($(countcachehits / (countcachehits+countcachemisses)))")
+	if printflag
+		println("RESET: CACHE HITS $(countcachehits) / $(countcachehits+countcachemisses) ($(countcachehits / (countcachehits+countcachemisses)))")
+	end
 	countcachemisses = 0
 	countcachehits = 0
 	modelparams.matrixcache = Dict{Tuple{Int,Int,Int,Int}, Tuple{Array{Float64,2},Array{Complex{Float64},2},Array{Complex{Float64},1},Array{Complex{Float64},2}}}()
@@ -3228,4 +3230,71 @@ function optimizerates(trainingexamples::Array{Tuple,1}, modelparams::ModelParam
     (minf,minx,ret) = optimize(opt, Float64[modelparams.mu,modelparams.hiddenmu])
 	modelparams.mu = minx[1]
 	modelparams.hiddenmu = minx[2]
+end
+
+
+
+function sampletraininginstances(iter::Int, rng::AbstractRNG, trainingexamples::Array{Tuple,1}, modelparams::ModelParams; maxsamplesperiter::Int=500, familyiter::Int=5, sitethreshold::Int=2, dosamplesiterates::Bool=true, samplebranchlengths::Bool=true, family_names::Array{String,1}, accept_everything::Bool=false)
+	totalbranchlength_output = 0.0
+	accepted_hidden = 0.0
+	accepted_hidden_total = 0.0
+	accepted_aa = 0.0
+	accepted_aa_total = 0.0
+	totalhiddentime = 0.0
+	totalaatime = 0.0		
+	starttime = time()
+	for (trainingindex, (proteins,nodelist,json_family,sequences)) in enumerate(trainingexamples)
+		numcols = length(proteins[1])
+
+		if length(proteins) == 1
+			backwardsamplesingle(rng, nodelist[1], modelparams)
+		else
+			maxsamplesthisiter = maxsamplesperiter
+			if (trainingindex+iter) % familyiter != 0
+				maxsamplesthisiter = 1
+			end
+			samplehiddenstates = true
+			accepted = zeros(Int, numcols)			
+			for i=1:maxsamplesthisiter					
+				randcols = shuffle(rng, Int[i for i=1:numcols])
+				for col in randcols
+					if accepted[col] < sitethreshold || i % 20 == 0 || (col > 1 && accepted[col-1] < sitethreshold) || (col < numcols && accepted[col+1] < sitethreshold) 
+						a1,a2,a3,a4, hidden_accepted, aa_accepted, hiddentime, aatime = samplepaths_seperate_new(rng,col,proteins,nodelist, modelparams, samplehiddenstates=samplehiddenstates, dosamplesiterates=dosamplesiterates, accept_everything=accept_everything)
+						totalhiddentime += hiddentime
+						totalaatime += aatime
+						accepted_hidden += a1
+						accepted_hidden_total += a2
+						accepted_aa += a3
+						accepted_aa_total += a4
+						if hidden_accepted
+							accepted[col] += 1
+						end						
+					end
+				end
+				min_accepted = minimum(accepted)
+				if min_accepted >= sitethreshold
+					break
+				end
+
+				if samplebranchlengths && (i <= sitethreshold || i % 10 == 0)
+					for node in nodelist
+						if !isroot(node)
+							t,propratio = proposebranchlength(rng, node, Int[col for col=1:numcols], modelparams)
+							node.branchlength = t
+							#events = mean([length(p)-1.0 for p in node.data.branchpath.paths])
+							#aa_events = mean([length(p)-1.0 for p in node.data.aabranchpath.paths])
+							#println(node.nodeindex,"\t",node.data.inputbranchlength,"\t",node.branchlength,"\t",events,"\t",aa_events)
+						end
+					end
+				end
+			end
+			elapsedtime = time()-starttime
+			min_accepted = minimum(accepted)
+			if trainingindex % 10 == 0
+				println("min_accepted ", min_accepted, " mean is ", mean(accepted))
+				println(trainingindex, "\t",totalhiddentime,"\t",totalaatime,"\t", elapsedtime)
+			end
+		end	
+	end
+	return trainingexamples,totalbranchlength_output,accepted_hidden,accepted_hidden_total,accepted_aa,accepted_aa_total,totalhiddentime,totalaatime
 end

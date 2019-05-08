@@ -44,6 +44,7 @@ function issubsequence(query::String, target::String)
 end
 
 function find_pdb_homologs(fastafile, outfile="homologs.fas", minseqs::Int=2)
+	println("Find homologs: ",fastafile)
 	kmers2 = Array{Int,1}[]
 	kmers3 = Array{Int,1}[]
 	sequences = AbstractString[]
@@ -72,13 +73,14 @@ function find_pdb_homologs(fastafile, outfile="homologs.fas", minseqs::Int=2)
 
 
 	pdbmatches = Dict{AbstractString,AbstractString}()
-	open("../data/pdbsequences.fasta") do file
+	try
+		file = open("../data/pdbsequences.fasta")
 		name = ""
 		seq = ""
 		count = 0	
 		k2counts = 0
 		k3counts = 0
-	    for ln in eachline(file)
+	    for (lineno,ln) in enumerate(eachline(file))
 	    	if startswith(ln,">")
 	    		name = ln
 	    		seq = ""
@@ -154,7 +156,7 @@ function find_pdb_homologs(fastafile, outfile="homologs.fas", minseqs::Int=2)
 			    	if !haskey(pdbmatches, key)
 			    		resolution,rvalue,freervalue = get_quality_attributes(pdbname)
 						if rvalue > 0.0 && rvalue < 0.25 && freervalue < 0.25
-					    	println(count,"\t",pdbname,"\t",chain,"\t",maxmatch2, "\t", maxmatch3,"\t",maxalignmentscore)
+					    	println(lineno,"\t",count,"\t",pdbname,"\t",chain,"\t",maxmatch2, "\t", maxmatch3,"\t",maxalignmentscore)
 					    	res = pairalign(GlobalAlignment(), seq, bestquery, AffineGapScoreModel(BLOSUM62, gap_open=-10, gap_extend=-1))
 		    				aln = res.aln
 		    				if maxalignmentscore > alignmentscorecutoff
@@ -174,6 +176,8 @@ function find_pdb_homologs(fastafile, outfile="homologs.fas", minseqs::Int=2)
 	    	end
 	       
 	    end
+	finally 
+		println("FINISHED READING FILE")
 	end
 	close(fout)
 
@@ -185,12 +189,25 @@ function find_pdb_homologs(fastafile, outfile="homologs.fas", minseqs::Int=2)
 		println(fout,muscle_alignment)
 		close(fout)
 
+		sequences = AbstractString[]
+		names = AbstractString[]
+		FastaIO.FastaReader(musclefile) do fr
+			for (desc, seq) in fr
+				push!(names,desc)
+				push!(sequences,seq)
+			end
+		end
+		println(sequences)
+
+		#=
 		newickstring, cachefile = Binaries.fasttreeaa(musclefile,branchsupport=true)
 		fout = open(string(outfile,".nwk"),"w")
 		println(fout,newickstring)
-		close(fout)
+		close(fout)=#
 	end
 
+	println(length(pdbmatches))
+	exit()
 	return length(pdbmatches)
 end
 
@@ -334,6 +351,157 @@ function percentaligned(seq1::AbstractString, seq2::AbstractString)
 	return (total-gapcounts)/total
 end
 
+function percentmatch(seq1::AbstractString, seq2::AbstractString)
+	matchcount = 0.0
+	total = 0.0
+	for (a,b) in zip(seq1,seq2)
+		if a in aminoacids || b in aminoacids
+			if a == b
+				matchcount += 1.0
+			end
+			total += 1.0
+		end
+	end
+	return matchcounttotal
+end
+
+mutable struct ProteinAttributes
+	rvalue::Float64
+	freervalue::Float64
+
+	function ProteinAttributes(rvalue::Float64=0.0, freervalue::Float64=0.0)
+		new(rvalue, freervalue)
+	end
+end
+
+function evaluate2(sequences::Array{AbstractString,1}, seqattr::Array{ProteinAttributes,1}, bitvector::Array{Int,1})
+	minpercaligned = 1.0
+	for i=1:length(sequences)
+		if bitvector[i] > 0
+			for j=i+1:length(sequences)
+				if bitvector[j] > 0
+					minpercaligned = min(minpercaligned, percentaligned(sequences[i], sequences[j]))
+				end
+			end
+		end
+	end
+
+	minpairwisematch = 1.0
+	maxpairwisematch = 0.0
+	for i=1:length(sequences)
+		if bitvector[i] > 0
+			for j=i+1:length(sequences)
+				if bitvector[j] > 0
+	 				percmatch = percentmatch(sequences[i], sequences[j])
+	 				minpairwisematch = min(minpairwisematch, percmatch)
+	 				maxpairwisematch = max(maxpairwisematch, percmatch)
+	 			end
+	 		end
+	 	end
+	 end
+	
+	numpdbs = 0
+	numseqs = 0
+	if minpercaligned < 0.90 || minpairwisematch < 0.1 || maxpairwisematch > 0.90
+		score = (0,0)
+	else
+		for i=1:length(sequences)
+			if bitvector[i] > 0
+				if seqattr[i].rvalue > 0.0 && seqattr[i].rvalue < 0.25 && seqattr[i].freervalue > 0.0 && seqattr[i].freervalue < 0.25
+					numpdbs += 1
+				else
+					numseqs += 1
+				end
+			end
+		end
+
+		score = (numpdbs,numseqs)
+	end
+	return score[1]*length(sequences) + score[2]
+end
+
+function findmax2(sequences::Array{AbstractString,1}, seqattr::Array{ProteinAttributes,1}, evalualationfunc=evaluate2)
+	rng = MersenneTwister(91093194923081)
+	population = []
+	popsize = 200
+
+	v = ones(Int,length(sequences))
+	push!(population, (v, evalualationfunc(sequences, seqattr, v)))
+	for i=1:length(sequences)
+		v = zeros(Int, length(sequences))
+		v[i] = 1
+		push!(population, (v, evalualationfunc(sequences, seqattr,v)))
+
+		for j=i+1:length(sequences)
+			v = zeros(Int, length(sequences))
+			v[i] = 1
+			v[j] = 1
+			push!(population, (v, evaluate(sequences,seqattr,v)))
+		end
+	end
+
+	while length(population) < popsize 
+		v = zeros(Int, length(sequences))
+		randorder = Int[i for i=1:length(sequences)]
+		shuffle!(rng, randorder)
+		for k=1:min(3, length(sequences))
+			v[randorder[k]] = 1
+		end
+		push!(population, (v, evaluate(sequences,seqattr,v)))
+	end
+
+	for z=1:50
+		scores = zeros(Float64, length(population))
+		for i=1:length(population)
+			scores[i] = population[i][2]
+		end
+
+		maxindex = 1
+		for i=1:length(population)
+			if population[i][2] > population[maxindex][2]
+				maxindex = i
+			end
+		end
+		
+		newpopulation = []
+		push!(newpopulation, population[maxindex])
+		numsel = div(popsize,2)
+		selection = zeros(Int, length(population))
+		iter = 0
+		while length(newpopulation) < numsel
+			ind = CommonUtils.sample(rng,scores)
+			if selection[ind] == 0 || iter > 1000
+				push!(newpopulation, deepcopy(population[ind]))
+				selection[ind] = 1
+			end
+			iter += 1
+		end
+		upper = div(popsize,3)*2
+		while length(newpopulation) < upper
+			ind = rand(rng, 1:length(newpopulation))
+			newbitarray = copy(newpopulation[ind][1])
+			randindex =  rand(rng, 1:length(newbitarray))
+			newbitarray[randindex]= 1 - newbitarray[randindex]
+			push!(newpopulation, (newbitarray, evaluate(sequences,seqattr,newbitarray)))
+		end
+		while length(newpopulation) < popsize
+			ind1 = rand(rng, 1:length(newpopulation))
+			ind2 = rand(rng, 1:length(newpopulation))
+			newbitarray = copy(newpopulation[ind1][1])
+			for i=1:length(newbitarray)
+				if rand(rng) < 0.5
+					newbitarray[i] = newpopulation[ind1][1][i]
+				else
+					newbitarray[i] = newpopulation[ind2][1][i]
+				end
+			end
+			push!(newpopulation, (newbitarray, evaluate(sequences,seqattr,newbitarray)))
+		end
+		population = newpopulation
+	end
+	return population[1]
+end
+
 function evaluate(sequences::Array{AbstractString,1}, seqattr::Array{Any,1}, bitvector::Array{Int,1})
 	minpercaligned = 1.0
 	for i=1:length(sequences)
@@ -355,8 +523,7 @@ function evaluate(sequences::Array{AbstractString,1}, seqattr::Array{Any,1}, bit
 			if bitvector[i] > 0
 				rvalue = seqattr[i][4]
 				freervalue = seqattr[i][5]
-				#if rvalue > 0.0 && rvalue < 0.25 && freervalue > 0.0 && freervalue < 0.25
-				if rvalue > 0.0 && rvalue < 0.25
+				if rvalue > 0.0 && rvalue < 0.25 && freervalue > 0.0 && freervalue < 0.25
 					numpdbs += 1
 				else
 					numseqs += 1
@@ -369,17 +536,17 @@ function evaluate(sequences::Array{AbstractString,1}, seqattr::Array{Any,1}, bit
 	return score[1]*length(sequences) + score[2]
 end
 
-function findmax(sequences::Array{AbstractString,1}, seqattr::Array{Any,1})
+function findmax(sequences::Array{AbstractString,1}, seqattr::Array{Any,1}, evalualationfunc=evaluate)
 	rng = MersenneTwister(91093194923081)
 	population = []
 	popsize = 200
 
 	v = ones(Int,length(sequences))
-	push!(population, (v, evaluate(sequences, seqattr, v)))
+	push!(population, (v, evalualationfunc(sequences, seqattr, v)))
 	for i=1:length(sequences)
 		v = zeros(Int, length(sequences))
 		v[i] = 1
-		push!(population, (v, evaluate(sequences, seqattr,v)))
+		push!(population, (v, evalualationfunc(sequences, seqattr,v)))
 
 		for j=i+1:length(sequences)
 			v = zeros(Int, length(sequences))
@@ -645,9 +812,9 @@ function find_random_pdb_families()
 	end
 end
 
-find_non_homologous_random_pdbs("nonhomologous.fasta", abspath("selectedsequences.fasta"))
+#find_non_homologous_random_pdbs("nonhomologous.fasta", abspath("selectedsequences.fasta"))
 #create_from_homstrad()
-#find_random_pdb_families()
+find_random_pdb_families()
 #find_random_pdbs()
 
 #fastafile = abspath("../data/influenza_a/HA/selection3.fasta")
