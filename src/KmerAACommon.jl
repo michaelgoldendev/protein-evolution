@@ -48,7 +48,11 @@ function freqvector(sequence::AbstractString, k::Int, normalised::Bool=true)
   end
 end
 
-function freqvectorint(sequence::AbstractString, k::Int)
+function freqvectorint(seqin::AbstractString, k::Int)
+  sequence = uppercase(replace(seqin, "-" => ""))
+  sequence = replace(sequence, r"[^ACDEFGHIKLMNPQRSTVWY]" => "X")           
+  sequence = replace(sequence, "X" => "")
+
   f = zeros(Int,alphabet^k)
   for startpos=1:length(sequence)-k+1
     endpos = startpos+k-1

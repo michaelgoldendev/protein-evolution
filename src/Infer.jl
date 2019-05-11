@@ -95,6 +95,8 @@ function infer(parsed_args=Dict{String,Any}())
 	sequencescores_current = Dict{String,Float64}()
 	blindstructures = parsed_args["blindstructures"] != nothing ? convert(Array{String,1}, split(parsed_args["blindstructures"], r",|;")) : String[]
 	blindproteins = parsed_args["blindproteins"] != nothing ? convert(Array{String,1}, split(parsed_args["blindproteins"], r",|;")) : String[]
+	println(blindstructures)
+	println(blindproteins)
 	if length(blindproteins) > 0
 		println("Blinding protein sequences and structures: ", join(blindproteins, ", "))
 	end

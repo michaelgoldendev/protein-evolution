@@ -1,4 +1,4 @@
-module StructurePlots
+#module StructurePlots
 	include("Main.jl")
 
 	push!(LOAD_PATH,@__DIR__)
@@ -268,7 +268,7 @@ module StructurePlots
 				plt[:xlabel]("Omega (\$\\omega\$)", fontsize=13)
 
 				aminoacidstext = ["Ala","Cys","Asp", "Glu", "Phe", "Gly", "His", "Ile", "Lys", "Leu", "Met", "Asn", "Pro", "Gln", "Arg", "Ser", "Thr", "Val", "Trp", "Tyr"]
-			    barcolors = ["#777775", "#fedd00", "#ef3340", "#ef3340", "#000000", "#fedd00", "#0087c7", "#333334", "#0087c7", "#333334", "#333334", "#65428a", "#fedd00", "#65428a", "#0087c7", "#0087c7", "#333334", "#777775", "#000000", "#000000"]    
+			    barcolors = ["#777775", "#ffd415", "#ef3340", "#ef3340", "#000000", "#ffd415", "#3f48cc", "#333334", "#3f48cc", "#333334", "#333334", "#9e2fe3", "#ffd415", "#9e2fe3", "#3f48cc", "#3f48cc", "#333334", "#777775", "#000000", "#000000"]    
 			    barwidth = 0.5
 			    ax = plt[:subplot](nrows, ncols, 3, aspect="auto")
 				ax[:bar](1:20 + barwidth, modelparams.hiddennodes[h].aa_node.probs, barwidth, color=barcolors, label="Men")
@@ -309,8 +309,8 @@ module StructurePlots
 				end
 
 				plt[:subplots_adjust](bottom=0.2, hspace=0.5)
-				plt[:savefig]("plots/hidden/plot$(h)_nocond.png")
-				#plt[:savefig]("plots/hidden/plot$(h)_$(aminoacids[aa]).png")
+				#plt[:savefig]("plots/hidden/plot$(h)_nocond.png")
+				plt[:savefig]("plots/hidden/plot$(h).png")
 				plt[:close]
 			#end
 		end
@@ -754,7 +754,8 @@ module StructurePlots
 	#plotstructuresamples()
 	#plot_empirical()
 	#cluster()
-end
+#end
 
 #using StructurePlots
 
+plot_nodes("models/model.h40.2glmjug4seflu.thresh2.hiddenaascaling.anglescondaa25.precluster.ratemode1.model")

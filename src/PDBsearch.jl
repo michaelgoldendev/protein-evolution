@@ -43,7 +43,7 @@ function issubsequence(query::String, target::String)
 	return true, numinserts
 end
 
-function find_pdb_homologs(fastafile, outfile="homologs.fas", minseqs::Int=2)
+function find_pdb_homologs(fastafile, outfile="homologs.fas", minseqs::Int=1, inkmers3::Array{Array{Int,1},1}=Array{Int,1}[])
 	println("Find homologs: ",fastafile)
 	kmers2 = Array{Int,1}[]
 	kmers3 = Array{Int,1}[]
@@ -81,6 +81,9 @@ function find_pdb_homologs(fastafile, outfile="homologs.fas", minseqs::Int=2)
 		k2counts = 0
 		k3counts = 0
 	    for (lineno,ln) in enumerate(eachline(file))
+	    	if length(pdbmatches) > 200
+	    		break
+	    	end
 	    	if startswith(ln,">")
 	    		name = ln
 	    		seq = ""
@@ -151,11 +154,24 @@ function find_pdb_homologs(fastafile, outfile="homologs.fas", minseqs::Int=2)
 			    	spl2 = split(nameandchain,"_")
 			    	pdbname = spl2[1]
 			    	chain = spl2[2]
+
+			    	tv3 = freqvectorint(seq, 3)
+			    	homologous = false
+			    	k3cutoff = 0.1
+			    	for qv3 in inkmers3
+				    	k3score = 1.0 - (sum(abs.(tv3 - qv3)) / sum(max.(tv3,qv3)))
+			    		if k3score > k3cutoff
+			    			homologous = true
+			    			break
+			    		end
+			    	end
+
 			    	#key = string(">",pdbname,"\n",seq)
 			    	key = string(pdbname)
-			    	if !haskey(pdbmatches, key)
-			    		resolution,rvalue,freervalue = get_quality_attributes(pdbname)
-						if rvalue > 0.0 && rvalue < 0.25 && freervalue < 0.25
+			    	if !haskey(pdbmatches, key) && !homologous
+			    		#resolution,rvalue,freervalue,valid = get_quality_attributes(pdbname)
+			    		resolution,rvalue,freervalue,valid = DatasetCreator.get_quality_attributes(pdbname)
+						if valid
 					    	println(lineno,"\t",count,"\t",pdbname,"\t",chain,"\t",maxmatch2, "\t", maxmatch3,"\t",maxalignmentscore)
 					    	res = pairalign(GlobalAlignment(), seq, bestquery, AffineGapScoreModel(BLOSUM62, gap_open=-10, gap_extend=-1))
 		    				aln = res.aln
@@ -177,11 +193,13 @@ function find_pdb_homologs(fastafile, outfile="homologs.fas", minseqs::Int=2)
 	       
 	    end
 	finally 
-		println("FINISHED READING FILE")
+
 	end
 	close(fout)
 
 
+	numpdbs = 0
+	numseqs = 0
 	if length(pdbmatches) >= minseqs
 		musclefile = string(outfile,".muscle.fas")
 		muscle_alignment, cachefile = Binaries.muscle(outfile)
@@ -197,18 +215,62 @@ function find_pdb_homologs(fastafile, outfile="homologs.fas", minseqs::Int=2)
 				push!(sequences,seq)
 			end
 		end
-		println(sequences)
 
-		#=
-		newickstring, cachefile = Binaries.fasttreeaa(musclefile,branchsupport=true)
-		fout = open(string(outfile,".nwk"),"w")
-		println(fout,newickstring)
-		close(fout)=#
+		seqattributes = ProteinAttributes[]
+		for (name,seq) in zip(names,sequences)
+			println(name)
+			spl = split(name,"_")
+			pdbname = spl[1][4:end]
+			chain = spl[2]
+			resolution,rvalue,freervalue,valid = DatasetCreator.get_quality_attributes(pdbname)
+
+			println(pdbname,"\t",chain,"\t",rvalue,"\t",freervalue)
+			push!(seqattributes, ProteinAttributes(rvalue,freervalue))
+		end
+		best = findmax2(sequences, seqattributes)[1]
+		firstname = ""
+		for i=1:length(best)
+			if best[i] > 0
+				if firstname == ""
+					firstname = names[i]
+				end
+				seqattr = seqattributes[i]
+				if seqattr.rvalue > 0.0 && seqattr.rvalue < 0.25 && seqattr.freervalue > 0.0 && seqattr.freervalue < 0.25
+					numpdbs += 1
+				else
+					numseqs += 1
+				end
+			end
+		end
+	
+		familyname = string(firstname[4:7],"_",numpdbs,"_",numseqs)
+		#outputdir = "../data/random_families/"
+		outputdir = "../data/random_families2/"
+		familyfas = string(outputdir,familyname,".fas")
+		familyout = open(familyfas,"w")
+		for i=1:length(best)
+			if best[i] > 0
+				seqattr = seqattributes[i]
+				if seqattr.rvalue > 0.0 && seqattr.rvalue < 0.25 && seqattr.freervalue > 0.0 && seqattr.freervalue < 0.25
+					println(familyout,">pdb",names[i][4:end])
+					println(familyout, sequences[i])
+				else
+					println(familyout,">seq",names[i][4:end])
+					println(familyout, sequences[i])
+				end
+				println("INKMERS ", length(inkmers3))
+				push!(inkmers3, freqvectorint(sequences[i], 3))
+			end
+		end
+		close(familyout)
+		musclefile = joinpath(outputdir, string(familyname,".muscle.fasta"))
+		muscle_alignment, cachefile = Binaries.muscle(familyfas)
+		fout = open(musclefile,"w")
+		println(fout,muscle_alignment)
+		close(fout)
+		fromsequencealignment(musclefile, joinpath(outputdir, string(familyname,".fam")))
 	end
-
-	println(length(pdbmatches))
-	exit()
-	return length(pdbmatches)
+	return (numpdbs,numseqs)
 end
 
 function find_random_pdbs(outfile="pdbselection.fas")
@@ -238,7 +300,7 @@ function find_random_pdbs(outfile="pdbselection.fas")
 					    
 					    if !haskey(pdbmatches, pdbname)
 						    try
-					    		resolution,rvalue,freervalue = DatasetCreator.get_quality_attributes(pdbname)
+					    		resolution,rvalue,freervalue,valid = DatasetCreator.get_quality_attributes(pdbname)
 					    		if rvalue > 0.0 && rvalue < 0.25 && freervalue > 0.0 && freervalue < 0.25
 						    		pdbmatches[pdbname] = pdbname
 						    		println(fout, ">pdb$(pdbname)_$(chain) $(name[2:end])")
@@ -313,7 +375,7 @@ function find_non_homologous_random_pdbs(outfile="nonhomologous.fas",homologfast
 					    	end
 					    	if !homologous
 							    try
-						    		resolution,rvalue,freervalue = DatasetCreator.get_quality_attributes(pdbname)
+						    		resolution,rvalue,freervalue,valid = DatasetCreator.get_quality_attributes(pdbname)
 						    		if rvalue > 0.0 && rvalue < 0.25 && freervalue > 0.0 && freervalue < 0.25
 						    			push!(kmers3, tv3)
 							    		pdbmatches[pdbname] = pdbname
@@ -353,16 +415,16 @@ end
 
 function percentmatch(seq1::AbstractString, seq2::AbstractString)
 	matchcount = 0.0
-	total = 0.0
+	total = 1e-10
 	for (a,b) in zip(seq1,seq2)
-		if a in aminoacids || b in aminoacids
+		if a in aminoacids && b in aminoacids
 			if a == b
 				matchcount += 1.0
 			end
 			total += 1.0
 		end
 	end
-	return matchcounttotal
+	return matchcount/total
 end
 
 mutable struct ProteinAttributes
@@ -402,8 +464,12 @@ function evaluate2(sequences::Array{AbstractString,1}, seqattr::Array{ProteinAtt
 	
 	numpdbs = 0
 	numseqs = 0
-	if minpercaligned < 0.90 || minpairwisematch < 0.1 || maxpairwisematch > 0.90
-		score = (0,0)
+	numassigned = sum(bitvector)
+	if minpercaligned < 0.90 || minpairwisematch < 0.05 || maxpairwisematch > 0.95 || numassigned > 30 
+		score = (-1,-1)
+		if numassigned == 1
+			score = (0,0)
+		end
 	else
 		for i=1:length(sequences)
 			if bitvector[i] > 0
@@ -436,7 +502,7 @@ function findmax2(sequences::Array{AbstractString,1}, seqattr::Array{ProteinAttr
 			v = zeros(Int, length(sequences))
 			v[i] = 1
 			v[j] = 1
-			push!(population, (v, evaluate(sequences,seqattr,v)))
+			push!(population, (v, evalualationfunc(sequences,seqattr,v)))
 		end
 	end
 
@@ -447,7 +513,7 @@ function findmax2(sequences::Array{AbstractString,1}, seqattr::Array{ProteinAttr
 		for k=1:min(3, length(sequences))
 			v[randorder[k]] = 1
 		end
-		push!(population, (v, evaluate(sequences,seqattr,v)))
+		push!(population, (v, evalualationfunc(sequences,seqattr,v)))
 	end
 
 	for z=1:50
@@ -482,7 +548,7 @@ function findmax2(sequences::Array{AbstractString,1}, seqattr::Array{ProteinAttr
 			newbitarray = copy(newpopulation[ind][1])
 			randindex =  rand(rng, 1:length(newbitarray))
 			newbitarray[randindex]= 1 - newbitarray[randindex]
-			push!(newpopulation, (newbitarray, evaluate(sequences,seqattr,newbitarray)))
+			push!(newpopulation, (newbitarray, evalualationfunc(sequences,seqattr,newbitarray)))
 		end
 		while length(newpopulation) < popsize
 			ind1 = rand(rng, 1:length(newpopulation))
@@ -495,7 +561,7 @@ function findmax2(sequences::Array{AbstractString,1}, seqattr::Array{ProteinAttr
 					newbitarray[i] = newpopulation[ind2][1][i]
 				end
 			end
-			push!(newpopulation, (newbitarray, evaluate(sequences,seqattr,newbitarray)))
+			push!(newpopulation, (newbitarray, evalualationfunc(sequences,seqattr,newbitarray)))
 		end
 		population = newpopulation
 	end
@@ -674,7 +740,7 @@ function create_from_homstrad(homstraddir="../data/homstrad_with_PDB_2019_Apr_1/
 						end
 						try 
 				    		polypeptide = Backbone.backbone_angles_and_bond_lengths_from_pdb(structure[1][chain])
-				    		resolution,rvalue,freervalue = DatasetCreator.get_quality_attributes(pdbname)
+				    		resolution,rvalue,freervalue,valid = DatasetCreator.get_quality_attributes(pdbname)
 				    		if !haskey(usedpdbs,pdbname)
 				    			push!(selection, (pdbname,chain,polypeptide["sequence"],rvalue,freervalue))
 				    			usedpdbs[pdbname] = pdbname
@@ -694,7 +760,7 @@ function create_from_homstrad(homstraddir="../data/homstrad_with_PDB_2019_Apr_1/
 				    	fout = open(outpath, "w")
 				    	for s in selection
 				    		seqname = ""
-				    		resolution,rvalue,freervalue = DatasetCreator.get_quality_attributes(s[1])
+				    		resolution,rvalue,freervalue,valid = DatasetCreator.get_quality_attributes(s[1])
 			    			if rvalue > 0.0 && rvalue < 0.25 && freervalue > 0.0 && freervalue < 0.25
 			    			#if rvalue > 0.0 && rvalue < 0.25
 			    				seqname = string(">pdb",s[1],"_",s[2])
@@ -755,60 +821,111 @@ end
 
 function find_random_pdb_families()
 	rng = MersenneTwister(4917104813143)
-	pdbmatches = Dict{AbstractString,AbstractString}()
+	countsequences = 0
+	indices = Int[]
 	open("../data/pdbsequences.fasta") do file
-		name = ""
-		seq = ""
-		count = 0
-	    for ln in eachline(file)
+		for (index, ln) in enumerate(eachline(file))
 	    	if startswith(ln,">")
-	    		name = ln
-	    		seq = ""
-	    	else
-	    		count += 1
-	    		seq = ln
-
-	    		if rand(rng,1:500) == 125 && match(r".*mol:protein.*", name) != nothing && length(seq) >= 100 
-	    			namelower = lowercase(name)
-
-	    			if !occursin("mutant", namelower) && !occursin("recombinant", namelower) && !occursin("synthetic", namelower) && !occursin("humanized", namelower) && !occursin("humanised", namelower)
-				    	nameandchain = split(name[2:end])[1]
-				    	spl2 = split(nameandchain,"_")
-				    	pdbname = spl2[1]
-				    	chain = spl2[2]
-					    
-					    if !haskey(pdbmatches, pdbname)
-						    try
-					    		resolution,rvalue,freervalue = DatasetCreator.get_quality_attributes(pdbname)
-					    		if rvalue > 0.0 && rvalue < 0.25 && freervalue > 0.0 && freervalue < 0.25
-						    		pdbmatches[pdbname] = pdbname
-
-						    		#=
-						    		println(fout, ">pdb$(pdbname)_$(chain) $(name[2:end])")
-						    		println(fout, seq)
-						    		flush(fout)=#
-						    		tempfile = string("../data/scratch/",pdbname,".temp.fas")
-						    		if !Base.Filesystem.isfile(tempfile)
-							    		outfile = string("../data/scratch/",pdbname,".family.fas")
-							    		fastafile = DatasetCreator.getpdbsequencealignment(String[pdbname], tempfile, false)
-										numseqs = find_pdb_homologs(fastafile, outfile)
-										println("FINISHED ", pdbname,"\t",numseqs)
-										
-										if numseqs <= 1
-											Base.Filesystem.rm(fastafile)
-											Base.Filesystem.rm(tempfile)
-											Base.Filesystem.rm(outfile)
-										end
-									end
-						    	end
-						   	catch e
-
-						   	end
-					   end
-				   end
-		    	end
-	    	end	       
+	    		push!(indices, index)
+	    	end
 	    end
+	end
+	shuffle!(rng, indices)
+
+
+	totalpdbs = 0
+	totalseqs = 0
+	totalfamilies = 0
+
+	pdbmatches = Dict{AbstractString,AbstractString}()
+	kmers3 = Array{Int,1}[]
+	countdict = Dict{Tuple{Int,Int},Int}()
+	for (currentindex, randindex) in enumerate(indices)
+		try
+			open("../data/pdbsequences.fasta") do file
+				name = ""
+				seq = ""
+				count = 0
+			    for (index, ln) in enumerate(eachline(file))
+			    	if index == randindex || index == randindex+1
+				    	if startswith(ln,">")
+				    		name = ln
+				    		seq = ""
+				    	else
+				    		#println("INDEX ", index)
+				    		#exit()
+				    		count += 1
+				    		seq = ln
+
+				    		if match(r".*mol:protein.*", name) != nothing && length(seq) >= 100 
+				    			namelower = lowercase(name)
+
+				    			if !occursin("mutant", namelower) && !occursin("recombinant", namelower) && !occursin("synthetic", namelower) && !occursin("humanized", namelower) && !occursin("humanised", namelower)
+							    	nameandchain = split(name[2:end])[1]
+							    	spl2 = split(nameandchain,"_")
+							    	pdbname = spl2[1]
+							    	chain = spl2[2]
+
+							    	tv3 = freqvectorint(seq, 3)
+							    	homologous = false
+							    	k3cutoff = 0.1
+							    	for qv3 in kmers3
+								    	k3score = 1.0 - (sum(abs.(tv3 - qv3)) / sum(max.(tv3,qv3)))
+							    		if k3score > k3cutoff
+							    			homologous = true
+							    			break
+							    		end
+							    	end
+								    
+								    if !haskey(pdbmatches, pdbname) && !homologous
+									    try
+								    		resolution,rvalue,freervalue,valid = DatasetCreator.get_quality_attributes(pdbname)
+								    		if valid
+									    		pdbmatches[pdbname] = pdbname
+
+									    		#=
+									    		println(fout, ">pdb$(pdbname)_$(chain) $(name[2:end])")
+									    		println(fout, seq)
+									    		flush(fout)=#
+									    		tempfile = string("../data/scratch/",pdbname,".temp.fas")
+									    		if !Base.Filesystem.isfile(tempfile)
+										    		outfile = string("../data/scratch/",pdbname,".family.fas")
+										    		fastafile = DatasetCreator.getpdbsequencealignment(String[pdbname], tempfile, false)
+													numpdbs, numseqs = find_pdb_homologs(fastafile, outfile, 1, kmers3)
+													key = (numpdbs, numseqs)
+													val = get(countdict, key, 0)
+													countdict[key] = val+1
+
+													totalpdbs += numpdbs
+													totalseqs += numseqs
+													if numpdbs > 0 || numseqs > 0
+														totalfamilies += 1
+													end 													
+													println(countdict)
+													println("totalpdbs: $(totalpdbs), totalseqs: $(totalseqs), totalfamilies: $(totalfamilies), current: $(currentindex)")
+													
+													#println("FINISHED ", pdbname,"\t",numseqs,"\t")
+													
+													if numseqs <= 1
+														Base.Filesystem.rm(fastafile)
+														Base.Filesystem.rm(tempfile)
+														Base.Filesystem.rm(outfile)
+													end
+												end
+									    	end
+									   	catch e
+
+									   	end
+								   end
+							   end
+					    	end
+					    end
+			    	end	       
+			    end
+			end
+		catch
+
+		end
 	end
 end
 

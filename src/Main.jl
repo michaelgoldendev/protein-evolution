@@ -3234,7 +3234,7 @@ end
 
 
 
-function sampletraininginstances(iter::Int, rng::AbstractRNG, trainingexamples::Array{Tuple,1}, modelparams::ModelParams; maxsamplesperiter::Int=500, familyiter::Int=5, sitethreshold::Int=2, dosamplesiterates::Bool=true, samplebranchlengths::Bool=true, family_names::Array{String,1}, accept_everything::Bool=false)
+function sampletraininginstances(iter::Int, rng::AbstractRNG, trainingexamples::Array{Tuple,1}, modelparams::ModelParams; maxsamplesperiter::Int=500, sitethreshold::Int=2, dosamplesiterates::Bool=true, samplebranchlengths::Bool=true, family_names::Array{String,1}, accept_everything::Bool=false)
 	totalbranchlength_output = 0.0
 	accepted_hidden = 0.0
 	accepted_hidden_total = 0.0
@@ -3249,17 +3249,12 @@ function sampletraininginstances(iter::Int, rng::AbstractRNG, trainingexamples::
 		if length(proteins) == 1
 			backwardsamplesingle(rng, nodelist[1], modelparams)
 		else
-			maxsamplesthisiter = maxsamplesperiter
-			if (trainingindex+iter) % familyiter != 0
-				maxsamplesthisiter = 1
-			end
-			samplehiddenstates = true
 			accepted = zeros(Int, numcols)			
-			for i=1:maxsamplesthisiter					
+			for i=1:maxsamplesperiter					
 				randcols = shuffle(rng, Int[i for i=1:numcols])
 				for col in randcols
 					if accepted[col] < sitethreshold || i % 20 == 0 || (col > 1 && accepted[col-1] < sitethreshold) || (col < numcols && accepted[col+1] < sitethreshold) 
-						a1,a2,a3,a4, hidden_accepted, aa_accepted, hiddentime, aatime = samplepaths_seperate_new(rng,col,proteins,nodelist, modelparams, samplehiddenstates=samplehiddenstates, dosamplesiterates=dosamplesiterates, accept_everything=accept_everything)
+						a1,a2,a3,a4, hidden_accepted, aa_accepted, hiddentime, aatime = samplepaths_seperate_new(rng,col,proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates, accept_everything=accept_everything)
 						totalhiddentime += hiddentime
 						totalaatime += aatime
 						accepted_hidden += a1

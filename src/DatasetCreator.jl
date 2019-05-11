@@ -25,12 +25,26 @@ module DatasetCreator
 
 	export get_quality_attributes
 	function get_quality_attributes(pdbname)
+		invalidkeywords = String["mutant","recombinant","synthetic","humanized","humanised", "mutant: yes"]
+		#, "engineered: yes"
 		resolution = -1.0
 		rvalue = -1.0
 		freervalue = -1.0
+		valid = true
 		pdbfile = downloadpdb(pdbname, pdb_dir=pdbdir);
 		fin = open(pdbfile, "r")
 		for line in readlines(fin)
+			strippedline = strip(line)
+			if startswith(strippedline, "TITLE") || startswith(strippedline, "SOURCE") || startswith(strippedline, "REMARK") || startswith(strippedline, "COMPND")
+				linelower = lowercase(line)
+				for invalidkeyword in invalidkeywords
+					if occursin(invalidkeyword, linelower)
+						#println(linelower)
+						valid = false
+						break
+					end
+				end
+			end
 			if resolution < 0.0
 				m = match(r"^REMARK\s+\d+\s+RESOLUTION.\s+((\d*\.)?\d+)\s+ANGSTROMS.*", line)
 				if m != nothing
@@ -51,13 +65,14 @@ module DatasetCreator
 			end			
 		end
 		close(fin)
+		#=
 		println("$pdbname ANGSTROM:",resolution)
 		println("$pdbname RVALUE:",rvalue)
 		println("$pdbname FREER:", freervalue)
 		if rvalue < 0.0 || rvalue > 0.25
 			println("*****************************************")
-		end
-		return resolution,rvalue,freervalue
+		end=#
+		return resolution,rvalue,freervalue,valid
 	end
 
 	export fromsequencealignment
@@ -80,7 +95,7 @@ module DatasetCreator
 		    	usepdb = false
 		    	if m != nothing
 		    		pdbname = m[1]
-		    		resolution,rvalue,freervalue = get_quality_attributes(pdbname)
+		    		resolution,rvalue,freervalue,valid = get_quality_attributes(pdbname)
 					if !usequalitycutoff || (rvalue > 0.0 && rvalue < 0.25 && freervalue < 0.25)
 						usepdb = true
 					else
@@ -95,7 +110,7 @@ module DatasetCreator
 			        proteindict["name"] = desc
 			        proteindict["pdb"] = pdbname			       
 			        proteindict["chain"] = chain
-			        resolution,rvalue,freervalue = get_quality_attributes(pdbname)
+			        resolution,rvalue,freervalue,valid = get_quality_attributes(pdbname)
 			        proteindict["resolution"] = resolution
 			        proteindict["rvalue"] = rvalue
 			        proteindict["freervalue"] = freervalue
@@ -224,7 +239,7 @@ module DatasetCreator
 
 		jsondict["proteins"] = proteins
 
-		resolution,rvalue,freervalue = get_quality_attributes(pdbname)
+		resolution,rvalue,freervalue,valid = get_quality_attributes(pdbname)
 		if rvalue > 0.0 && rvalue < 0.25 && freervalue < 0.25
 			fout = open(outfile,"w")
 			JSON.print(fout, jsondict)

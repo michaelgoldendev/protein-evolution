@@ -619,7 +619,7 @@ function estimate_parameters(iter::Int,trainingexamples, modelparams::ModelParam
 	modelparams.aa_exchangeablities *= scaleaarates
 end
 
-function parallelsample(iter::Int, rng::AbstractRNG, trainingexamples::Array{Tuple,1}, modelparams::ModelParams; maxsamplesperiter::Int=500, familyiter::Int=5, sitethreshold::Int=2, dosamplesiterates::Bool=true, samplebranchlengths::Bool=true, family_names::Array{String,1},accept_everything::Bool=false)
+function parallelsample(iter::Int, rng::AbstractRNG, trainingexamples::Array{Tuple,1}, modelparams::ModelParams; maxsamplesperiter::Int=500, sitethreshold::Int=2, dosamplesiterates::Bool=true, samplebranchlengths::Bool=true, family_names::Array{String,1},accept_everything::Bool=false)
 	totalbranchlength_output  = 0.0
 	accepted_hidden = 0.0 
 	accepted_hidden_total = 0.0
@@ -634,7 +634,7 @@ function parallelsample(iter::Int, rng::AbstractRNG, trainingexamples::Array{Tup
 	for t=1:threads
 		trainingexamples_subset = trainingexamples[t:threads:end]
 		trng = MersenneTwister(rand(rng, UInt32)+t)
-		ref = @spawn sampletraininginstances(iter, trng, trainingexamples_subset, deepcopy(modelparams), maxsamplesperiter=maxsamplesperiter, familyiter=familyiter, sitethreshold=sitethreshold, dosamplesiterates=dosamplesiterates, samplebranchlengths=samplebranchlengths, family_names=family_names, accept_everything=accept_everything)
+		ref = @spawn sampletraininginstances(iter, trng, trainingexamples_subset, deepcopy(modelparams), maxsamplesperiter=maxsamplesperiter, sitethreshold=sitethreshold, dosamplesiterates=dosamplesiterates, samplebranchlengths=samplebranchlengths, family_names=family_names, accept_everything=accept_everything)
 		push!(refs,ref)
 	end
 	trainingexamples_subsets = Array{Tuple,1}[]
@@ -700,9 +700,9 @@ function train(parsed_args=Dict{String,Any}())
 	#family_directories = ["../data/single_pdbs/", "../data/homstrad_families/", "../data/curated_rna_virus_structures/"] 
 	#family_directories = ["../data/single_pdbs/", "../data/homstrad_families/"] 
 	#family_directories = ["../data/homstrad_curated/", "../data/curated_rna_virus_structures/"]	
-	family_directories = ["../data/homstrad_curated_highquality/", "../data/curated_rna_virus_structures/", "../data/nonhomologous_singles_xlarge/"]
+	#family_directories = ["../data/homstrad_curated_highquality/", "../data/curated_rna_virus_structures/", "../data/nonhomologous_singles_xlarge/"]
 	#family_directories = ["../data/homstrad_curated_highquality/", "../data/curated_rna_virus_structures/"]	
-	familyiter = 1
+	family_directories = ["../data/random_families2/"]
 
 	family_names,trainingexamples,traininghashbase36 = loadtrainingexamples(rng, parsed_args, family_directories, modelparams)
 
@@ -916,7 +916,7 @@ function train(parsed_args=Dict{String,Any}())
 		end
 		trainingexamples = trainingexamplestemp
 		=#
-		trainingexamples, totalbranchlength_output,accepted_hidden,accepted_hidden_total,accepted_aa,accepted_aa_total,totalhiddentime,totalaatime = parallelsample(iter, rng, trainingexamples, modelparams, maxsamplesperiter=maxsamplesperiter, familyiter=familyiter, sitethreshold=sitethreshold, dosamplesiterates=dosamplesiterates, samplebranchlengths=samplebranchlengths, family_names=family_names)
+		trainingexamples, totalbranchlength_output,accepted_hidden,accepted_hidden_total,accepted_aa,accepted_aa_total,totalhiddentime,totalaatime = parallelsample(iter, rng, trainingexamples, modelparams, maxsamplesperiter=maxsamplesperiter, sitethreshold=sitethreshold, dosamplesiterates=dosamplesiterates, samplebranchlengths=samplebranchlengths, family_names=family_names)
 
 		#trainingexamples_subset,totalbranchlength_output,accepted_hidden,accepted_hidden_total,accepted_aa,accepted_aa_total,totalhiddentime,totalaatime = sampletraininginstances(iter, rng, trainingexamples, modelparams, maxsamplesperiter=maxsamplesperiter, familyiter=familyiter, sitethreshold=sitethreshold, dosamplesiterates=dosamplesiterates, samplebranchlengths=samplebranchlengths, family_names=family_names)
 
