@@ -1,4 +1,4 @@
-#module StructurePlots
+module StructurePlots
 	include("Main.jl")
 
 	push!(LOAD_PATH,@__DIR__)
@@ -592,7 +592,12 @@
 		fin = open(samplefile, "r")	
 		samples = Serialization.deserialize(fin)
 		close(fin)
+		jsondict = Dict{String,Any}()
+		jsondict["sampleplots"] = Dict{String,Any}()
+		jsondict["names"] = AbstractString[]
+		jsondict["othernames"] = othernames
 		for name in keys(samples)
+			plotnames = AbstractString[]
 			if !startswith(name,"metadata:")
 				#=
 				if name != plotname
@@ -601,6 +606,8 @@
 				proteinsample = samples[name]
 
 				json_family = proteinsample.json_family
+				jsondict["newick_tree"] = json_family["newick_tree"]
+				push!(jsondict["names"], name)
 
 				seqnametoindex = Dict{String,Int}()
 				for (index,protein) in enumerate(proteinsample.json_family["proteins"])
@@ -705,12 +712,18 @@
 						if !isdir(outplotdir)
 							mkdir(outplotdir)	
 						end
-						plt.savefig(joinpath(outplotdir, "$(name)_site$(col).png"), transparent=true)
+						plotname = "$(name)_site$(col).png"
+						push!(plotnames, plotname)
+						plt.savefig(joinpath(outplotdir, plotname), transparent=true)
 						plt.close()
 					end
-				end
+				end				
+				jsondict["sampleplots"][name] = plotnames
 			end
-		end
+		end		
+		fout = open(joinpath(outdir, "data.json"), "w")
+		JSON.print(fout, jsondict)
+		close(fout)
 	end
 
 	function parse_plotting_commandline()
@@ -754,8 +767,8 @@
 	#plotstructuresamples()
 	#plot_empirical()
 	#cluster()
-#end
+end
 
 #using StructurePlots
 
-plot_nodes("models/model.h40.2glmjug4seflu.thresh2.hiddenaascaling.anglescondaa25.precluster.ratemode1.model")
+#plot_nodes("models/model.h40.2glmjug4seflu.thresh2.hiddenaascaling.anglescondaa25.precluster.ratemode1.model")

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+html, body, iframe {
+    padding: 0;
+    margin: 0;
+    border: 0;
+    width: 100%;
+    height: 100%;
+}
+iframe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+}
+</style>
+<!-- bl.ocks.org uses an iframe with scrolling="no"
+     which for some reason cannot be overridden with
+     self.frameSet.removeAttribute(scrolling)
+     so we embed another iframe with scrolling enabled
+     Yuck. -->
+<iframe src="image-grid.html" marginwidth="0" marginheight="0"></iframe>

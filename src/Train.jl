@@ -702,7 +702,7 @@ function train(parsed_args=Dict{String,Any}())
 	#family_directories = ["../data/homstrad_curated/", "../data/curated_rna_virus_structures/"]	
 	#family_directories = ["../data/homstrad_curated_highquality/", "../data/curated_rna_virus_structures/", "../data/nonhomologous_singles_xlarge/"]
 	#family_directories = ["../data/homstrad_curated_highquality/", "../data/curated_rna_virus_structures/"]	
-	family_directories = ["../data/random_families2/"]
+	family_directories = ["../data/random_families2/", "../data/nonhomologous_singles_xlarge2"]
 
 	family_names,trainingexamples,traininghashbase36 = loadtrainingexamples(rng, parsed_args, family_directories, modelparams)
 

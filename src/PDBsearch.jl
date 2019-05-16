@@ -4,6 +4,8 @@ using BioAlignments
 using BioStructures
 using Random
 using Printf
+using Distributed
+using JSON
 
 push!(LOAD_PATH,@__DIR__)
 using Backbone
@@ -11,9 +13,12 @@ using Binaries
 using DatasetCreator
 using CommonUtils
 
-pdbdir = abspath("../data/pdbs/")
 
 include("KmerAACommon.jl")
+
+pdbdir = abspath("../data/pdbs/")
+
+
 
 function issubsequence(query::String, target::String)
 	if length(query) > length(target)
@@ -43,7 +48,11 @@ function issubsequence(query::String, target::String)
 	return true, numinserts
 end
 
-function find_pdb_homologs(fastafile, outfile="homologs.fas", minseqs::Int=1, inkmers3::Array{Array{Int,1},1}=Array{Int,1}[])
+function find_pdb_homologs(fastafile, pdbdatabase="../data/pdbsequences.fasta", outfile="homologs.fas", minseqs::Int=1, inkmers3::Array{Array{Int,1},1}=Array{Int,1}[])
+	outputdir = "../data/random_families3/"
+	if !isdir(outputdir)
+		mkpath(outputdir)
+	end
 	println("Find homologs: ",fastafile)
 	kmers2 = Array{Int,1}[]
 	kmers3 = Array{Int,1}[]
@@ -74,7 +83,7 @@ function find_pdb_homologs(fastafile, outfile="homologs.fas", minseqs::Int=1, in
 
 	pdbmatches = Dict{AbstractString,AbstractString}()
 	try
-		file = open("../data/pdbsequences.fasta")
+		file = open(pdbdatabase)
 		name = ""
 		seq = ""
 		count = 0	
@@ -245,7 +254,6 @@ function find_pdb_homologs(fastafile, outfile="homologs.fas", minseqs::Int=1, in
 	
 		familyname = string(firstname[4:7],"_",numpdbs,"_",numseqs)
 		#outputdir = "../data/random_families/"
-		outputdir = "../data/random_families2/"
 		familyfas = string(outputdir,familyname,".fas")
 		familyout = open(familyfas,"w")
 		for i=1:length(best)
@@ -319,6 +327,23 @@ function find_random_pdbs(outfile="pdbselection.fas")
 	close(fout)
 end
 
+function writeallsequencestofasta(family_dir)
+	fout = open("sequencedatabase.fasta", "w")
+	family_files = filter(f -> endswith(f,".fam"), readdir(family_dir))
+	for family_file in family_files
+		full_path = abspath(joinpath(family_dir, family_file))
+		json_family = JSON.parse(open(full_path, "r"))
+		for protein in json_family["proteins"]
+			println(fout,">",protein["name"])
+			degapped = uppercase(replace(protein["sequence"], "-" => ""))
+	        degapped = replace(degapped, r"[^ACDEFGHIKLMNPQRSTVWY]" => "X")		        
+	        degapped = replace(degapped, "X" => "")
+			println(fout, degapped)
+		end
+	end
+	close(fout)
+end
+
 function find_non_homologous_random_pdbs(outfile="nonhomologous.fas",homologfasta=nothing)
 	kmers2 = Array{Int,1}[]
 	kmers3 = Array{Int,1}[]
@@ -353,7 +378,8 @@ function find_non_homologous_random_pdbs(outfile="nonhomologous.fas",homologfast
 	    		count += 1
 	    		seq = ln
 	    		r = rand(rng,1:125)
-	    		if (r == 1 || r == 16 || r == 65 || r == 32 || r == 48  || r == 72 || r == 98 || r == 114) && match(r".*mol:protein.*", name) != nothing && length(seq) >= 100 
+	    		rlist = Int[1,16,65,32,48,72,98,114]
+	    		if r in rlist && match(r".*mol:protein.*", name) != nothing && length(seq) >= 100 
 	    			namelower = lowercase(name)
 
 	    			if !occursin("mutant", namelower) && !occursin("recombinant", namelower) && !occursin("synthetic", namelower) && !occursin("humanized", namelower) && !occursin("humanised", namelower)
@@ -376,13 +402,13 @@ function find_non_homologous_random_pdbs(outfile="nonhomologous.fas",homologfast
 					    	if !homologous
 							    try
 						    		resolution,rvalue,freervalue,valid = DatasetCreator.get_quality_attributes(pdbname)
-						    		if rvalue > 0.0 && rvalue < 0.25 && freervalue > 0.0 && freervalue < 0.25
+						    		if valid && rvalue > 0.0 && rvalue < 0.25 && freervalue > 0.0 && freervalue < 0.25
 						    			push!(kmers3, tv3)
 							    		pdbmatches[pdbname] = pdbname
 							    		println(fout, ">pdb$(pdbname)_$(chain) $(name[2:end])")
 							    		println(fout, seq)
 							    		flush(fout)
-							    		DatasetCreator.fromsinglepdb(pdbname, chain, "../data/nonhomologous_singles_xlarge/")
+							    		DatasetCreator.fromsinglepdb(pdbname, chain, "../data/nonhomologous_singles_xlarge2/")
 							    	end
 							   	catch e
 
@@ -819,20 +845,7 @@ function create_from_homstrad(homstraddir="../data/homstrad_with_PDB_2019_Apr_1/
 	end
 end
 
-function find_random_pdb_families()
-	rng = MersenneTwister(4917104813143)
-	countsequences = 0
-	indices = Int[]
-	open("../data/pdbsequences.fasta") do file
-		for (index, ln) in enumerate(eachline(file))
-	    	if startswith(ln,">")
-	    		push!(indices, index)
-	    	end
-	    end
-	end
-	shuffle!(rng, indices)
-
-
+function find_random_pdb_families_helper(indices::Array{Int,1}, pdbdatabase)
 	totalpdbs = 0
 	totalseqs = 0
 	totalfamilies = 0
@@ -842,7 +855,7 @@ function find_random_pdb_families()
 	countdict = Dict{Tuple{Int,Int},Int}()
 	for (currentindex, randindex) in enumerate(indices)
 		try
-			open("../data/pdbsequences.fasta") do file
+			open(pdbdatabase) do file
 				name = ""
 				seq = ""
 				count = 0
@@ -891,7 +904,7 @@ function find_random_pdb_families()
 									    		if !Base.Filesystem.isfile(tempfile)
 										    		outfile = string("../data/scratch/",pdbname,".family.fas")
 										    		fastafile = DatasetCreator.getpdbsequencealignment(String[pdbname], tempfile, false)
-													numpdbs, numseqs = find_pdb_homologs(fastafile, outfile, 1, kmers3)
+													numpdbs, numseqs = find_pdb_homologs(fastafile, pdbdatabase, outfile, 1, kmers3)
 													key = (numpdbs, numseqs)
 													val = get(countdict, key, 0)
 													countdict[key] = val+1
@@ -929,9 +942,44 @@ function find_random_pdb_families()
 	end
 end
 
+writeallsequencestofasta("../data/random_families2/")
+find_non_homologous_random_pdbs("nonhomologous.fas","sequencedatabase.fasta")
+
+#=
+function find_random_pdb_families()
+	rng = MersenneTwister(4917104813143)
+	countsequences = 0
+	indices = Int[]
+	pdbdatabase = "../data/pdbsequences.fasta"
+	open(pdbdatabase) do file
+		for (index, ln) in enumerate(eachline(file))
+	    	if startswith(ln,">")
+	    		push!(indices, index)
+	    	end
+	    end
+	end
+	shuffle!(rng, indices)
+
+	numthreads = max(1, nprocs()-1)
+	refs = []
+	for t=1:numthreads
+		pdbdatabasecopy = "../data/pdbsequences$(t).fasta"
+		if isfile(pdbdatabasecopy)
+			rm(pdbdatabasecopy)
+		end
+		cp(pdbdatabase, pdbdatabasecopy)
+		ref  = @spawn find_random_pdb_families_helper(indices[t:t:end], pdbdatabasecopy)
+		push!(refs,ref)
+	end
+
+	for ref in refs
+		fetch(ref)
+	end
+end=#
+
 #find_non_homologous_random_pdbs("nonhomologous.fasta", abspath("selectedsequences.fasta"))
 #create_from_homstrad()
-find_random_pdb_families()
+#find_random_pdb_families()
 #find_random_pdbs()
 
 #fastafile = abspath("../data/influenza_a/HA/selection3.fasta")
