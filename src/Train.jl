@@ -668,7 +668,8 @@ function train(parsed_args=Dict{String,Any}())
 
 
 	learnrates = true
-	samplebranchlengths = parsed_args["samplebranchlengths"]
+	#samplebranchlengths = parsed_args["samplebranchlengths"]
+	samplebranchlengths = false
 	independentsites = parsed_args["independentsites"]
 	usestructureobservations = !parsed_args["sequenceonly"]
 	#family_dir = "../data/families/"
@@ -763,7 +764,7 @@ function train(parsed_args=Dict{String,Any}())
 	else
 		outputmodelname = string(outputmodelname,".nohiddenaascaling")
 	end
-	if !samplebranchlengths
+	if parsed_args["samplebranchlengths"] <= 0
 		outputmodelname = string(outputmodelname,".nobranchsampling")
 	end
 	if independentsites
@@ -795,7 +796,7 @@ function train(parsed_args=Dict{String,Any}())
 		exit()
 	end
 
-	if parsed_args["precluster"] > 0
+	if !parsed_args["loadfromcache"] && parsed_args["precluster"] > 0
 		estimatehmm(rng, trainingexamples, modelparams, parsed_args["precluster"], parsed_args)
 		family_names,trainingexamples,traininghashbase36 = loadtrainingexamples(rng, parsed_args, family_directories, modelparams)
 	end
@@ -876,6 +877,9 @@ function train(parsed_args=Dict{String,Any}())
 		if !(parsed_args["angles-cond-aa"] <= 0) && iter >= parsed_args["angles-cond-aa"]
 			modelparams.hidden_conditional_on_aa = true
 		end 
+		if !(parsed_args["samplebranchlengths"] <= 0) && iter >= parsed_args["samplebranchlengths"]
+			samplebranchlengths = true
+		end
 
 		reset_matrix_cache(modelparams)
 		#=
@@ -991,8 +995,8 @@ function parse_training_commandline()
 		 	arg_type = Int
     	"--samplebranchlengths"
         	help = "sample branch lengths during training"
-      	    arg_type = Bool
-      	    default = true
+      	    arg_type = Int
+      	    default = 20
       	"--samplesiterates"
          	help = ""
           	action = :store_true

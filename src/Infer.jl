@@ -105,7 +105,7 @@ function infer(parsed_args=Dict{String,Any}())
 	println("Scaling factor: ", modelparams.scalingfactor)
 
 	datafile = parsed_args["dataset"]
-	newickfile = ""
+	newickfile = parsed_args["tree"]
 
 	modelparams.numrates = 1
 	if dosamplesiterates
@@ -127,6 +127,51 @@ function infer(parsed_args=Dict{String,Any}())
 		    end
 		end
 	end
+
+
+	nodenames = AbstractString[]
+	if endswith(datafile, ".fam")
+		json_family = JSON.parse(open(datafile, "r"))
+		newickstring = json_family["newick_tree"]
+		root = gettreefromnewick(newickstring)
+		nodelist = getnodelist(root)
+		for node in nodelist
+			if node.name != ""
+				push!(nodenames,node.name)
+			end
+		end
+	elseif newickfile != nothing
+		root = gettreefromnewick(readlines(open(newickfile,"r"))[1])
+		nodelist = getnodelist(root)
+		for node in nodelist
+			if node.name != ""
+				push!(nodenames,node.name)
+			end
+		end
+	end
+
+	if parsed_args["random"]
+		for nodename in nodenames
+			if !(nodename in blindproteins)
+				push!(blindproteins, nodename)
+			end
+		end
+	elseif parsed_args["sequencesonly"]
+		for nodename in nodenames
+			if !(nodename in blindstructures)
+				push!(blindstructures, nodename)
+			end
+		end
+	elseif parsed_args["unblindproteins"] != nothing
+		blindexcept = convert(Array{String,1}, split(parsed_args["unblindproteins"], r",|;"))
+		for nodename in nodenames
+			if !(nodename in blindproteins) && !(nodename in blindexcept)
+				push!(blindstructures, nodename)
+			end
+		end	
+	end
+	println("blindproteins: ", blindproteins)
+	println("blindstructures: ", blindstructures)
 
 	proteins = nothing
 	nodelist = nothing
@@ -609,69 +654,79 @@ function infer(parsed_args=Dict{String,Any}())
 			othernames = AbstractString[]
 			for selnode in nodelist
 				if selnode.seqindex > 0
-					sequence, phi_psi, omega, bond_angles, bond_lengths = protein_to_lists(sampletreenode(rng,selnode,modelparams,sequences[selnode.seqindex]))
-					phipsi_real = Tuple{Float64,Float64}[(p[1],p[2]) for p in json_family["proteins"][selnode.seqindex]["aligned_phi_psi"]]
-					if count(x -> x[1] > -100.0 || x[2] > -100.0, phipsi_real) > 0 && !(selnode.name in blindstructures) && !(selnode.name in blindproteins)
-						push!(othernames,selnode.name)
+					if json_family != nothing && haskey(json_family, "proteins") && haskey(json_family["proteins"][selnode.seqindex], "aligned_phi_psi")
+						sequence, phi_psi, omega, bond_angles, bond_lengths = protein_to_lists(sampletreenode(rng,selnode,modelparams,sequences[selnode.seqindex]))
+						phipsi_real = Tuple{Float64,Float64}[(p[1],p[2]) for p in json_family["proteins"][selnode.seqindex]["aligned_phi_psi"]]
+						if count(x -> x[1] > -100.0 || x[2] > -100.0, phipsi_real) > 0 && !(selnode.name in blindstructures) && !(selnode.name in blindproteins)
+							push!(othernames,selnode.name)
+						end
+						#angulardist = angular_rmsd(phi_psi, phipsi_real)
+						#println("LENGTHS ", length(phi_psi), "\t", length(phipsi_real))
+						angulardist = angular_rmsd_percentile(phi_psi, phipsi_real)
+						
+						#println("angular_rmsd ($(selnode.name)): ", angulardist)
+
+						key = selnode.name
+					    structurescoresarray = get(structurescores, key, Float64[])
+					    push!(structurescoresarray,  angular_rmsd(phi_psi, phipsi_real))
+						structurescores[key] = structurescoresarray
+
+						key = string(selnode.name,"_perc25")
+					    structurescoresarray = get(structurescores, key, Float64[])
+					    push!(structurescoresarray, angular_rmsd_percentile(phi_psi, phipsi_real, 25.0))
+						structurescores[key] = structurescoresarray
+
+						key = string(selnode.name,"_perc50")
+					    structurescoresarray = get(structurescores, key, Float64[])
+					    push!(structurescoresarray, angular_rmsd_percentile(phi_psi, phipsi_real, 50.0))
+						structurescores[key] = structurescoresarray
+
+						key = string(selnode.name,"_perc75")
+					    structurescoresarray = get(structurescores, key, Float64[])
+					    push!(structurescoresarray, angular_rmsd_percentile(phi_psi, phipsi_real, 75.0))
+						structurescores[key] = structurescoresarray
+
+						key = string(selnode.name,"_perc90")
+					    structurescoresarray = get(structurescores, key, Float64[])
+					    push!(structurescoresarray, angular_rmsd_percentile(phi_psi, phipsi_real, 90.0))
+						structurescores[key] = structurescoresarray
+
+						if !haskey(structuresamples, selnode.name)
+							structuresamples[selnode.name] = Sample(string(selnode.name), modelparams)
+						end
+
+						push!(structuresamples[selnode.name].phipsisamples, phi_psi)
+						push!(structuresamples[selnode.name].aasamples, Int[selnode.data.aabranchpath.paths[col][end] for col=1:numcols])
+						push!(structuresamples[selnode.name].hiddensamples, Int[selnode.data.branchpath.paths[col][end] for col=1:numcols])
+						if json_family != nothing
+							structuresamples[selnode.name].json_family = json_family
+						end
+
+						reset_matrix_cache(modelparams, false)
 					end
-					#angulardist = angular_rmsd(phi_psi, phipsi_real)
-					#println("LENGTHS ", length(phi_psi), "\t", length(phipsi_real))
-					angulardist = angular_rmsd_percentile(phi_psi, phipsi_real)
-					
-					#println("angular_rmsd ($(selnode.name)): ", angulardist)
-
-					key = selnode.name
-				    structurescoresarray = get(structurescores, key, Float64[])
-				    push!(structurescoresarray,  angular_rmsd(phi_psi, phipsi_real))
-					structurescores[key] = structurescoresarray
-
-					key = string(selnode.name,"_perc25")
-				    structurescoresarray = get(structurescores, key, Float64[])
-				    push!(structurescoresarray, angular_rmsd_percentile(phi_psi, phipsi_real, 25.0))
-					structurescores[key] = structurescoresarray
-
-					key = string(selnode.name,"_perc50")
-				    structurescoresarray = get(structurescores, key, Float64[])
-				    push!(structurescoresarray, angular_rmsd_percentile(phi_psi, phipsi_real, 50.0))
-					structurescores[key] = structurescoresarray
-
-					key = string(selnode.name,"_perc75")
-				    structurescoresarray = get(structurescores, key, Float64[])
-				    push!(structurescoresarray, angular_rmsd_percentile(phi_psi, phipsi_real, 75.0))
-					structurescores[key] = structurescoresarray
-
-					key = string(selnode.name,"_perc90")
-				    structurescoresarray = get(structurescores, key, Float64[])
-				    push!(structurescoresarray, angular_rmsd_percentile(phi_psi, phipsi_real, 90.0))
-					structurescores[key] = structurescoresarray
-
-					if !haskey(structuresamples, selnode.name)
-						structuresamples[selnode.name] = Sample(string(selnode.name), modelparams)
-					end
-
-					push!(structuresamples[selnode.name].phipsisamples, phi_psi)
-					push!(structuresamples[selnode.name].aasamples, Int[selnode.data.aabranchpath.paths[col][end] for col=1:numcols])
-					push!(structuresamples[selnode.name].hiddensamples, Int[selnode.data.branchpath.paths[col][end] for col=1:numcols])
-					if json_family != nothing
-						structuresamples[selnode.name].json_family = json_family
-					end
-
-					reset_matrix_cache(modelparams, false)
 				end
 			end
 
-			if iter % 5 == 0
+			if iter % 10 == 1
 				samplesfile = string("$(outputprefix).samples")
 
 				fout = open(samplesfile, "w")
 				Serialization.serialize(fout, structuresamples)
 				close(fout)
+				benchmarktype = ""
+				if parsed_args["random"]
+					benchmarktype = "Random"
+				elseif parsed_args["sequencesonly"]
+					benchmarktype = "Sequence only"
+				elseif parsed_args["unblindproteins"] != nothing
+					benchmarktype = "Homologous structure"
+				end
 
-				StructurePlots.plotaccuracy(samplesfile)
+				StructurePlots.plotaccuracy(samplesfile, othernames, benchmarktype)
 
-				if iter % 100 == 0
+				if iter > 1 && iter % 200 == 1
 					println(othernames)
-					StructurePlots.plotstructuresamples(samplesfile, othernames)
+					StructurePlots.plotstructuresamples(samplesfile, othernames, benchmarktype)
 				end
 			end
 
@@ -735,6 +790,15 @@ function parse_inference_commandline()
         	help = ""
         	arg_type = Int
         	default = typemax(Int)
+        "--random"
+        	help = ""
+          	action = :store_true
+        "--sequencesonly"
+        	help = ""
+        	action = :store_true
+        "--unblindproteins"
+        	help = ""
+        	arg_type = String
     end
 
 

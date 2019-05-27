@@ -2772,15 +2772,33 @@ ncoding: MacRoman
   publisher = {Cold Spring Harbor Lab},
 }
 
-@Article{Parsons2005,
-  author    = {Parsons, Jerod and Holmes, J Bradley and Rojas, J Maurice and Tsai, Jerry and Strauss, Charlie EM},
-  title     = {Practical conversion from torsion space to Cartesian space for in silico protein synthesis},
-  journal   = {Journal of computational chemistry},
-  year      = {2005},
-  volume    = {26},
-  number    = {10},
-  pages     = {1063--1068},
-  publisher = {Wiley Online Library},
+@Article{berman2000protein,
+  author    = {Berman, Helen M and Westbrook, John and Feng, Zukang and Gilliland, Gary and Bhat, Talapady N and Weissig, Helge and Shindyalov, Ilya N and Bourne, Philip E},
+  title     = {The protein data bank},
+  journal   = {Nucleic acids research},
+  year      = {2000},
+  volume    = {28},
+  number    = {1},
+  pages     = {235--242},
+  publisher = {Oxford University Press},
+}
+
+@InProceedings{larson2018modeling,
+  author       = {Larson, Gary and Thorne, Jeffrey L and Schmidler, Scott},
+  title        = {Modeling Dependence in Evolutionary Inference for Proteins},
+  booktitle    = {International Conference on Research in Computational Molecular Biology},
+  year         = {2018},
+  pages        = {122--137},
+  organization = {Springer},
+}
+
+@InProceedings{larson2018modeling,
+  author       = {Larson, Gary and Thorne, Jeffrey L and Schmidler, Scott},
+  title        = {Modeling Dependence in Evolutionary Inference for Proteins},
+  booktitle    = {International Conference on Research in Computational Molecular Biology},
+  year         = {2018},
+  pages        = {122--137},
+  organization = {Springer},
 }
 
 @Comment{jabref-meta: databaseType:bibtex;}

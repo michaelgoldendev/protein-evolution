@@ -1,5 +1,28 @@
 \begin{thebibliography}{}
 
+\bibitem[Arnold {\em et~al.}(2006)Arnold, Bordoli, Kopp, and
+  Schwede]{arnold2006swiss}
+Arnold, K., Bordoli, L., Kopp, J., and Schwede, T. 2006.
+\newblock {The {SWISS-MODEL} workspace: a web-based environment for protein
+  structure homology modelling}.
+\newblock {\em Bioinformatics\/}, {22}(2): 195--201.
+
+\bibitem[Berman {\em et~al.}(2000)Berman, Westbrook, Feng, Gilliland, Bhat,
+  Weissig, Shindyalov, and Bourne]{berman2000protein}
+Berman, H.~M., Westbrook, J., Feng, Z., Gilliland, G., Bhat, T.~N., Weissig,
+  H., Shindyalov, I.~N., and Bourne, P.~E. 2000.
+\newblock The protein data bank.
+\newblock {\em Nucleic acids research\/}, {28}(1): 235--242.
+
+\bibitem[Bhattacharya {\em et~al.}(2007)Bhattacharya, Daniels, Heckerman,
+  Foley, Frahm, Kadie, Carlson, Yusim, McMahon, Gaschen, {\em
+  et~al.}]{bhattacharya2007founder}
+Bhattacharya, T., Daniels, M., Heckerman, D., Foley, B., Frahm, N., Kadie, C.,
+  Carlson, J., Yusim, K., McMahon, B., Gaschen, B., {\em et~al.} 2007.
+\newblock Founder effects in the assessment of hiv polymorphisms and hla allele
+  associations.
+\newblock {\em Science\/}, {315}(5818): 1583--1586.
+
 \bibitem[Boomsma {\em et~al.}(2008)Boomsma, Mardia, Taylor, Ferkinghoff-Borg,
   Krogh, and Hamelryck]{boomsma2008generative}
 Boomsma, W., Mardia, K.~V., Taylor, C.~C., Ferkinghoff-Borg, J., Krogh, A., and
@@ -36,6 +59,12 @@ Downs, T.~D. and Mardia, K. 2002.
 \newblock {Circular regression}.
 \newblock {\em Biometrika\/}, {89}(3): 683--698.
 
+\bibitem[Dudas {\em et~al.}(2018)Dudas, Carvalho, Rambaut, and
+  Bedford]{dudas2018mers}
+Dudas, G., Carvalho, L.~M., Rambaut, A., and Bedford, T. 2018.
+\newblock Mers-cov spillover at the camel-human interface.
+\newblock {\em Elife\/}, {7}: e31257.
+
 \bibitem[Echave(2008)Echave]{echave2008evolutionary}
 Echave, J. 2008.
 \newblock {Evolutionary divergence of protein structure: the linearly forced
@@ -48,6 +77,14 @@ Echave, J. and Fern{\'a}ndez, F.~M. 2010.
 \newblock {A perturbative view of protein structural variation}.
 \newblock {\em Proteins: Structure, Function, and Bioinformatics\/}, {78}(1):
   173--180.
+
+\bibitem[Escalera-Zamudio {\em et~al.}(2018)Escalera-Zamudio, Gutierrez, Theze,
+  Keown, Carrique, Bowden, and Pybus]{escalera2018parallel}
+Escalera-Zamudio, M., Gutierrez, B., Theze, J., Keown, J.~R., Carrique, L.,
+  Bowden, T.~A., and Pybus, O.~G. 2018.
+\newblock Parallel evolution and the emergence of highly pathogenic avian
+  influenza a viruses.
+\newblock {\em bioRxiv\/}, page 370015.
 
 \bibitem[Felsenstein(1981)Felsenstein]{felsenstein1981evolutionary}
 Felsenstein, J. 1981.
@@ -84,6 +121,14 @@ Garc{\'i}a-Portugu{\'e}s, E., Golden, M., S{\o}rensen, M., Mardia, K.~V.,
 \newblock In C.~Ley and T.~Verdebout, editors, {\em {Applied Directional
   Statistics: Modern Methods and Case Studies}\/}. Chapman and Hall/CRC.
 
+\bibitem[Giardina {\em et~al.}(2017)Giardina, Romero-Severson, Albert, Britton,
+  and Leitner]{giardina2017inference}
+Giardina, F., Romero-Severson, E.~O., Albert, J., Britton, T., and Leitner, T.
+  2017.
+\newblock Inference of transmission network structure from hiv phylogenetic
+  trees.
+\newblock {\em PLoS computational biology\/}, {13}(1): e1005316.
+
 \bibitem[Gilks {\em et~al.}(1995)Gilks, Richardson, and
   Spiegelhalter]{gilks1995markov}
 Gilks, W.~R., Richardson, S., and Spiegelhalter, D. 1995.
@@ -103,11 +148,6 @@ Grishin, N.~V. 1997.
   structures}.
 \newblock {\em Journal of molecular evolution\/}, {45}(4): 359--369.
 
-\bibitem[Grishin(2001)Grishin]{grishin2001fold}
-Grishin, N.~V. 2001.
-\newblock {Fold change in evolution of protein structures}.
-\newblock {\em Journal of structural biology\/}, {134}(2): 167--185.
-
 \bibitem[Gutin and Badretdinov(1994)Gutin and Badretdinov]{gutin1994evolution}
 Gutin, A.~M. and Badretdinov, A.~Y. 1994.
 \newblock {Evolution of protein 3D structures as diffusion in multidimensional
@@ -122,6 +162,13 @@ Herman, J.~L., Challis, C.~J., Nov{\'a}k, {\'A}., Hein, J., and Schmidler,
   joint model of protein sequence and structure}.
 \newblock {\em Molecular biology and evolution\/}, {31}(9): 2251--2266.
 
+\bibitem[Larson {\em et~al.}(2018)Larson, Thorne, and
+  Schmidler]{larson2018modeling}
+Larson, G., Thorne, J.~L., and Schmidler, S. 2018.
+\newblock Modeling dependence in evolutionary inference for proteins.
+\newblock In {\em International Conference on Research in Computational
+  Molecular Biology\/}, pages 122--137. Springer.
+
 \bibitem[Li{\`o} {\em et~al.}(1998)Li{\`o}, Goldman, Thorne, and
   Jones]{li1998passml}
 Li{\`o}, P., Goldman, N., Thorne, J.~L., and Jones, D.~T. 1998.
@@ -129,19 +176,28 @@ Li{\`o}, P., Goldman, N., Thorne, J.~L., and Jones, D.~T. 1998.
   structure prediction.}
 \newblock {\em Bioinformatics\/}, {14}(8): 726--733.
 
-\bibitem[Mizuguchi {\em et~al.}(1998)Mizuguchi, Deane, Blundell, and
-  Overington]{mizuguchi1998homstrad}
-Mizuguchi, K., Deane, C.~M., Blundell, T.~L., and Overington, J.~P. 1998.
-\newblock {HOMSTRAD: a database of protein structure alignments for homologous
-  families}.
-\newblock {\em Protein science\/}, {7}(11): 2469--2471.
+\bibitem[Murrell {\em et~al.}(2013)Murrell, Moola, Mabona, Weighill, Sheward,
+  Pond, and Scheffler]{murrell2013fubar}
+Murrell, B., Moola, S., Mabona, A., Weighill, T., Sheward, D., Pond, S. L.~K.,
+  and Scheffler, K. 2013.
+\newblock {{FUBAR}: a fast, unconstrained bayesian approximation for inferring
+  selection}.
+\newblock {\em Molecular biology and evolution\/}, {30}: mst030.
 
 \bibitem[Parsons {\em et~al.}(2005)Parsons, Holmes, Rojas, Tsai, and
-  Strauss]{Parsons2005}
+  Strauss]{parsons2005practical}
 Parsons, J., Holmes, J.~B., Rojas, J.~M., Tsai, J., and Strauss, C.~E. 2005.
 \newblock Practical conversion from torsion space to cartesian space for in
   silico protein synthesis.
 \newblock {\em Journal of computational chemistry\/}, {26}(10): 1063--1068.
+
+\bibitem[Robinson {\em et~al.}(2003)Robinson, Jones, Kishino, Goldman, and
+  Thorne]{robinson2003protein}
+Robinson, D.~M., Jones, D.~T., Kishino, H., Goldman, N., and Thorne, J.~L.
+  2003.
+\newblock {Protein evolution with dependence among codons due to tertiary
+  structure}.
+\newblock {\em Molecular Biology and Evolution\/}, {20}(10): 1692--1704.
 
 \bibitem[Siepel and Haussler(2004)Siepel and Haussler]{siepel2004combining}
 Siepel, A. and Haussler, D. 2004.
@@ -149,11 +205,24 @@ Siepel, A. and Haussler, D. 2004.
   analysis}.
 \newblock {\em Journal of Computational Biology\/}, {11}(2-3): 413--428.
 
-\bibitem[Thorne {\em et~al.}(1992)Thorne, Kishino, and
-  Felsenstein]{thorne1992inching}
-Thorne, J.~L., Kishino, H., and Felsenstein, J. 1992.
-\newblock {Inching toward reality: an improved likelihood model of sequence
-  evolution}.
-\newblock {\em Journal of molecular evolution\/}, {34}(1): 3--16.
+\bibitem[S{\"u}k{\"o}sd {\em et~al.}(2012)S{\"u}k{\"o}sd, Knudsen, Kjems, and
+  Pedersen]{sukosd2012ppfold}
+S{\"u}k{\"o}sd, Z., Knudsen, B., Kjems, J., and Pedersen, C.~N. 2012.
+\newblock {{PPfold} 3.0: fast {RNA} secondary structure prediction using
+  phylogeny and auxiliary data}.
+\newblock {\em Bioinformatics\/}, {28}(20): 2691--2692.
+
+\bibitem[Wilson {\em et~al.}(2015)Wilson, Agafonov, Hoemberger, Kutter, Zorba,
+  Halpin, Buosi, Otten, Waterman, Theobald, {\em et~al.}]{wilson2015using}
+Wilson, C., Agafonov, R., Hoemberger, M., Kutter, S., Zorba, A., Halpin, J.,
+  Buosi, V., Otten, R., Waterman, D., Theobald, D., {\em et~al.} 2015.
+\newblock {Using ancient protein kinases to unravel a modern cancer drug{\rq}s
+  mechanism}.
+\newblock {\em Science\/}, {347}(6224): 882--886.
+
+\bibitem[Yu and Thorne(2006)Yu and Thorne]{yu2006dependence}
+Yu, J. and Thorne, J.~L. 2006.
+\newblock {Dependence among sites in RNA evolution}.
+\newblock {\em Molecular biology and evolution\/}, {23}(8): 1525--1537.
 
 \end{thebibliography}

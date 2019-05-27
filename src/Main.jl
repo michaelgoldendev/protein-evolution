@@ -375,6 +375,7 @@ function estimate_hidden_transition_probs(modelparams::ModelParams)
 	println(modelparams.transitionprobs)
 	println(modelparams.transitionprobs^40)
 	println(freqs)
+	modelparams.initialprobs = copy(freqs)
 	modelparams.transitioncounts = ones(Float64, modelparams.numhiddenstates, modelparams.numhiddenstates)*0.1
 end
 
@@ -641,7 +642,7 @@ function felsensteinresample_joint(rng::AbstractRNG, proteins::Array{Protein,1},
 
 	len = length(rootnode.data.jointbranchpath.paths)
 	prevh = 0
-	prevprobs = ones(Float64, modelparams.numhiddenstates)
+	prevprobs = modelparams.initialprobs
 	if selcol > 1
 		prevh = rootnode.data.branchpath.paths[selcol-1][1]
 		prevprobs = modelparams.transitionprobs[prevh,:]
@@ -1564,8 +1565,10 @@ function augmentedloglikelihood_site(nodelist::Array{TreeNode,1}, col::Int, mode
 	if col < numcols
 		nexth = nodelist[1].data.branchpath.paths[col+1][end]
 	end=#
-	h = nodelist[1].data.branchpath.paths[col][end]		
-	if prevh > 0
+	h = nodelist[1].data.branchpath.paths[col][end]	
+	if prevh == 0	
+		loglikelihood += log(modelparams.initialprobs[h])
+	elseif prevh > 0
 		loglikelihood += log(modelparams.transitionprobs[prevh,h])			
 	end
 	loglikelihood += log(modelparams.hiddennodes[h].aa_node.probs[nodelist[1].data.aabranchpath.paths[col][end]])
@@ -1637,7 +1640,9 @@ function augmentedloglikelihood(nodelist::Array{TreeNode,1}, inputcols::Array{In
 			nexth = nodelist[1].data.branchpath.paths[col+1][end]
 		end=#
 		h = nodelist[1].data.branchpath.paths[col][end]
-		if prevh > 0
+		if prevh == 0	
+			loglikelihood += log(modelparams.initialprobs[h])
+		elseif prevh > 0
 			loglikelihood += log(modelparams.transitionprobs[prevh,h])			
 		end
 		loglikelihood += log(modelparams.hiddennodes[h].aa_node.probs[nodelist[1].data.aabranchpath.paths[col][end]])
@@ -1767,7 +1772,7 @@ function augmentedloglikelihood_slow(nodelist::Array{TreeNode,1}, cols::Array{In
 end
 
 function gethiddeninitialprobs(modelparams::ModelParams, prevh::Int, nexth::Int, aa::Int)
-	prevprobs = ones(Float64, modelparams.numhiddenstates)
+	prevprobs = modelparams.initialprobs
 	if prevh > 0
 		prevprobs = modelparams.transitionprobs[prevh,:]
 	end	
@@ -1807,8 +1812,8 @@ end
 
 function gethiddenentry(modelparams::ModelParams, prevh_hmm::Int, nexth_hmm::Int, prevh::Int, currh::Int, aa::Int, sitescale::Float64)
 	if prevh != currh
-		prevprob = 1.0
-		prevprob2 = 1.0
+		prevprob = modelparams.initialprobs[currh]
+		prevprob2 = modelparams.initialprobs[prevh]
 		if prevh_hmm != 0
 			prevprob = modelparams.transitionprobs[prevh_hmm,currh]
 			prevprob2 = modelparams.transitionprobs[prevh_hmm,prevh]
@@ -1933,7 +1938,7 @@ function backwardsamplesingle(rng::AbstractRNG, node::TreeNode, modelparams::Mod
 
 		if col == 1
 			for h=1:modelparams.numhiddenstates
-				liks[col,h] = siteliks[h]
+				liks[col,h] = modelparams.initialprobs[h]*siteliks[h]
 			end
 		else
 			res = (((liks[col-1,:]')*modelparams.transitionprobs)').*siteliks
@@ -1967,7 +1972,7 @@ function forwardbackward(rng::AbstractRNG, node::TreeNode, modelparams::ModelPar
 	numcols = length(node.data.protein.sites)
 	forwardliks = ones(Float64, numcols, modelparams.numhiddenstates)*-Inf	
 	for h=1:modelparams.numhiddenstates
-		forwardliks[1,h] = siteloglikelihood(node.data.protein.sites[1], h, node.data.protein.sites[1].aa, modelparams)
+		forwardliks[1,h] = log(modelparams.initialprobs[h]) + siteloglikelihood(node.data.protein.sites[1], h, node.data.protein.sites[1].aa, modelparams)
 	end
 	for col=2:numcols
 		for prevh=1:modelparams.numhiddenstates
@@ -2691,7 +2696,7 @@ function proposescalingfactor(rng::AbstractRNG, nodelist::Array{TreeNode,1}, inp
 	modelparams.scalingfactor = scalingfactor
 	=#
 	propratio = 0.0
-	priorscale = 0.20
+	priorscale = 0.05
 	priorshape = 1.0/priorscale
 	priordist = Gamma(priorshape, priorscale)
 	sampledist = Gamma(alpha, 1.0/beta)	
@@ -2775,7 +2780,7 @@ function proposebranchlength(rng::AbstractRNG, node::TreeNode, cols::Array{Int,1
 	beta = -totalexitrate
 
 
-	priorscale = 0.20
+	priorscale = 0.05
 	#println("branch length: ", node.data.inputbranchlength)
 	if node.data.inputbranchlength <= 0.0
 		println(node.name,"\t",node.data.inputbranchlength)

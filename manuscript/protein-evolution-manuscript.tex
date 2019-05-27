@@ -98,7 +98,7 @@
 \access{Advance Access publication March 3, 2013}
 \fi
 
-\newcommand{\abstractext}{We present a probabilistic model of protein evolution that captures several important features of protein sequence and local structure. The key feature being  dependencies between neighbouring amino acid positions that are temporal in nature due to sequence mutations that occur during evolution. The model is trained on a large number of protein alignments and corresponding phylogenetic trees that represent the evolutionary history of the aligned proteins. This yields a model that acts as a rich prior distribution over protein evolution. Our model provides a complete probabilistic description of protein backbone structures using an angle and bond length representation. Structure evolution is modelled jointly with sequence, permitting ancestral structures and sequences to be reconstructed in a phylogenetically rigorous manner. Likewise, the model can perform homology modelling to predict the unknown local backbone structure of a known protein sequence using additional information from potentially large numbers of homologous proteins.  The model is highly flexible with respect to input, implying that arbitrary combinations of protein sequences and structures can be used when performing various inference tasks. Our current model does not capture global features of protein structure that are necessary for accurate homology modelling or reconstruction of ancestral three-dimensional structures. However, it is ultimately expected to be combined with protein structure prediction models that account for such long-range dependencies, but that do not account for evolutionary information.}
+\newcommand{\abstractext}{We present a probabilistic model of protein evolution that captures several important features of protein sequence and local structure. The key feature being  dependencies between neighbouring amino acid positions that are temporal in nature due to sequence mutations that occur during evolution. The model is trained on a large number of protein alignments and corresponding phylogenetic trees that represent the evolutionary history of the aligned proteins. This yields a model that acts as a rich prior distribution over protein evolution. Our model provides a complete probabilistic description of protein backbone structures using an angle and bond length representation. Structure evolution is modelled jointly with sequence, permitting ancestral structures and sequences to be reconstructed in a phylogenetically rigorous manner. Likewise, the model can perform homology modelling to predict the unknown local backbone structure of a known protein sequence using additional information from potentially large numbers of homologous proteins.  The model is highly flexible with respect to input, implying that arbitrary combinations of protein sequences and structures can be used when performing various inference tasks. Our current model does not capture global features of protein structure that are necessary for accurate homology modelling or reconstruction of ancestral three-dimensional structures. However, it is ultimately expected to be combined with protein structure prediction models that account for long-range structural interactions, but that do not account for evolutionary information.}
 \begin{comment}
 \newcommand{\abstractext}{We present a probabilistic model of protein evolution that captures several important features of protein sequence and local structure. The key feature being  dependencies between neighbouring amino acid positions that are temporal in nature due to sequence mutations that occur during evolution. The model is trained on a large number of protein alignments and corresponding phylogenetic trees that represent the evolutionary history of the aligned proteins. This yields a model that acts as a rich prior distribution over protein evolution that can be used to perform several important inference tasks. One such task being Bayesian reconstruction of ancestral virus protein sequences, which we demonstrate to have better accuracy than competing methods. The model provides a complete probabilistic description of each protein's backbone structure using an angle and bond length representation. Structure evolution is modelled jointly with sequence, permitting ancestral structures and sequences to be reconstructed in a phylogenetically rigorous manner. Likewise, the model can perform homology modelling to predict the unknown local backbone structure of a known protein sequence using additional information from potentially large numbers of homologous proteins.  The model is highly flexible with respect to input, implying that arbitrary combinations of protein sequences and structures can be used when performing various inference tasks. The current model does not capture global features of protein structure that are necessary for accurate homology modelling or reconstruction of ancestral three-dimensional structures. However, it is ultimately expected to be combined with protein structure prediction models that account for such long-range dependencies, but that do not account for evolutionary information that can substantially enhance predictions of structures.}
 \end{comment}
@@ -153,6 +153,51 @@ $^{3}$Bioinformatics Centre, Section for Computational and RNA Biology, Departme
 
 
 \section{Introduction}
+\begin{figure*}
+	\centering
+	\includegraphics[width=1.75\columnwidth]{figures/divergence.pdf}
+	\caption{\revcom{I need to improve this figure}}%
+	\label{fig:divergence}%
+\end{figure*}
+
+Biological sequences contain an abundance of information pertaining to the function and evolution of biological molecules. However, evolutionary models are needed to transform this information into useful biological knowledge. Models of sequence evolution have been successfully applied to predicting RNA structures \citep{sukosd2012ppfold}, inferring selection \citep{murrell2013fubar}, reconstructing ancestral proteins \citep{wilson2015using}, predicting contact networks \citep{giardina2017inference}, estimating dates and locations of spillover events \citep{dudas2018mers}, detecting genotype-phenotype associations \citep{escalera2018parallel}, amongst numerous other important applications. \revcom{MG: are there better references / better examples I could use in this paragraph}.
+
+Evolutionary models are important because they allow one to account for correlations due to shared ancestry. If these correlations are not considered and the biological entities being compared are instead treated as independent observations, this can lead to false conclusions. One common problem is the `founder effect' \citep{bhattacharya2007founder}, where the presence of a feature in multiple extant sequences may appear significant, but is not when taking into consideration that the feature was likely inherited from the common ancestor of the sequences being analysed. On the other hand, these correlations can also be useful. For example, they can be used to predict the unknown structure of a sequence from a known structure, this is referred as homology modelling \citep{arnold2006swiss}.
+
+These correlations are depicted in Figure~\ref{fig:divergence}. Notice how the time seperating two proteins determines the degree of sequence similarity and  structural similarity i.e. the degree of correlation. Also notice how proteins with low sequence identity (middle and right proteins) are easily discernible as structurally homologous. Although the two types of information can not be measured on the same scale, it is often said that `structure evolves more slowly than sequence'. This fact is used in homology modelling, and more recently in models of protein structure evolution to more accurately estimate divergence times and tree topologies of proteins with  highly diverged sequences \citep{challis2012stochastic,herman2014simultaneous}.
+
+Despite the structural conformations of proteins being the primary determinant of their functions, only a few evolutionary models of protein structure have been developed compared to evolutionary models of sequence. This is likely due to the challenges in specifying a tractable model of how a complex three-dimensional continuous object evolves, compared to sequence which is discrete and one-dimensional. Furthermore, it is desirable to consider how structure evolves as a function of sequence, since protein sequences are the primary determinant of protein structure folding.
+
+A key step in developing a model of protein structure evolution is selecting a suitable structure representation and a stochastic process that describes how protein structure evolves as function of sequence divergence. A standard way of representing structure is using the three-dimensional Cartesian coordinates of each atom in space, as is found in the PDB (Protein Data Bank, \citet{berman2000protein}) file format. Early works by \citet{gutin1994evolution} and \citet{grishin1997estimation} used a three-dimensional Cartesian coordinate representation of protein backbone atoms and diffusion processes to estimate how structural distance increases with sequence divergence. 
+
+Probabilistic models by \citet{challis2012stochastic} and \citet{herman2014simultaneous} use the three-dimensional Cartesian coordinates of amino acid  $\text{C}_{\alpha}$ atoms and Ornstein--Uhlenbeck (OU) processes to explicitly model the evolution of $\text{C}_{\alpha}$ atoms.  A benefit of these probabilistic models is that they are able to rigorously account for sources of uncertainty, such as an unknown phylogeny or alignment. This in turn allows the phylogeny and alignment to be inferred using structure and sequence information. The authors show that using both types of information reduces the uncertainty associated with estimates of these quantities, enabling more diverged sequences to be analysed. These models have been recently extended to account for correlations between neighbouring amino acid positions \citep{larson2018modeling}.
+
+\iffalse
+For the sake of computational tractability, the aforementioned approaches treat the atomic coordinates as evolving independently of another. \citep{larson2018modeling}
+\fi
+
+A non-probabilistic approach by \citet{echave2008evolutionary} and \citet{echave2010perturbative} referred to as the Linearly Forced Elastic Network Model (LFENM)  treats protein structures as a collection of $\text{C}_{\alpha}$ atoms connected by spring forces. The major benefit of LFENMs is that they do not assume independence of atomic coordinates and take into account non-local structural dependencies. In their current formulation LFENMs do not capture the dependence of structure on sequence.
+
+Our recent model, ETDBN \citep{Golden2017} uses a dihedral angle representation motivated by the non-evolutionary TorusDBN model \citep{boomsma2008generative, boomsma2014equilibrium}. ETDBN and TorusDBN represents a protein structure as a sequence of $(\phi,\psi)$ dihedral angle pairs \citep{frellsen2012towards}. A novel stochastic diffusion process  \citet{garciap2016diffusions} was developed for ETDBN to model the evolution of dihedral angles.
+
+\iffalse
+Additionally, a coupling was introduced such that an amino acid change can lead to a \textit{jump} in dihedral angles and a change in diffusion process. This allows the model to capture changes in amino acid that are directionally coupled with changes in dihedral angle or secondary structure. As in \citet{challis2012stochastic} and \citet{herman2014simultaneous}, the insertion and deletion (indel) evolutionary process is also modelled to account for alignment uncertainty \citep{thorne1992inching}.
+\fi
+
+The dihedral angle representation is informed by the chemical nature of peptide bonds. Each amino acid in a protein peptide chain is covalently bonded to the next via a peptide bond. Peptide bonds have a partial double bond nature that results in a planar configuration of atoms in space. This configuration allows the protein backbone structure to be largely described as a series of $\phi$ and $\psi$ dihedral angles that defines the relationship between the planes in three-dimensional space. Because each amino acid (except for the N and C terminus amino acids) is associated with a ($\phi$,$\psi$) dihedral angle pair, only a sequence alignment is necessary to compare structures. On the other hand, models that use Cartesian coordinates typically need to superimpose structures in addition to requiring a sequence alignment \citep{herman2014simultaneous}. Such superimposition introduces an additional source of uncertainty. A further advantage of the dihedral angle representation is that there are fewer degrees of freedom per amino acid and therefore typically fewer parameters required to model their evolution.
+
+Most models of structural evolution ignore dependencies amongst sites because of the increased computational demand and model complexity associated with such models. These dependencies are expected to influence patterns of evolution, specifically patterns of amino acid substitution. The current model deals with local dependencies only -- dependencies that are expected to arise due to interactions between neighbouring amino acids, for example, between amino acids in an $\alpha$-helix. It does not account for global dependencies -- dependencies that result in the globular nature of proteins \citep{boomsma2008generative}. In our previous model, ETDBN, we attempted to model local dependencies only by using a Hidden Markov Model (HMM) to capture dependencies amongst neighbouring aligned positions. 
+
+HMMs such as PASSML \citep{li1998passml} have been successfully used to predict protein secondary structure from aligned sequences; however, these models typically have the disadvantage that they assume a canonical secondary structure shared amongst all the sequences being analysed. This restricts analysis to closely related sequences where conservation of secondary structure is a reasonable assumption. Our previous model, ETDBN, does not assume a canonical secondary structure, but instead uses a phylogenetic HMM approach (similar to \citet{siepel2004combining}) that assumes dependencies between evolutionary processes at neighbouring aligned positions, which allows somewhat more diverged sequences to be analysed. The present model completely relaxes this assumption, by using a context-dependent model of evolution similar to \citet{robinson2003protein} and \citep{yu2006dependence}. This has the implication that  diverged sequences may be analysed, where the neighbouring dependencies at a particular site in one part of the tree may be very different from neighbouring dependencies at the same site in another part of the tree.
+
+In this article we focus on applying probablistic modelling of structure evolution to the problem of homology modelling. One problem with an angle and bond length reprsentation, is that small errors in angle predictions can lead to large errors in 3D structure prediction. For example, a single incorrectly predicted angle can cause an entire structure to self-intersect in 3D. For this reason we do not attempt to reconstruct the complete 3D structure of a protein, but instead focus on accurately modelling the series of $\phi$ and $\psi$ dihedral angles, using an approach that accurately quantifies the models uncertainty in it's angle predictions. State-of-the-art machine learning models of protein structure prediction (DeepMind's AlphaFold and AlQuraishi's end-to-end differentiable model) utilise angle models for predicting an intermediate angle representation. These intermediate layers suffer the same problems with angle errors. However, these errors are corrected in subsequent layers by accounting for the global properties of protein structure. We therefore consider our approach an important stepping stone towards accurate 3D structure prediction. We intend to replace the intermediate angle representation used in state-of-the-art models with our model which additionally considers structural homology information. This is expected to lead substantial improvements in 3D structure prediction. Furthermore, the use of evolutionary model should additional permit accurate 3D reconstruction of ancestral protein structures.
+
+\iffalse
+
+\fi
+
+
+\iffalse
 Recently, several studies \citep{challis2012stochastic, herman2014simultaneous} have proposed joint stochastic models of evolution which take into account simultaneous alignment of protein sequence and structure. These studies point out the limitations of earlier non-probabilistic methods, which often rely on heuristic procedures to infer parameters of interest. A major disadvantage of using heuristic procedures is that they typically fail to account for sources of uncertainty. For example, relying on a single fixed alignment, which is highly unlikely to be the \textit{true} underlying alignment, may bias the inference of the posterior distribution over evolutionary trees.
 
 We present a generative evolutionary model, ETDBN (Evolutionary Torus Dynamic Bayesian Network), for pairs of homologous proteins. ETDBN captures dependencies between sequence and structure evolution, accounts for alignment uncertainty, and models the local dependencies between aligned sites.
@@ -170,13 +215,12 @@ The Ornstein--Uhlenbeck processes used in \citet{challis2012stochastic} and \cit
 
 Tree-like dependencies typically arise when considering two or more homologous proteins related via a common ancestor. These dependencies manifest themselves most noticeably in the degree of amino acid sequence similarity between the homologous proteins. The strength of these dependencies is assumed to be a result of two major factors: the time since the common ancestor and the rate of evolution.
 
-\iffalse
 Failing to account for evolutionary dependencies can lead to false conclusions \citep{felsenstein1985phylogenies}, whereas accounting for evolutionary dependencies allows information from homologous proteins to be incorporated in a principled manner. This can lead to more accurate inferences, such as the prediction of a protein structure from a homologous protein sequence and structure, known as homology modelling \citep{arnold2006swiss}. Stochastic models such as ETDBN are not expected to compete with homology modelling software such as SWISS-MODEL \citep{arnold2006swiss}. However, they allow for estimation of evolutionary parameters and statements about uncertainty to be made in a statistically rigorous manner.
-\fi
 
 Most models of structural evolution ignore dependencies amongst sites because of the increased computational demand and model complexity associated with such models. These dependencies are expected to influence patterns of evolution, specifically patterns of amino acid substitution. The current model deals with local dependencies only -- dependencies that are expected to arise due to interactions between neighbouring amino acids, for example, between amino acids in an $\alpha$-helix. ETDBN does not account for global dependencies -- dependencies that result in the globular nature of proteins \citep{boomsma2008generative}. In ETDBN, we attempt to model local dependencies only by using a Hidden Markov Model (HMM) to capture dependencies amongst neighbouring aligned positions. HMMs such as PASSML \citep{li1998passml} have been successfully used to predict protein secondary structure from aligned sequences; however, these models typically have the disadvantage that they assume a canonical secondary structure shared amongst all the sequences being analysed. This restricts analysis to closely related sequences where conservation of secondary structure is a reasonable assumption. ETDBN does not assume a canonical secondary structure, but instead uses a phylogenetic HMM approach (similar to \citet{siepel2004combining}) that assumes dependencies between evolutionary processes at neighbouring aligned positions.
 
 Parameters of ETDBN were estimated using 1200 homologous protein pairs from the HOMSTRAD database \citep{mizuguchi1998homstrad}. The resulting model provides a realistic prior distribution over proteins and protein structure evolution in comparison to previous stochastic models. Doing so enables biological insights into the relationship between sequence and structure evolution, such as patterns of amino acid change that are informative of patterns of structural change \citep{grishin2001fold}. It was with these features in mind that ETDBN was developed.
+\fi
 
 %%% Methods %%%
 \section{Methods}
@@ -203,15 +247,7 @@ The set of structural observations, $X_a^{i}$, at a particular site, $i$, consis
 
 Note that $\phi_{1}$, $\tau^{(1)}_{1}$, and $\tau^{(2)}_{1}$, are undefined at the first position in the peptide backbone of an unaligned protein. Similarly, $\psi_{n}$ and  $\omega_{n}$ are undefined for the last position, $n$, in each unaligned protein.
 
-Given the structural observations, $X_{a}$, it is possible to exactly reconstruct the three-dimensional coordinates of each atom in a protein's backbone \citep{Parsons2005}.
-
-The $\omega_{i}$ dihedral angle (which determines the cis/trans conformation) at each site $i$ is assumed to be distributed according a univariate von Mises (vM) distribution with mean $\mu_{\omega}$ and concentration parameter $\kappa_{\omega}$ conditional on the hidden state $H_{a}^{i}$ and the amino acid $A_{a}^{i}$:
-\begin{equation}
-\label{eq:omega_dist}
-\begin{array}{ccc}
-\omega_{i} & \sim & \text{vM}\big(\mu_{\omega}(H_{a}^{i},A_{a}^{i}),\,\ensuremath{\kappa_{\omega}(H_{a}^{i},A_{a}^{i})}\big).
-\end{array}
-\end{equation}
+Given the structural observations, $X_{a}$, it is possible to exactly reconstruct the three-dimensional coordinates of each atom in a protein's backbone \citep{parsons2005practical}.
 
 The $\phi_{i}$ and $\psi_{i}$ dihedral angles are assumed to be drawn from a bivariate von Mises (bvM) distribution with mean vector $\mu_{\phi,\psi}=\langle \mu_{\phi},\mu_{\psi} \rangle$ and covariance parameters $\kappa_{\phi,\psi}=\langle \kappa_{1},\kappa_{2},\kappa_{3} \rangle$:
 \begin{equation}
@@ -221,6 +257,15 @@ The $\phi_{i}$ and $\psi_{i}$ dihedral angles are assumed to be drawn from a biv
 \end{array}
 \end{equation}
 where $\kappa_{1}$ is the variance associated with $\phi$, $\kappa_{2}$ is the variance associated with $\psi$, and $\kappa_{3}$ is the correlation between $\phi$ and $\psi$,
+
+The $\omega_{i}$ dihedral angle (which determines the cis/trans conformation) at each site $i$ is assumed to be distributed according a univariate von Mises (vM) distribution with mean $\mu_{\omega}$ and concentration parameter $\kappa_{\omega}$ conditional on the hidden state $H_{a}^{i}$ and the amino acid $A_{a}^{i}$:
+\begin{equation}
+\label{eq:omega_dist}
+\begin{array}{ccc}
+\omega_{i} & \sim & \text{vM}\big(\mu_{\omega}(H_{a}^{i},A_{a}^{i}),\,\ensuremath{\kappa_{\omega}(H_{a}^{i},A_{a}^{i})}\big).
+\end{array}
+\end{equation}
+
 
 The three additional bond angles ($\tau^{(1)}_{i}$, $\tau^{(2)}_{i}$, $\tau^{(3)}_{i}$) are each distributed according a univariate (vM) distribution conditional on the hidden state $H_{a}^{i}$ only:
 \begin{equation}
@@ -248,8 +293,8 @@ The likelihood of a structural observation, $p\big(X_{a}^{i}\,|\,H_{a}^{i},A_{a}
 
 \begin{figure*}
 	\centering
-	\includegraphics[width=2.0\columnwidth]{figures/ramachandran_empirical.pdf}
-	\caption{Ramachandran plots depicting empirical distributions of $\phi$ and $\psi$ angle combinations under three different amino acid contexts. Glycine has the smallest amino acid side-chain and is therefore the least constrained. Alanine has a larger side-chain than glycine, constraining most $\phi$ and $\psi$ angle to lie near a single peak. When alanine precedes proline in the peptide backbone, the $\phi$ and $\psi$ angle combinations previously favoured become sterically hindered \revcom{MG: is this the correct terminology?}, favouring angle combinations at multiple peaks.}%
+	\includegraphics[width=2.0\columnwidth]{figures/ramachandran_empirical_and_model.pdf}
+	\caption{Ramachandran plots comparing distributions of $\phi$ and $\psi$ angle combinations under three different amino acid contexts  (glycine, alanine, and alanine before proline). The top row shows the empirical distribution of $\phi$ and $\psi$ angles in our training datasets. The bottom row shows the distribution given by our model. Glycine (column 1) has the smallest amino acid side-chain and is therefore the least constrained. Alanine (column 2) has a larger side-chain than glycine, constraining most $\phi$ and $\psi$ angle to lie near a single peak. When alanine precedes proline (column 3) in the peptide backbone, the $\phi$ and $\psi$ angle combinations previously favoured become sterically hindered \revcom{MG: is `sterically hinderred' the correct terminology?}, favouring angle combinations at multiple peaks.}%
 	\label{fig:ramachandranempirical}%
 \end{figure*}
 
@@ -281,6 +326,12 @@ where the sum runs over all possible hidden state sequences and can be calculate
 \end{comment}
 
 \subsubsection{Evolutionary model}
+\begin{figure*}
+	\centering
+	\includegraphics[width=2.0\columnwidth]{figures/rate-network-withstructure.pdf}
+	\caption{}%
+	\label{fig:ratenetwork}%
+\end{figure*}
 Thus far we have only considered a single protein. In this section we outline how multiple phylogenetically related proteins are modelled evolutionarily. Following \citet{choi2008basing} we construct a rate matrix that represents changes between two sequences, $a$ and $b$, instead of character states, such as amino acids, as is typical of substitution models. Furthermore, each sequence position combines a hidden state ($h_i$), an amino acid ($aa_i$), and a set of structural observations ($x_i$), into a joint character state ($h^{s}_i,aa^{s}_i,x^{s}_i$), where $s$ refers to a particular sequence. The rate matrix is given as follows:
 \begin{equation}
 \label{eq:ratematrix}
@@ -367,7 +418,7 @@ The proposed branch paths for site $i$ were then accepted or rejected using the 
 An analogous algorithm was used for sampling the amino acid branch paths, where the amino acid rate matrices used were conditional on the hidden states branch paths at each site $i$.
 
 \subsubsection{Inference: a single protein}
-Inference for a dataset consisting of a single protein $P_{a}$ is much simpler, given that the protein is assumed to be drawn from the stationary distribution of the model, which is given by \eqref{eq:stationary_dist}
+Inference for a dataset consisting of a single protein $P_{a}$ is simpler and has a reduced computational cost, the reason for this is that the protein is assumed to be drawn from the stationary distribution of the model, which is given by \eqref{eq:stationary_dist}:
 \begin{equation}
 H_{a} \sim p(H_{a}|A_{a},\hat{\theta}).
 \end{equation}
@@ -395,13 +446,13 @@ X_{b}(t) \sim p(X_{b}(t)|H_{b}(t),A_{b}(t)).
 		Category & Number in & Amino acid & Structural\\
 		& category & observations & observations\\
 		\midrule
-		One sequence (no structure) &  310 & 84,806 & 0\\
+		\rowcolor{black!20} One sequence (no structure) &  310 & 84,806 & 0\\
 		Two sequences (no structures) & 208 & 138,892 & 0\\
-		Three or more sequences (no structures) & 118 & 390,913 & 0\\
+		\rowcolor{black!20} Three or more sequences (no structures) & 118 & 390,913 & 0\\
 		One structure (one corresponding sequence) & 4,565 & 1,259,635 & 1,259,342\\
-		One structure (two or more sequences) &  192 & 147,679 & 58,887\\
+		\rowcolor{black!20} One structure (two or more sequences) &  192 & 147,679 & 58,887\\
 		Two structures (two or more sequences) &  81 & 72,331 & 50,982\\
-		Three or more structures (three or more sequences) & 18 & 44,273 & 20,745\\
+		\rowcolor{black!20} Three or more structures (three or more sequences) & 18 & 44,273 & 20,745\\
 		\midrule
 		Total & 5,492 & 2,138,529 & 1,389,956\\
 		\bottomrule
@@ -441,7 +492,7 @@ d(\langle\phi_{a},\psi_{a}\rangle,\langle\phi_{b},\psi_{b}\rangle)\notag\\
 =\sqrt{4-2\cos(\phi_{a}-\phi_{b})-2\cos(\psi_{a}-\psi_{b})}.
 \label{eq:angular_distance}
 \end{align}
-The maximum possible distance is $\sqrt{8} \approx 2.828$. Angular distance defined in this way has the property that when $\phi_{a}-\phi_{b}\approx 0$ and $\psi_{a}-\psi_{b}\approx 0$ are near zero it may be approximated by the Euclidean distance -- using the small angle approximation for cosine ($\cos\theta\approx1-\frac{\theta^{2}}{2}$  when $\theta$ is near zero):
+The maximum possible distance ($\sqrt{8} \approx 2.828$) occurs when $\phi_{a}-\phi_{b}=\pi$ and  $\psi_{a}-\psi_{b}=\pi$. Angular distance defined in this way has the property that when $\phi_{a}-\phi_{b}\approx 0$ and $\psi_{a}-\psi_{b}\approx 0$ are near zero it may be approximated by the Euclidean distance -- using the small angle approximation for cosine ($\cos\theta\approx1-\frac{\theta^{2}}{2}$  when $\theta$ is near zero):
 \begin{align*}
 d(\langle\phi_{a},\psi_{a}\rangle,\langle\phi_{b},\psi_{b}\rangle)\\ \approx\sqrt{4-2(1-(\phi_{a}-\phi_{b})^{2}/2)-2(1-(\psi_{a}-\psi_{b})^{2}/2)}\\
 =\sqrt{(\phi_{a}-\phi_{b})^{2}+(\psi_{a}-\psi_{b})^{2}}.
@@ -457,6 +508,30 @@ d(\langle\phi_{a},\psi_{a}\rangle,\langle\phi_{b},\psi_{b}\rangle)\\ \approx\sqr
 	\caption{\revcom{Example target diagrams} The angular cosine distance \eqref{eq:angular_distance} was used to compare our model's predictions of phi-psi angles in PDB 5KON under four increasingly informative observation conditions (1-4). The plots show the percentage of phi-psi angles correctly predicted within five different cosine angular distance radii (0.25, 0.5, 1.0, 1.5, and 2.0; dashed blue lines). If the centre of the plot is taken to be location of each of the true phi-psi angles in PDB 5KON, the objective is to the maximise the percentage of angles predicted within the innermost radius.}%
 	\label{fig:benchmarkstarget}%
 \end{figure*}
+
+\subsubsection{Benchmarks of homology modelling}
+\begin{table*}%	
+	\centering
+	\caption{\label{tab:benchmarkshomology} Benchmarks}
+	\begin{tabularx}{1.0\linewidth}{lccccccc}
+		\toprule 
+		 & & & Branch & & & & Mean \\
+		 & Missing  & Conditioning &  distance to &  & & & angular\\
+		Dataset & structure & information &  homologue & $r < 0.25$ & $r < 0.5$  & $r < 1.0$ & distance\\
+		\midrule
+ 		& 4OOV & 4RPD & 0.70 & 24.2\% & 52.7\% & 77.6\% & 0.71\\
+ 		& 5KON & 4RPD & 0.75 & 23.6\% & 52.1\% & 77.0\% & 0.72\\
+ 		& 3SKB & 4RPD & 0.71 & 20.4\% & 49.0\% & 76.7\% & 0.73\\
+ 		& 4RPD & 4RPD & 0.00 & 35.0\% & 71.7\% & 94.7\% & 0.41\\
+ 		& 4OOS & 4RPD & 0.76 & 23.8\% & 51.9\% & 77.0\% & 0.72\\
+		& 4OOV & 4OOS & 0.12 & 32.2\% & 67.1\% & 90.6\% & 0.49\\
+ 		& 5KON & 4OOS & 0.18 & 33.1\% & 69.0\% & 92.9\% & 0.45\\
+ 		& 3SKB & 4OOS & 0.13 & 26.7\% & 61.7\% & 90.3\% & 0.52\\
+ 		& 4RPD & 4OOS & 0.76 & 23.4\% & 52.6\% & 78.1\% & 0.71\\
+ 		& 4OOS & 4OOS & 0.00 & 35.6\% & 72.5\% & 95.3\% & 0.40\\
+		\bottomrule
+	\end{tabularx}
+\end{table*}
 	
 %%% Conclusions %%%
 \section{Conclusions}

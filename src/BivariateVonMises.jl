@@ -203,7 +203,7 @@ double k1 = k[0];
 			maxeval!(opt, 2000)
 			max_objective!(opt, localObjectiveFunction)
 
-			maxk3 = 0.5*abs((bv.k[1]*bv.k[1] + bv.k[2]*bv.k[2])/(2.0*bv.k[1]))
+			maxk3 = min(kappalimit, 0.5*abs((bv.k[1]*bv.k[1] + bv.k[2]*bv.k[2])/(2.0*bv.k[1])))
 			mink3 = -maxk3
 			(minf,minx,ret) = optimize(opt, Float64[min(bv.k[1], kappalimit), min(bv.k[2], kappalimit), max(mink3, min(bv.k[3], maxk3)), mod2pi(bv.mu[1]), mod2pi(bv.mu[2])])
 			bv.k[1] = minx[1]

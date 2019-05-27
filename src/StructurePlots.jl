@@ -8,57 +8,6 @@ module StructurePlots
 	using AngleUtils
 	using StatsBase
 
-	#=
-	function cluster()
-		rng = MersenneTwister(840184110481014)
-		family_directories = ["../data/nonhomologous_singles_xlarge/","../data/homstrad_curated_highquality/", "../data/curated_rna_virus_structures/"]
-		#family_directories = []
-		family_names = String[]
-		traininghash = zero(UInt)
-		count = 1
-		philist = Float64[]
-		psilist = Float64[]
-		maxsize = 1000
-		k = 30
-		for family_dir in family_directories
-			family_files = filter(f -> endswith(f,".fam"), readdir(family_dir))
-			for family_file in family_files
-				full_path = abspath(joinpath(family_dir, family_file))
-				json_family = JSON.parse(open(full_path, "r"))
-				for z=1:length(json_family["proteins"])
-					sequence = json_family["proteins"][z]["sequence"]
-					for (pos,(phi,psi)) in enumerate(json_family["proteins"][z]["phi_psi"])
-						if phi > -100.0 && psi > -100.0
-							if length(philist) < maxsize
-								push!(philist,phi)
-								push!(psilist,psi)
-							else
-								r = rand(rng,1:maxsize)
-								philist[r] = phi
-								psilist[r] = psi
-							end
-						end
-					end
-					count += 1
-				end
-				if count > 500
-					break
-				end
-			end
-		end	
-
-		len = length(philist)
-		mediods = Int[rand(rng,1:len) for i=1:k]
-		assignments = Int[rand(rng,1:k) for r=1:len]
-		for iter=1:100
-			for m=1:k
-				for a=1:len
-
-				end
-			end
-		end
-	end=#
-
 	function index(i::Int, j::Int, dim1::Int, dim2::Int)
 		reti = i
 		while reti < 1
@@ -111,6 +60,167 @@ module StructurePlots
 		return out
 	end
 
+	function evolutionary_distance_vs_angular_distance()
+		
+		#histvalues = Float64[x for x=0.0:0.05:1.5]
+		histvalues = Float64[0.05, 0.1, 0.2, 0.4, 0.8, 1.6]
+		histcats = Tuple{Float64,Float64}[]
+		for i=1:length(histvalues)-1
+			push!(histcats, (histvalues[i], histvalues[i+1]))
+		end
+		push!(histcats, (histvalues[end], Inf))
+		histdict = Dict{Tuple{Float64,Float64},Array{Float64,1}}()
+		for histcat in histcats
+			histdict[histcat] = Float64[]
+		end
+		aachange = false
+		sameaa = true
+
+		family_directories = ["../data/random_families2/"]
+		family_names = String[]
+		traininghash = zero(UInt)
+		count = 0
+		for family_dir in family_directories
+			family_files = filter(f -> endswith(f,".fam"), readdir(family_dir))
+			for family_file in family_files
+				count += 1
+				full_path = abspath(joinpath(family_dir, family_file))
+				json_family = JSON.parse(open(full_path, "r"))
+				root = gettreefromnewick(json_family["newick_tree"])
+				nodelist = getnodelist(root)
+				
+				
+				for a=1:length(json_family["proteins"])
+					for b=a+1:length(json_family["proteins"])
+						n1 = nothing				
+						for node in nodelist
+							if node.name == json_family["proteins"][a]["name"]
+								n1 = node
+								break
+							end
+						end
+						n2 = nothing				
+						for node in nodelist
+							if node.name == json_family["proteins"][b]["name"]
+								n2 = node
+								break
+							end
+						end
+						t = getdistance(n1,n2)
+						
+
+						for (aa_a,aa_b,(phi_a,psi_a),(phi_b,psi_b)) in zip(json_family["proteins"][a]["aligned_sequence"],json_family["proteins"][b]["aligned_sequence"],json_family["proteins"][a]["aligned_phi_psi"], json_family["proteins"][b]["aligned_phi_psi"])
+							if phi_a > -100.0 && psi_a > -100.0
+								if phi_b > -100.0 && psi_b > -100.0
+									if !aachange || (aa_a in aminoacids && aa_b in aminoacids && aa_a == aa_b)
+										angulardist = angular_rmsd(phi_a, phi_b, psi_a, psi_b)
+										#println(t,"\t",phi_a,"\t",psi_a,"\t",phi_b,"\t",psi_b)
+										#println(t,"\t", angulardist)
+										for histcat in histcats
+											if histcat[1] <= t < histcat[2]
+												ls = get(histdict, histcat, Float64[])
+												push!(ls, angulardist)
+												histdict[histcat] = ls
+											end
+										end
+									end
+								end
+							end
+						end
+					end
+				end
+			end
+		end	
+
+		for (index,histcat) in enumerate(histcats)
+			vals = histdict[histcat]
+			println(histcat[1],"\t",histcat[2], "\t", length(vals),"\t",mean(vals))
+			fig = plt.figure(figsize=(8,8))
+			plt.clf()
+			plt.hist(vals,bins=40, range=(0.0, sqrt(8.0)), density=true)
+			plt.xticks(Float64[x for x=0.0:0.2:sqrt(8.0)])
+			plt.ylim(0.0, 5.0)
+			if aachange
+				plt.savefig("$(index)_$(histcat[1])_$(histcat[2])_aachange.png")
+			elseif sameaa
+				plt.savefig("$(index)_$(histcat[1])_$(histcat[2])_sameaa.png")
+			else
+				plt.savefig("$(index)_$(histcat[1])_$(histcat[2]).png")
+			end
+		end
+
+	end
+
+	function plot_distribution(modelfile)
+		fin = open(modelfile, "r")
+		modelparams = Serialization.deserialize(fin)
+		close(fin)
+		
+		fontsize = 24
+		N = 500
+
+		conditions = []
+		push!(conditions, (indexof(string("A"), aminoacids), indexof(string("P"), aminoacids), "plots/modelAP.svg", "Alanine before Proline"))
+		push!(conditions, (indexof(string("A"), aminoacids), 0, "plots/modelA.svg", "Alanine"))
+		push!(conditions, (indexof(string("G"), aminoacids), 0, "plots/modelG.svg", "Glycine"))
+		for (aa1, aa2, outfilename, titletext) in conditions
+			weights = zeros(Float64, modelparams.numhiddenstates)
+			#modelparams.initialprobs[h1]
+			initialprobs = (modelparams.transitionprobs^40)[1,:]
+			for h1=1:modelparams.numhiddenstates
+				for h2=1:modelparams.numhiddenstates
+					likelihood = initialprobs[h1]*modelparams.transitionprobs[h1,h2]
+					if aa1 > 0
+						likelihood *= modelparams.hiddennodes[h1].aa_node.probs[aa1]
+					end
+					if aa2 > 0
+						likelihood *= modelparams.hiddennodes[h2].aa_node.probs[aa2]
+					end
+					#println(h1,"\t",h2,"\t",likelihood)
+					weights[h1] += likelihood
+				end
+			end
+			weights /= sum(weights)
+			println(weights)
+			mat = zeros(Float64, N, N)
+			for (i, x) in enumerate(range(-pi,stop=pi,length=N))
+				for (j, y) in enumerate(range(-pi,stop=pi,length=N))
+					#mat[N-j+1,i] += pdf(modelparams.hiddennodes[h].phi_nodes[aa].dist, x)*pdf(modelparams.hiddennodes[h].psi_nodes[aa].dist, y)*modelparams.hiddennodes[h].aa_node.probs[aa]
+					for h1=1:modelparams.numhiddenstates
+						mat[j,i] += weights[h1]*BivariateVonMises.pdf(modelparams.hiddennodes[h1].phipsi_nodes[aa1], Float64[x,y])
+					end
+				end
+			end
+			mat /= maximum(mat)		
+			#println(mat)
+			fig = plt.figure(figsize=(8,8))
+			plt.rc("text", usetex=true)
+			plt.rc("font", family="serif")
+			plt.clf()		
+
+			ax = plt.imshow(mat, vmin=0.0, vmax=1.0)
+
+			angle_tick_positions = [0, div(N-1,4), div(N-1,2), div((N-1)*3,4), N-1]
+			angle_labels = ["\$-\\pi\$","\$-\\pi/2\$", "0", "\$\\pi/2\$", "\$\\pi\$"]
+			#ax[:set_xticks](angle_tick_positions)
+			#ax[:set_yticks](angle_tick_positions)
+			plt.xticks(angle_tick_positions, angle_labels, fontsize=fontsize)
+			plt.yticks(angle_tick_positions, angle_labels, fontsize=fontsize)
+			plt.title(titletext, fontsize=28)
+			plt.xlabel("Phi (\$\\phi\$)", fontsize=fontsize)
+			plt.ylabel("Psi (\$\\psi\$)", fontsize=fontsize, labelpad=-22)
+			cb = plt.colorbar(shrink=0.805)
+			cb.set_label(label="Normalised density",size=20)
+			cb.ax.tick_params(labelsize=20)
+
+			plt.xlim(0.0,N)
+			plt.ylim(0.0,N)
+
+			plt.savefig(outfilename, transparent=true)
+			plt.close()
+		end
+	end
+
 	function plot_empirical()
 		#json_family["proteins"][seqnametoindex[name]]["aligned_phi_psi"][col]
 		N = 500
@@ -125,6 +235,7 @@ module StructurePlots
 		maxval = 0.0
 		for (title,name,cond) in conditions
 			mat = zeros(Float64, N, N)
+			#family_directories = ["../data/nonhomologous_singles_xlarge/","../data/homstrad_curated_highquality/", "../data/curated_rna_virus_structures/"]
 			family_directories = ["../data/nonhomologous_singles_xlarge/","../data/homstrad_curated_highquality/", "../data/curated_rna_virus_structures/"]
 			#family_directories = []
 			family_names = String[]
@@ -226,7 +337,8 @@ module StructurePlots
 					for aa=1:20
 						for (i, x) in enumerate(range(-pi,stop=pi,length=N))
 							for (j, y) in enumerate(range(-pi,stop=pi,length=N))
-								mat[N-j+1,i] += pdf(modelparams.hiddennodes[h].phi_nodes[aa].dist, x)*pdf(modelparams.hiddennodes[h].psi_nodes[aa].dist, y)*modelparams.hiddennodes[h].aa_node.probs[aa]
+								#mat[N-j+1,i] += pdf(modelparams.hiddennodes[h].phi_nodes[aa].dist, x)*pdf(modelparams.hiddennodes[h].psi_nodes[aa].dist, y)*modelparams.hiddennodes[h].aa_node.probs[aa]
+								mat[N-j+1,i] += pdf(modelparams.hiddennodes[h].phipsi_nodes[aa], Float64[x,y])*modelparams.hiddennodes[h].aa_node.probs[aa]
 							end
 						end
 					end
@@ -443,7 +555,66 @@ module StructurePlots
 		plt.plot(xcoordinates, ycoordinates, linestyle, color=colour, linewidth=linewidth)
 	end
 
-	function plotaccuracy(samplefile="output/2019-05-08.14h02m51s.408.2lae8pznqv3xj/output.samples")
+	function closestnode(nodelist::Array{TreeNode,1}, name::AbstractString, othernames::Array{AbstractString,1})
+		mindistance = Inf
+		minnode = nothing
+
+		n1 = nothing				
+		for node in nodelist
+			if node.name == name
+				n1 = node
+				break
+			end
+		end
+
+		mindistance = Inf
+		minnode = nothing
+		for othername in othernames
+			n2 = nothing 
+			for node in nodelist
+				if node.name == othername
+					n2 = node
+					break
+				end
+			end
+			dist = getdistance(n1, n2)
+			if dist < mindistance
+				mindistance = dist
+				minnode = n2
+			end
+		end
+
+		return mindistance, minnode
+	end
+
+	function benchmarksummary(root::TreeNode, distances::Array{Float64,1}, name, othernames, benchmarktype::AbstractString="")
+		nodelist = getnodelist(root)
+		mindistance, minnode = closestnode(nodelist, name, othernames)
+		if length(distances) > 0
+			benchmarks = Float64[mean(distances)]
+			rs = Float64[0.25, 0.5, 1.0, 1.5, 2.0]
+			for r in rs
+				push!(benchmarks, positionofvalue(distances,r)*100.0)
+			end
+			#println(n1.name,"\t",minnode.name,"\t",mindistance,"\t",benchmarks)
+			distancestr = "-"
+			if minnode != nothing
+				distancestr = @sprintf("%0.2f", mindistance)
+			end
+			perc25str = @sprintf("%0.1f\\%%", benchmarks[2])
+			perc50str = @sprintf("%0.1f\\%%", benchmarks[3])
+			perc100str = @sprintf("%0.1f\\%%", benchmarks[4])
+			meandist = @sprintf("%0.2f", benchmarks[1])
+			benchmarkstr = benchmarktype
+			if minnode != nothing
+				benchmarkstr = uppercase(minnode.name[4:7])
+			end
+			row = " & $(uppercase(name[4:7])) & $(benchmarkstr) & $(distancestr) & $(perc25str) & $(perc50str) & $(perc100str) & $(meandist)\\\\"
+			println(row)
+		end
+	end
+
+	function plotaccuracy(samplefile="output/2019-05-08.14h02m51s.408.2lae8pznqv3xj/output.samples", othernames::Array{AbstractString,1}=AbstractString[], benchmarktype::AbstractString="")
 		outdir = dirname(samplefile)
 		N = 100
 		startpos = 1
@@ -485,6 +656,32 @@ module StructurePlots
 					end
 					meandistance = median(distances)
 					#println("Median: $(meandistance)")
+
+					root = gettreefromnewick(json_family["newick_tree"])
+					mindistance, minnode = closestnode(getnodelist(root), name, othernames)
+					otherdistances = Float64[]
+					if minnode != nothing
+						for iter=startiter:numsamples
+							for col=1:numcols
+								truephipsi = proteinsample.json_family["proteins"][seqnametoindex[name]]["aligned_phi_psi"][col]
+								homologousphipsi = proteinsample.json_family["proteins"][seqnametoindex[minnode.name]]["aligned_phi_psi"][col]
+								sampledphipsi = proteinsample.phipsisamples[iter][col]
+								if truephipsi[1] > -100.0 && truephipsi[2] > -100.0 && homologousphipsi[1] > -100.0 && homologousphipsi[2] > -100.0
+									push!(otherdistances, angular_rmsd(truephipsi[1],homologousphipsi[1],truephipsi[2],homologousphipsi[2]))
+								elseif truephipsi[1] > -100.0 && truephipsi[2] > -100.0 && sampledphipsi[1] > -100.0 && sampledphipsi[2] > -100.0
+									push!(otherdistances, angular_rmsd(truephipsi[1],sampledphipsi[1],truephipsi[2],sampledphipsi[2]))
+								end
+							end						
+						end
+					end
+					println("MEAN DIST CLOSEST HOMOLOG: ", mean(otherdistances))
+					rs = Float64[0.25, 0.5, 1.0, 1.5, 2.0]
+					for r in rs
+						println(r,"\t",positionofvalue(otherdistances,r)*100.0)
+					end
+
+		 			benchmarksummary(root, distances, name, othernames, benchmarktype)
+
 
 					cpos = [0.0, 0.75, 1.25, 1.75]
 					rs = Float64[0.5, 1.0, 1.5, 2.0]
@@ -584,7 +781,7 @@ module StructurePlots
 		end
 	end
 
-	function plotstructuresamples(samplefile="output/2019-05-08.14h35m19s.66.2lae8pznqv3xj/output.samples", othernames::Array{AbstractString,1}=["pdb4rpd_A"])
+	function plotstructuresamples(samplefile="output/2019-05-08.14h35m19s.66.2lae8pznqv3xj/output.samples", othernames::Array{AbstractString,1}=["pdb4rpd_A"],benchmarktype::AbstractString="")
 		outdir = dirname(samplefile)
 		N = 100
 		startpos = 1
@@ -594,10 +791,16 @@ module StructurePlots
 		close(fin)
 		jsondict = Dict{String,Any}()
 		jsondict["sampleplots"] = Dict{String,Any}()
+		jsondict["positions"] = Dict{String,Any}()
+		jsondict["mappedpositions"] = Dict{String,Any}()
+		jsondict["colors"] = Dict{String,Any}()
 		jsondict["names"] = AbstractString[]
 		jsondict["othernames"] = othernames
-		for name in keys(samples)
+		for (proteinindex, name) in enumerate(keys(samples))
 			plotnames = AbstractString[]
+			positions = Int[]
+			mappedpositions = Int[]
+			currentpos = 1
 			if !startswith(name,"metadata:")
 				#=
 				if name != plotname
@@ -637,11 +840,16 @@ module StructurePlots
 					end			
 				end
 
+
+				root = gettreefromnewick(jsondict["newick_tree"])
+		 		benchmarksummary(root, distances, name, othernames, benchmarktype)
+
+
 				for col=startpos:numcols
 					phi,psi = proteinsample.json_family["proteins"][seqnametoindex[name]]["aligned_phi_psi"][col]
-					aa = proteinsample.json_family["proteins"][seqnametoindex[name]]["aligned_sequence"][col]
+					aminoacid = proteinsample.json_family["proteins"][seqnametoindex[name]]["aligned_sequence"][col]
 
-					if phi > -100.0 && psi > -100.0
+					if indexof(string(aminoacid), aminoacids) > 0
 						mat = zeros(Float64, N, N)				
 						for iter=startiter:numsamples
 							h = proteinsample.hiddensamples[iter][col]
@@ -671,16 +879,12 @@ module StructurePlots
 
 						
 						ax = plt.imshow(mat)
-						phi,psi = proteinsample.json_family["proteins"][seqnametoindex[name]]["aligned_phi_psi"][col]
-						aa = proteinsample.json_family["proteins"][seqnametoindex[name]]["aligned_sequence"][col]
-						x = ((phi+pi)/(2.0*pi))*N
-						#y = (1.0-((psi+pi)/(2.0*pi)))*N
-						y = (((psi+pi)/(2.0*pi)))*N
-						#plt.plot(x, y, "o", "None", markersize=12, markeredgecolor="k")
-						plt.text(x+1*(100.0/N),y+1*(100.0/N), string("\\textsf{\\textbf{",aa,"}}"), color="white",  horizontalalignment="center", verticalalignment="center")
 
-						for othername in othernames
+						for (otherindex,othername) in enumerate(othernames)
 							if haskey(seqnametoindex, othername)
+								defaultcolors = ["#ff0000","#bc1ccd", "#ef5a43", "#950d3d", "#a20a64"]
+								colour = defaultcolors[((otherindex-1) % length(defaultcolors)) + 1]
+								jsondict["colors"][othername] = colour
 								phihomolog,psihomolog = proteinsample.json_family["proteins"][seqnametoindex[othername]]["aligned_phi_psi"][col]
 								aa = proteinsample.json_family["proteins"][seqnametoindex[othername]]["aligned_sequence"][col]
 								if phihomolog > -100.0 && psihomolog > -100.0
@@ -688,9 +892,20 @@ module StructurePlots
 									#y = (1.0-((psihomolog+pi)/(2.0*pi)))*N
 									y = (((psihomolog+pi)/(2.0*pi)))*N
 									#plt.plot(x, y, "o", "None", markersize=10, markeredgecolor="r")
-									plt.text(x+1*(100.0/N),y+1*(100.0/N), string("\\textsf{\\textbf{",aa,"}}"), color="red",  horizontalalignment="center", verticalalignment="center")
+									plt.text(x+1*(100.0/N),y+1*(100.0/N), string("\\textsf{\\textbf{",aa,"}}"), color=colour,  horizontalalignment="center", verticalalignment="center")
 								end
 							end
+						end
+
+
+						if phi > -100.0 && psi > -100.0
+							#phi,psi = proteinsample.json_family["proteins"][seqnametoindex[name]]["aligned_phi_psi"][col]
+							#aa = proteinsample.json_family["proteins"][seqnametoindex[name]]["aligned_sequence"][col]
+							x = ((phi+pi)/(2.0*pi))*N
+							#y = (1.0-((psi+pi)/(2.0*pi)))*N
+							y = (((psi+pi)/(2.0*pi)))*N
+							#plt.plot(x, y, "o", "None", markersize=12, markeredgecolor="k")
+							plt.text(x+1*(100.0/N),y+1*(100.0/N), string("\\textsf{\\textbf{",aminoacid,"}}"), color="white",  horizontalalignment="center", verticalalignment="center")
 						end
 
 					
@@ -699,9 +914,9 @@ module StructurePlots
 						angle_labels = ["\$-\\pi\$","\$-\\pi/2\$", "0", "\$\\pi/2\$", "\$\\pi\$"]
 						#ax[:set_xticks](angle_tick_positions)
 						#ax[:set_yticks](angle_tick_positions)
-						plt.xticks(angle_tick_positions, angle_labels)
-						plt.yticks(angle_tick_positions, reverse(angle_labels))
-						plt.title("Site $(col)", fontsize=15)
+						plt.xticks(angle_tick_positions, angle_labels, fontsize=13)
+						plt.yticks(angle_tick_positions, reverse(angle_labels), fontsize=13)
+						plt.title("Aligned site $(col) ($(aminoacid))", fontsize=15)
 						plt.xlabel("Phi (\$\\phi\$)", fontsize=13)
 						plt.ylabel("Psi (\$\\psi\$)", fontsize=13)
 
@@ -712,13 +927,23 @@ module StructurePlots
 						if !isdir(outplotdir)
 							mkdir(outplotdir)	
 						end
-						plotname = "$(name)_site$(col).png"
+						plotname = "protein$(proteinindex)_site$(col).svg"
 						push!(plotnames, plotname)
 						plt.savefig(joinpath(outplotdir, plotname), transparent=true)
 						plt.close()
-					end
-				end				
+
+
+						push!(positions, currentpos)
+						push!(mappedpositions, col)
+						currentpos += 1
+					else
+						push!(positions, 0)
+					end				
+				end
+
 				jsondict["sampleplots"][name] = plotnames
+				jsondict["positions"][name] = positions
+				jsondict["mappedpositions"][name] = mappedpositions
 			end
 		end		
 		fout = open(joinpath(outdir, "data.json"), "w")
@@ -772,3 +997,6 @@ end
 #using StructurePlots
 
 #plot_nodes("models/model.h40.2glmjug4seflu.thresh2.hiddenaascaling.anglescondaa25.precluster.ratemode1.model")
+#plot_distribution("models/model.h40.2zm98v3xzpc59.thresh2.hiddenaascaling.anglescondaa15.precluster.ratemode1.model")
+#plot_empirical()
+#evolutionary_distance_vs_angular_distance()
