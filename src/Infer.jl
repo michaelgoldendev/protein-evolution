@@ -262,7 +262,7 @@ function infer(parsed_args=Dict{String,Any}())
 	numcols = length(proteins[1])
 	mcmcwriter = open("$(outputprefix).log", "w")
 	treewriter = open("$(outputprefix).mcmc.log", "w")
-	print(mcmcwriter, "iter\ttotalll\tpathll\tsequencell\tobservationll\tscalingfactor\talpha\tsecondsperiter")
+	print(mcmcwriter, "iter\ttotalll\tpathll\tsequencell\tobservationll\tscalingfactor\talpha\tsecondsperiter\tacceptancehidden\tacceptanceaa")
 
 	blindseq_writers = Dict{String,Any}()
 	for blindnodename in blindproteins
@@ -349,6 +349,7 @@ function infer(parsed_args=Dict{String,Any}())
 	reset_matrix_cache(modelparams)
 	count_hidden_acceptance = zeros(Int, numcols)
 	count_hidden_total = zeros(Int, numcols)
+	count_aa_acceptance = zeros(Int, numcols)
 
 	maxaugmentedll = -Inf
 	sequencescoresatmax = Float64[]
@@ -384,10 +385,13 @@ function infer(parsed_args=Dict{String,Any}())
 		println("$(iter).2 Sampling sites START")
 		randcols = shuffle(rng, Int[i for i=1:numcols])
 		for col in randcols
-			a1,a2,a3,a4, accepted_hidden, accepted_aa = samplepaths_seperate_new(rng, col, proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates, accept_everything=(iter<=3))
+			a1,a2,a3,a4, accepted_hidden, accepted_aa = samplepaths_seperate_new(rng, col,nodelist, modelparams, dosamplesiterates=dosamplesiterates, accept_everything=(iter<=3))
 			if accepted_hidden
 				count_hidden_acceptance[col] += 1.0
 			end			
+			if accepted_aa
+				count_aa_acceptance[col] += 1.0
+			end
 			count_hidden_total[col] += 1.0
 		end
 		println("min acceptance: ", minimum(count_hidden_acceptance./count_hidden_total))
@@ -447,11 +451,13 @@ function infer(parsed_args=Dict{String,Any}())
 		augmentedll = augmentedloglikelihood(nodelist, Int[col for col=1:numcols], modelparams)	
 		sequencell = 0.0
 		for col=1:numcols
-			sequencell += felsensteinresample_aa(rng, proteins, nodelist, Int[col], col, modelparams, false)
+			sequencell += felsensteinresample_aa(rng, nodelist, Int[col], col, modelparams, false)
 		end
 		observationll = observationloglikelihood(proteins, nodelist, modelparams)
 		elapsedtime = time()-starttime 
-		print(mcmcwriter, iter-1,"\t",augmentedll+observationll,"\t",augmentedll,"\t",sequencell,"\t",observationll,"\t",modelparams.scalingfactor, "\t", modelparams.rate_alpha, "\t",elapsedtime)
+		acceptance_rate_hidden =  mean(count_hidden_acceptance./count_hidden_total)
+		acceptance_rate_aa =  mean(count_aa_acceptance./count_hidden_total)
+		print(mcmcwriter, iter-1,"\t",augmentedll+observationll,"\t",augmentedll,"\t",sequencell,"\t",observationll,"\t",modelparams.scalingfactor, "\t", modelparams.rate_alpha, "\t",elapsedtime,"\t", acceptance_rate_hidden, "\t", acceptance_rate_aa)
 		for blindnodename in blindproteins
 			print(mcmcwriter,"\t",sequencescores[blindnodename][end])
 		end
@@ -695,6 +701,10 @@ function infer(parsed_args=Dict{String,Any}())
 							structuresamples[selnode.name] = Sample(string(selnode.name), modelparams)
 						end
 
+						parent = get(selnode.parent)
+						nodedata = Tuple[(copy(selnode.data.branchpath.paths[col]), copy(selnode.data.aabranchpath.paths[col]), parent.data.protein.sites[col].phi, parent.data.protein.sites[col].psi, selnode.data.protein.sites[col].phi, selnode.data.protein.sites[col].psi, selnode.branchlength) for col=1:numcols]
+						#println(nodedata)
+						push!(structuresamples[selnode.name].nodedata, nodedata)
 						push!(structuresamples[selnode.name].phipsisamples, phi_psi)
 						push!(structuresamples[selnode.name].aasamples, Int[selnode.data.aabranchpath.paths[col][end] for col=1:numcols])
 						push!(structuresamples[selnode.name].hiddensamples, Int[selnode.data.branchpath.paths[col][end] for col=1:numcols])
@@ -724,7 +734,7 @@ function infer(parsed_args=Dict{String,Any}())
 
 				StructurePlots.plotaccuracy(samplesfile, othernames, benchmarktype)
 
-				if iter > 1 && iter % 200 == 1
+				if iter > 1 && iter % 100 == 1
 					println(othernames)
 					StructurePlots.plotstructuresamples(samplesfile, othernames, benchmarktype)
 				end

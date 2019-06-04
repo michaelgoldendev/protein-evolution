@@ -673,6 +673,15 @@ module StructurePlots
 								end
 							end						
 						end
+
+						#=
+						for col=1:numcols
+							iter = numsamples
+							truephipsi = proteinsample.json_family["proteins"][seqnametoindex[name]]["aligned_phi_psi"][col]
+							homologousphipsi = proteinsample.json_family["proteins"][seqnametoindex[minnode.name]]["aligned_phi_psi"][col]
+							sampledphipsi = proteinsample.phipsisamples[iter][col]
+							println(name,"\t",truephipsi,"\t", homologousphipsi,"\t",sampledphipsi)
+						end=#
 					end
 					println("MEAN DIST CLOSEST HOMOLOG: ", mean(otherdistances))
 					rs = Float64[0.25, 0.5, 1.0, 1.5, 2.0]
@@ -783,7 +792,7 @@ module StructurePlots
 
 	function plotstructuresamples(samplefile="output/2019-05-08.14h35m19s.66.2lae8pznqv3xj/output.samples", othernames::Array{AbstractString,1}=["pdb4rpd_A"],benchmarktype::AbstractString="")
 		outdir = dirname(samplefile)
-		N = 100
+		N = 200
 		startpos = 1
 
 		fin = open(samplefile, "r")	
@@ -855,9 +864,43 @@ module StructurePlots
 							h = proteinsample.hiddensamples[iter][col]
 							aa = proteinsample.aasamples[iter][col]
 
+							hiddenpath, aapath, parentphi, parentpsi, nodephi, nodepsi, branchlength = proteinsample.nodedata[iter][col]
+							
+
+							tempmat = zeros(Float64, N, N)
+							if length(hiddenpath) == 1
+								phikappa = min(2000.0, 1.0/(modelparams.hiddennodes[1].diffusionrate*branchlength))
+								phidist = VonMises(parentphi, phikappa)
+								psikappa = min(2000.0, 1.0/(modelparams.hiddennodes[1].diffusionrate*branchlength))
+								psidist = VonMises(parentpsi, psikappa)
+								for (i, x) in enumerate(range(-pi,stop=pi,length=N))
+									for (j, y) in enumerate(range(-pi,stop=pi,length=N))
+										tempmat[j,i] = pdf(phidist, x)*pdf(psidist, y)
+									end
+								end
+								tempmat = tempmat ./ sum(tempmat)
+								mat += tempmat
+							else
+								h = hiddenpath[end]
+								for (i, x) in enumerate(range(-pi,stop=pi,length=N))
+									for (j, y) in enumerate(range(-pi,stop=pi,length=N))											
+										tempmat[j,i] += BivariateVonMises.pdf(modelparams.hiddennodes[h].phipsi_node, Float64[x,y])
+									end
+								end
+								tempmat = tempmat ./ sum(tempmat)
+								mat += tempmat
+							end
+
+							#=
+							sampledphipsi = proteinsample.phipsisamples[iter][col]
+							i = floor(Int,  (sampledphipsi[1]+pi)/(2.0*pi)*N) + 1
+							j = floor(Int,  (sampledphipsi[2]+pi)/(2.0*pi)*N) + 1
+							#x1 = sampledphipsi[1]/2.0/pi*N
+							#y1 = mod2pi(sampledphipsi[2]+pi)/2.0/pi*N
 							#k = Float64[modelparams.hiddennodes[h].phi_nodes[aa].kappa, modelparams.hiddennodes[h].psi_nodes[aa].kappa, 0.0]
 							#mu = Float64[modelparams.hiddennodes[h].phi_nodes[aa].mu, modelparams.hiddennodes[h].psi_nodes[aa].mu]
-
+							mat[j,i] += 1.0
+							#=
 							for (i, x) in enumerate(range(-pi,stop=pi,length=N))
 								for (j, y) in enumerate(range(-pi,stop=pi,length=N))
 									#mat[N-j+1,i] += pdf(modelparams.hiddennodes[h].phi_nodes[aa].dist, x)*pdf(modelparams.hiddennodes[h].psi_nodes[aa].dist, y)*modelparams.hiddennodes[h].aa_node.probs[aa]
@@ -869,7 +912,8 @@ module StructurePlots
 										mat[j,i] += BivariateVonMises.pdf(modelparams.hiddennodes[h].phipsi_node, Float64[x,y])
 									end
 								end
-							end
+							end=#
+							=#
 						end
 						mat /= (enditer-startiter+1.0)
 

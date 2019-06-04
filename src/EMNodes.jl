@@ -6,6 +6,7 @@ module EMNodes
 
 	push!(LOAD_PATH,@__DIR__)
 	using BivariateVonMises
+	using WrappedNormalOU
 
 	export SiteObservation
 	mutable struct SiteObservation
@@ -20,17 +21,19 @@ module EMNodes
 		bond_angle1::Float64
 		bond_angle2::Float64
 		bond_angle3::Float64
+		phiobserved::Bool
+		psiobserved::Bool
 
 		function SiteObservation()
-			new(0, 0, -1000.0, -1000.0, -1000.0, -1000.0, -1000.0, -1000.0, -1000.0, -1000.0, -1000.0)
+			new(0, 0, -1000.0, -1000.0, -1000.0, -1000.0, -1000.0, -1000.0, -1000.0, -1000.0, -1000.0, false, false)
 		end
 
 		function SiteObservation(h::Int, aa::Int, phi::Float64, omega::Float64, psi::Float64)
-			new(h,aa,phi,omega,psi, -1000.0, -1000.0, -1000.0, -1000.0, -1000.0, -1000.0)
+			new(h,aa,phi,omega,psi, -1000.0, -1000.0, -1000.0, -1000.0, -1000.0, -1000.0, phi > -100.0, psi > -100.0)
 		end
 
 		function SiteObservation(h::Int, aa::Int, phi::Float64, omega::Float64, psi::Float64, bond_length1::Float64, bond_length2::Float64, bond_length3::Float64, bond_angle1::Float64, bond_angle2::Float64, bond_angle3::Float64)
-			new(h,aa,phi,omega,psi, bond_length1, bond_length2, bond_length3, bond_angle1, bond_angle2, bond_angle3)
+			new(h,aa,phi,omega,psi, bond_length1, bond_length2, bond_length3, bond_angle1, bond_angle2, bond_angle3, phi > -100.0, psi > -100.0)
 		end
 	end
 
@@ -41,6 +44,10 @@ module EMNodes
 
 		function Protein()
 			new("", SiteObservation[])
+		end
+
+		function Protein(numcols::Int)
+			new("", SiteObservation[SiteObservation() for col=1:numcols])
 		end
 
 		function Protein(name::String)
@@ -269,6 +276,11 @@ module EMNodes
 		psi_nodes::Array{VonMisesNode,1}
 		phipsi_nodes::Array{BivariateVonMisesNode,1}
 		omega_nodes::Array{VonMisesNode,1}
+		obsinvkappa::Float64
+		diffusionrate::Float64
+		diffusionnode::WrappedNormalOUNode
+		diffusionnode_uncorrelated::WrappedNormalOUNode
+
 	    #aadist::Array{Float64,1}
 
 	    function HiddenNode(aafreqs::Array{Float64}=ones(Float64,20)*0.05)
@@ -276,7 +288,7 @@ module EMNodes
 	    	psi_nodes = VonMisesNode[VonMisesNode() for aa=1:20]
 	    	phipsi_nodes = BivariateVonMisesNode[BivariateVonMisesNode() for aa=1:20]
 	    	omega_nodes = VonMisesNode[VonMisesNode() for aa=1:20]
-	        new(CategoricalNode(aafreqs),VonMisesNode(),VonMisesNode(),BivariateVonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(), MultivariateNode(), phi_nodes, psi_nodes, phipsi_nodes, omega_nodes)
+	        new(CategoricalNode(aafreqs),VonMisesNode(),VonMisesNode(),BivariateVonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(), MultivariateNode(), phi_nodes, psi_nodes, phipsi_nodes, omega_nodes,1e-4, 0.1, WrappedNormalOUNode(1), WrappedNormalOUNode(1))
 	    end
 	end
 end

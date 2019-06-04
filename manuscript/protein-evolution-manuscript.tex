@@ -329,7 +329,7 @@ where the sum runs over all possible hidden state sequences and can be calculate
 \begin{figure*}
 	\centering
 	\includegraphics[width=2.0\columnwidth]{figures/rate-network-withstructure.pdf}
-	\caption{}%
+	\caption{Will replace this figure with a better one, this is here to explain angle evolution}%
 	\label{fig:ratenetwork}%
 \end{figure*}
 Thus far we have only considered a single protein. In this section we outline how multiple phylogenetically related proteins are modelled evolutionarily. Following \citet{choi2008basing} we construct a rate matrix that represents changes between two sequences, $a$ and $b$, instead of character states, such as amino acids, as is typical of substitution models. Furthermore, each sequence position combines a hidden state ($h_i$), an amino acid ($aa_i$), and a set of structural observations ($x_i$), into a joint character state ($h^{s}_i,aa^{s}_i,x^{s}_i$), where $s$ refers to a particular sequence. The rate matrix is given as follows:

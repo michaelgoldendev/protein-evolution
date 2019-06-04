@@ -356,20 +356,36 @@ function estimate_parameters(iter::Int,trainingexamples, modelparams::ModelParam
 		end
 
 		for col=1:numcols
-			for node in nodelist				
-				if isleafnode(node)
-					h = node.data.branchpath.paths[col][end]
-					site = proteins[node.seqindex].sites[col]
-					if site.aa > 0
-						#modelparams.hiddennodes[h].aa_node.counts[site.aa] += 1.0
+			for node in nodelist
+				site = node.data.protein.sites[col]
+				h = node.data.branchpath.paths[col][end]
+				if modelparams.use_diffusion
+					if isroot(node) || length(node.data.branchpath.paths[col]) > 1
+						aa = node.data.aabranchpath.paths[col][end]
 						push!(modelparams.hiddennodes[h].phi_node.data, site.phi)
-						push!(modelparams.hiddennodes[h].omega_node.data, site.omega)
 						push!(modelparams.hiddennodes[h].psi_node.data, site.psi)
 						BivariateVonMises.add_bvm_point(modelparams.hiddennodes[h].phipsi_node, Float64[site.phi, site.psi])
-						push!(modelparams.hiddennodes[h].phi_nodes[site.aa].data, site.phi)
+						push!(modelparams.hiddennodes[h].phi_nodes[aa].data, site.phi)
+						push!(modelparams.hiddennodes[h].psi_nodes[aa].data, site.psi)
+						BivariateVonMises.add_bvm_point(modelparams.hiddennodes[h].phipsi_nodes[aa], Float64[site.phi, site.psi])
+					end
+				end
+
+
+				if isleafnode(node)					
+					if site.aa > 0
+						if !modelparams.use_diffusion
+							push!(modelparams.hiddennodes[h].phi_node.data, site.phi)
+							push!(modelparams.hiddennodes[h].psi_node.data, site.psi)
+							BivariateVonMises.add_bvm_point(modelparams.hiddennodes[h].phipsi_node, Float64[site.phi, site.psi])
+							push!(modelparams.hiddennodes[h].phi_nodes[site.aa].data, site.phi)
+							push!(modelparams.hiddennodes[h].psi_nodes[site.aa].data, site.psi)
+							BivariateVonMises.add_bvm_point(modelparams.hiddennodes[h].phipsi_nodes[site.aa], Float64[site.phi, site.psi])
+						end
+						#modelparams.hiddennodes[h].aa_node.counts[site.aa] += 1.0
+						
+						push!(modelparams.hiddennodes[h].omega_node.data, site.omega)
 						push!(modelparams.hiddennodes[h].omega_nodes[site.aa].data, site.omega)
-						push!(modelparams.hiddennodes[h].psi_nodes[site.aa].data, site.psi)
-						BivariateVonMises.add_bvm_point(modelparams.hiddennodes[h].phipsi_nodes[site.aa], Float64[site.phi, site.psi])
 						push!(modelparams.hiddennodes[h].bond_angle1_node.data, site.bond_angle1)
 						push!(modelparams.hiddennodes[h].bond_angle2_node.data, site.bond_angle2)
 						push!(modelparams.hiddennodes[h].bond_angle3_node.data, site.bond_angle3)
@@ -590,6 +606,24 @@ function estimate_parameters(iter::Int,trainingexamples, modelparams::ModelParam
 			modelparams.aa_exchangeablities = aatransitionrates
 		end
 
+		phidata = Tuple{Float64,Float64,Float64,Bool}[]
+		psidata = Tuple{Float64,Float64,Float64,Bool}[]
+		for (proteins,nodelist,json_family,sequences) in trainingexamples
+			numcols = length(proteins[1])
+			for node in nodelist
+				if !isroot(node)
+					for col=1:numcols
+						if length(node.data.branchpath.paths[col]) == 1
+							parentnode = get(node.parent)
+							push!(phidata, (node.branchlength, parentnode.data.protein.sites[col].phi, node.data.protein.sites[col].phi, node.data.protein.sites[col].phiobserved))
+							push!(psidata, (node.branchlength, parentnode.data.protein.sites[col].psi, node.data.protein.sites[col].psi, node.data.protein.sites[col].psiobserved))
+						end
+					end
+				end
+			end
+		end
+		append!(phidata,psidata)
+		optimizediffusion(phidata, modelparams)
 		#modelparams.rates = rate_cat_events./rate_cat_times
 		#println("RATES ", modelparams.rates)
 	end
@@ -618,6 +652,46 @@ function estimate_parameters(iter::Int,trainingexamples, modelparams::ModelParam
 	modelparams.aarates /= scaleaarates
 	modelparams.aa_exchangeablities *= scaleaarates
 end
+
+function diffusionloglikelihood(data::Array{Tuple{Float64,Float64,Float64,Bool},1}, params::Array{Float64,1})
+	currentbranchlength = -1.0
+	dist = nothing
+	loglikelihood = 0.0
+	for (branchlength, parenttheta, theta, observed) in data
+		if currentbranchlength != branchlength
+			obsinvkappa = params[1]
+			diffusionrate = params[2]
+			kappa = min(2000.0, 1.0/(diffusionrate*branchlength))
+			if observed
+				kappa = min(2000.0, 1.0/(obsinvkappa + (diffusionrate*branchlength)))
+			end
+			dist = VonMises(0.0, kappa)
+		end
+		loglikelihood += logpdf(dist, parenttheta-theta)
+	end
+	println(loglikelihood, "\t", params[1], "\t", params[2])
+	return loglikelihood
+end
+
+function optimizediffusion(data::Array{Tuple{Float64,Float64,Float64,Bool},1}, modelparams::ModelParams)
+	println("optimizediffusion")
+	opt = Opt(:LN_COBYLA,2)
+    localObjectiveFunction = ((params, grad) -> diffusionloglikelihood(data,params))
+    lower = ones(Float64, 2)*1e-6
+    upper = ones(Float64, 2)*1e6
+    upper[1] = 0.2
+    lower_bounds!(opt, lower)
+    upper_bounds!(opt, upper)
+    xtol_rel!(opt,1e-5)
+    maxeval!(opt, 200)
+    max_objective!(opt, localObjectiveFunction)
+    initparams = Float64[modelparams.hiddennodes[1].obsinvkappa, modelparams.hiddennodes[1].diffusionrate]
+    (minf,minx,ret) = optimize(opt, initparams)
+	modelparams.hiddennodes[1].obsinvkappa = minx[1]
+	modelparams.hiddennodes[1].diffusionrate = minx[2]
+	#exit()
+end
+
 
 function parallelsample(iter::Int, rng::AbstractRNG, trainingexamples::Array{Tuple,1}, modelparams::ModelParams; maxsamplesperiter::Int=500, sitethreshold::Int=2, dosamplesiterates::Bool=true, samplebranchlengths::Bool=true, family_names::Array{String,1},accept_everything::Bool=false)
 	totalbranchlength_output  = 0.0

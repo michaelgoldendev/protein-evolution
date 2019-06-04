@@ -13,6 +13,7 @@ using MolecularEvolution
 push!(LOAD_PATH,@__DIR__)
 using EMNodes
 using BivariateVonMises
+using WrappedNormalOU
 using Backbone
 using AngleUtils
 
@@ -58,7 +59,8 @@ mutable struct ModelParams
 	hidden_conditional_on_aa::Bool
 	ratemode::Int
 	aarates::Array{Float64,1}
-	use_bivariate_von_mises::Bool
+	use_bivariate_von_mises::Bool	
+	use_diffusion::Bool 
 
     function ModelParams(aminoacidQ::Array{Float64,2}, numhiddenstates::Int,mu::Float64=1.0,hiddenmu::Float64=1.0)
         initialprobs = ones(Float64, numhiddenstates)./numhiddenstates
@@ -85,7 +87,7 @@ mutable struct ModelParams
 		rates = ones(Float64,numrates)
 		rate_freqs = ones(Float64,numrates)/numrates
 		#
-        new(20,aminoacidQ,LGexchangeability, rate_alpha, numrates, rates,rate_freqs,numhiddenstates,initialprobs,transitioncounts,transitionprobs,transitionrates,hiddennodes,mu,hiddenmu,matrixcache,1.0,1.0,true,true,1, ones(Float64,numhiddenstates), true)
+        new(20,aminoacidQ,LGexchangeability, rate_alpha, numrates, rates,rate_freqs,numhiddenstates,initialprobs,transitioncounts,transitionprobs,transitionrates,hiddennodes,mu,hiddenmu,matrixcache,1.0,1.0,true,true,1, ones(Float64,numhiddenstates), true, true)
     end
 end
 
@@ -162,6 +164,7 @@ end
 
 mutable struct Sample 
 	name::String
+	nodedata::Array{Array{Tuple,1},1}
 	phipsisamples::Array{Array{Tuple{Float64,Float64},1},1}
 	aasamples::Array{Array{Int,1},1}
 	hiddensamples::Array{Array{Int,1},1}
@@ -169,7 +172,7 @@ mutable struct Sample
 	modelparams::ModelParams
 
 	function Sample(name::String, modelparams::ModelParams)
-		new(name, Array{Tuple{Float64,Float64},1}[], Int[], Int[], Dict{String,Any}(), modelparams)
+		new(name, Array{Tuple,1}[], Array{Tuple{Float64,Float64},1}[], Int[], Int[], Dict{String,Any}(), modelparams)
 	end
 end
 
@@ -534,7 +537,7 @@ mutable struct AugmentedNodeData <: NodeData
 	fixbranchlength::Bool
 	proposallikelihood::Array{Float64,1}
 
-	AugmentedNodeData(col::Int) = new(BranchPath(col),BranchPath(col),BranchPath(col),BranchPath(col),1, Protein(),1.0, false, zeros(Float64,col)) 
+	AugmentedNodeData(numcols::Int) = new(BranchPath(numcols),BranchPath(numcols),BranchPath(numcols),BranchPath(numcols),1, Protein(numcols),1.0, false, zeros(Float64,numcols)) 
 	AugmentedNodeData(branchpath::BranchPath, aabranchpath::BranchPath, ratesbranchpath::BranchPath, jointbranchpath::BranchPath, dummy::Int) = new(branchpath, aabranchpath, ratesbranchpath, jointbranchpath, dummy, Protein(),1.0,false, zeros(Float64,1))
 end
 
@@ -923,7 +926,7 @@ end
 
 
 
-function felsensteinresample_hidden(rng::AbstractRNG, proteins::Array{Protein,1}, nodelist::Array{TreeNode,1}, selcolin::Int, cols::Array{Int,1}, aacol::Int, modelparams::ModelParams, sample::Bool=true, useoldsampling::Bool=false)
+function felsensteinresample_hidden(rng::AbstractRNG, nodelist::Array{TreeNode,1}, selcolin::Int, cols::Array{Int,1}, aacol::Int, modelparams::ModelParams, sample::Bool=true, useoldsampling::Bool=false)
 	#selcol = findfirst(x -> x == selcolin, cols)
 	selcol = selcolin
 	likelihoods = ones(Float64, length(nodelist), modelparams.numhiddenstates)*-Inf
@@ -1043,7 +1046,7 @@ function joint_proposal_likelihood(nodelist::Array{TreeNode,1}, aacol::Int, mode
 	return loglikelihood
 end
 
-function hidden_proposal_likelihood(nodelist::Array{TreeNode,1}, aacol::Int, modelparams::ModelParams, paths::Array{Array{Int,1},1}=Array{Int,1}[], times::Array{Array{Float64,1},1}=Array{Float64,1}[])
+function hidden_proposal_likelihood(nodelist::Array{TreeNode,1}, aacol::Int, modelparams::ModelParams, paths::Array{Array{Int,1},1}=Array{Int,1}[], times::Array{Array{Float64,1},1}=Array{Float64,1}[]; phipsilik::Bool=false)
 	rootnode = nodelist[1]
 	len = length(rootnode.data.branchpath.paths)
 	prevh = 0
@@ -1078,6 +1081,9 @@ function hidden_proposal_likelihood(nodelist::Array{TreeNode,1}, aacol::Int, mod
 			dt = (1.0 - time[end])*node.branchlength
 			loglikelihood += R[path[end],path[end]]*dt
 			loglikelihood -= log(node.data.branchpath.P2[path[1],path[end]])
+		end
+		if phipsilik 
+			loglikelihood += siteloglikelihood(node.data.protein.sites[aacol], path[end], node.data.aabranchpath.paths[aacol][end], modelparams, true)
 		end
 	end
 	return loglikelihood
@@ -1380,7 +1386,7 @@ function felsensteinhelper_aa(node::TreeNode, incols::Array{Int,1}, aacol::Int, 
     return Pret,node.data.aabranchpath.Pmatrices,vs
 end
 
-function felsensteinresample_aa(rng::AbstractRNG, proteins::Array{Protein,1}, nodelist::Array{TreeNode,1}, cols::Array{Int,1}, aacol::Int, modelparams::ModelParams, sample::Bool=true, useoldsampling::Bool=false)
+function felsensteinresample_aa(rng::AbstractRNG, nodelist::Array{TreeNode,1}, cols::Array{Int,1}, aacol::Int, modelparams::ModelParams, sample::Bool=true, useoldsampling::Bool=false)
 	likelihoods = ones(Float64, length(nodelist), modelparams.alphabet)*-Inf
 	logm = zeros(Float64,length(nodelist))
 
@@ -1397,13 +1403,6 @@ function felsensteinresample_aa(rng::AbstractRNG, proteins::Array{Protein,1}, no
 			else
 				if modelparams.hidden_conditional_on_aa					
 					likelihoods[nodeindex,:] = observationlikelihood_aa(node.data.protein, aacol, node.data.branchpath.paths[aacol][end], modelparams)
-					#=
-					for a=1:modelparams.alphabet
-						if likelihoods[nodeindex,a] != 1.0
-							println(likelihoods)							
-							#exit()
-						end
-					end=#
 				else
 					for a=1:modelparams.alphabet
 						likelihoods[nodeindex,a] = 1.0
@@ -1429,7 +1428,7 @@ function felsensteinresample_aa(rng::AbstractRNG, proteins::Array{Protein,1}, no
 				righttransprobs,Pmatrices_right,vs_right = felsensteinhelper_aa(nodelist[rightchildindex], cols, aacol, likelihoods[rightchildindex,:], modelparams)
         		likelihoods[nodeindex, :] = (lefttransprobs*likelihoods[leftchildindex,:]).*(righttransprobs*likelihoods[rightchildindex,:])
         		if modelparams.hidden_conditional_on_aa
-        			# TODO add something here for internal nodes!!!!
+        			likelihoods[nodeindex, :] = likelihoods[nodeindex, :].*observationlikelihood_aa(node.data.protein, aacol, node.data.branchpath.paths[aacol][end], modelparams)
         		end
 
         		m = maximum(likelihoods[nodeindex,:])
@@ -1462,7 +1461,7 @@ function felsensteinresample_aa(rng::AbstractRNG, proteins::Array{Protein,1}, no
 end
 
 
-function aa_proposal_likelihood(nodelist::Array{TreeNode,1}, aacol::Int, modelparams::ModelParams, paths::Array{Array{Int,1},1}=Array{Int,1}[], times::Array{Array{Float64,1},1}=Array{Float64,1}[])	
+function aa_proposal_likelihood(nodelist::Array{TreeNode,1}, aacol::Int, modelparams::ModelParams, paths::Array{Array{Int,1},1}=Array{Int,1}[], times::Array{Array{Float64,1},1}=Array{Float64,1}[]; phipsilik::Bool=false)	
 	loglikelihood = 0.0
 	for (nodeindex, node) in enumerate(nodelist)
 		path = node.data.aabranchpath.paths[aacol]
@@ -1486,6 +1485,10 @@ function aa_proposal_likelihood(nodelist::Array{TreeNode,1}, aacol::Int, modelpa
 			dt = (1.0 - time[end])*node.branchlength
 			loglikelihood += R[path[end],path[end]]*dt
 			loglikelihood -= log(node.data.aabranchpath.P2[path[1],path[end]])
+		end
+
+		if phipsilik 
+			loglikelihood += siteloglikelihood(node.data.protein.sites[aacol], node.data.branchpath.paths[aacol][end], path[end], modelparams, true)
 		end
 	end
 	return loglikelihood
@@ -2019,37 +2022,59 @@ function forwardbackward(rng::AbstractRNG, node::TreeNode, modelparams::ModelPar
 	return marginalprobabilities
 end
 
-
-function siteloglikelihood(site::SiteObservation, h::Int, aa::Int, modelparams::ModelParams)
+function siteloglikelihood_wrappednormal(site::SiteObservation, h::Int, aa::Int, modelparams::ModelParams)
 	ll = 0.0
 	if modelparams.usestructureobservations
-		if modelparams.hidden_conditional_on_aa
+		if site.phi > -100.0 && site.psi > -100.0
+			ll += WrappedNormalOU.loglikwndstat(modelparams.hiddennodes[h].diffusionnode, site.phi, site.psi)
+		end
+	end
+	return ll
+end
+
+function siteloglikelihood(site::SiteObservation, h::Int, aa::Int, modelparams::ModelParams, phipsilik::Bool=true, includeunobserved::Bool=false)
+	if modelparams.use_diffusion
+		return siteloglikelihood_wrappednormal(site, h, aa, modelparams)
+	else
+		return siteloglikelihood(site, h, aa, modelparams, modelparams.hidden_conditional_on_aa, phipsilik, includeunobserved)
+	end
+end
+
+
+function siteloglikelihood(site::SiteObservation, h::Int, aa::Int, modelparams::ModelParams, hidden_conditional_on_aa::Bool, phipsilik::Bool=true, includeunobserved::Bool=false, phipsionly::Bool=false)
+	ll = 0.0
+	if modelparams.usestructureobservations
+		if hidden_conditional_on_aa
 			if aa > 0
-				if modelparams.use_bivariate_von_mises && site.phi > -100.0 && site.psi > -100.0
-					ll += BivariateVonMises.logpdf(modelparams.hiddennodes[h].phipsi_nodes[aa], Float64[site.phi, site.psi])
-				else
-					if site.phi > -100.0
-						ll += logpdf(modelparams.hiddennodes[h].phi_nodes[aa].dist, site.phi)
-					end
-					if site.psi > -100.0
-						ll += logpdf(modelparams.hiddennodes[h].psi_nodes[aa].dist, site.psi)
+				if phipsilik
+					if modelparams.use_bivariate_von_mises && site.phi > -100.0 && site.psi > -100.0 && (includeunobserved || (site.phiobserved && site.psiobserved))
+						ll += BivariateVonMises.logpdf(modelparams.hiddennodes[h].phipsi_nodes[aa], Float64[site.phi, site.psi])
+					else
+						if site.phi > -100.0 && (includeunobserved || site.phiobserved)
+							ll += logpdf(modelparams.hiddennodes[h].phi_nodes[aa].dist, site.phi)
+						end
+						if site.psi > -100.0  && (includeunobserved || site.psiobserved)
+							ll += logpdf(modelparams.hiddennodes[h].psi_nodes[aa].dist, site.psi)
+						end
 					end
 				end
-				if site.omega > -100.0
+				if !phipsionly && site.omega > -100.0
 					ll += logpdf(modelparams.hiddennodes[h].omega_nodes[aa].dist, site.omega)
 				end
 			else
 				sumll = -Inf
 				for aa=1:modelparams.alphabet
 					temp = 0.0
-					if modelparams.use_bivariate_von_mises && site.phi > -100.0 && site.psi > -100.0
-						temp += BivariateVonMises.logpdf(modelparams.hiddennodes[h].phipsi_nodes[aa], Float64[site.phi, site.psi])
-					else
-						if site.phi > -100.0
-							temp += logpdf(modelparams.hiddennodes[h].phi_nodes[aa].dist, site.phi)
-						end
-						if site.psi > -100.0
-							temp += logpdf(modelparams.hiddennodes[h].psi_nodes[aa].dist, site.psi)
+					if phipsilik
+						if modelparams.use_bivariate_von_mises && site.phi > -100.0 && site.psi > -100.0 && (includeunobserved || (site.phiobserved  && site.psiobserved))
+							temp += BivariateVonMises.logpdf(modelparams.hiddennodes[h].phipsi_nodes[aa], Float64[site.phi, site.psi])
+						else
+							if site.phi > -100.0 && (includeunobserved ||  site.phiobserved)
+								temp += logpdf(modelparams.hiddennodes[h].phi_nodes[aa].dist, site.phi)
+							end
+							if site.psi > -100.0 && (includeunobserved || site.psiobserved)
+								temp += logpdf(modelparams.hiddennodes[h].psi_nodes[aa].dist, site.psi)
+							end
 						end
 					end
 					if site.omega > -100.0
@@ -2061,17 +2086,19 @@ function siteloglikelihood(site::SiteObservation, h::Int, aa::Int, modelparams::
 				ll += sumll
 			end
 		else
-			if modelparams.use_bivariate_von_mises && site.phi > -100.0 && site.psi > -100.0
-				ll += BivariateVonMises.logpdf(modelparams.hiddennodes[h].phipsi_node, Float64[site.phi, site.psi])
-			else
-				if site.phi > -100.0
-					ll += logpdf(modelparams.hiddennodes[h].phi_node.dist, site.phi)
-				end				
-				if site.psi > -100.0
-					ll += logpdf(modelparams.hiddennodes[h].psi_node.dist, site.psi)
+			if phipsilik
+				if modelparams.use_bivariate_von_mises && site.phi > -100.0 && site.psi > -100.0 && (includeunobserved || (site.phiobserved && site.psiobserved))
+					ll += BivariateVonMises.logpdf(modelparams.hiddennodes[h].phipsi_node, Float64[site.phi, site.psi])
+				else
+					if site.phi > -100.0 && (includeunobserved || site.phiobserved)
+						ll += logpdf(modelparams.hiddennodes[h].phi_node.dist, site.phi)
+					end				
+					if site.psi > -100.0 && (includeunobserved || site.psiobserved)
+						ll += logpdf(modelparams.hiddennodes[h].psi_node.dist, site.psi)
+					end
 				end
-			end			
-			if site.omega > -100.0
+			end		
+			if !phipsionly && site.omega > -100.0
 				ll += logpdf(modelparams.hiddennodes[h].omega_node.dist, site.omega)
 			end
 		end
@@ -2093,6 +2120,8 @@ function siteloglikelihood(site::SiteObservation, h::Int, aa::Int, modelparams::
 	end
 	return ll
 end
+
+
 
 function observationlikelihood(protein::Protein, col::Int, modelparams::ModelParams)
 	if 1 <= col <= length(protein.sites)
@@ -2123,21 +2152,12 @@ function observationlikelihood_aa(protein::Protein, col::Int, h::Int, modelparam
 		end
 		return exp.(v .- maximum(v))
 	else
-		return ones(Float64, modelparams.numhiddenstates)
+		return ones(Float64, modelparams.alphabet)
 	end
 end
 
 
-function observationloglikelihood(proteins::Array{Protein,1}, nodelist::Array{TreeNode,1}, modelparams::ModelParams)
-	ll = 0.0
-	for node in nodelist
-		for col=1:min(length(node.data.branchpath.paths), length(node.data.protein))
-			h = node.data.branchpath.paths[col][end]				 
-			ll += siteloglikelihood(proteins[node.seqindex].sites[col], h, proteins[node.seqindex].sites[col].aa, modelparams)
-		end
-	end
-	return ll
-end
+
 
 function sampletreenode(rng::AbstractRNG, node::TreeNode, modelparams::ModelParams, aligned_sequence::String)
 	numcols = length(node.data.branchpath.paths)
@@ -2155,19 +2175,24 @@ function sampletreenode(rng::AbstractRNG, node::TreeNode, modelparams::ModelPara
 			hiddennode = modelparams.hiddennodes[h]
 			#site.aa = CommonUtils.sample(rng, hiddennode.aa_node.probs)
 			site.aa = node.data.aabranchpath.paths[col][end]
-			if modelparams.hidden_conditional_on_aa
-				if modelparams.use_bivariate_von_mises
-					site.phi, site.psi = BivariateVonMises.sample(rng, hiddennode.phipsi_nodes[site.aa])
-				else
-					site.phi = pimod(vonmisesrand(rng, hiddennode.phi_nodes[site.aa].dist))
-					site.psi = pimod(vonmisesrand(rng, hiddennode.psi_nodes[site.aa].dist))
-				end
+			if modelparams.use_diffusion
+				site.phi = node.data.protein.sites[col].phi
+				site.psi = node.data.protein.sites[col].psi
 			else
-				if modelparams.use_bivariate_von_mises
-					site.phi, site.psi = BivariateVonMises.sample(rng, hiddennode.phipsi_node)
+				if modelparams.hidden_conditional_on_aa
+					if modelparams.use_bivariate_von_mises
+						site.phi, site.psi = BivariateVonMises.sample(rng, hiddennode.phipsi_nodes[site.aa])
+					else
+						site.phi = pimod(vonmisesrand(rng, hiddennode.phi_nodes[site.aa].dist))
+						site.psi = pimod(vonmisesrand(rng, hiddennode.psi_nodes[site.aa].dist))
+					end
 				else
-					site.phi = pimod(vonmisesrand(rng, hiddennode.phi_node.dist))
-					site.psi = pimod(vonmisesrand(rng, hiddennode.psi_node.dist))
+					if modelparams.use_bivariate_von_mises
+						site.phi, site.psi = BivariateVonMises.sample(rng, hiddennode.phipsi_node)
+					else
+						site.phi = pimod(vonmisesrand(rng, hiddennode.phi_node.dist))
+						site.psi = pimod(vonmisesrand(rng, hiddennode.psi_node.dist))
+					end
 				end
 			end
 			site.omega = pimod(vonmisesrand(rng, hiddennode.omega_nodes[site.aa].dist))
@@ -2921,9 +2946,428 @@ function samplesiterates(rng::AbstractRNG, cols::Array{Int,1}, col::Int, nodelis
 	likelihoods /= sum(likelihoods)
 	setrates(nodelist, col, CommonUtils.sample(rng,likelihoods))
 	return likelihoods
-end	
+end
 
-function samplepaths_seperate_new(rng::AbstractRNG, col::Int,proteins,nodelist::Array{TreeNode,1}, modelparams::ModelParams, useoldsampling::Bool=false; samplehiddenstates::Bool=true, sampleaminoacids::Bool=true, dosamplesiterates::Bool=false, accept_everything::Bool=false)
+function getphipsitrans(node::TreeNode, modelparams::ModelParams, phiobserved::Bool=false, psiobserved::Bool=false)
+	#obskappa = 0.001
+	#diffusionrate = 1.0
+	obsinvkappa = modelparams.hiddennodes[1].obsinvkappa
+	diffusionrate = modelparams.hiddennodes[1].diffusionrate
+
+	phikappa = min(2000.0, 1.0/(diffusionrate*node.branchlength))
+	if phiobserved
+		phikappa = min(2000.0, 1.0/(obsinvkappa + (diffusionrate*node.branchlength)))
+	end
+	phidist = VonMises(0.0, phikappa)
+
+	psikappa = min(2000.0, 1.0/(diffusionrate*node.branchlength))
+	if psiobserved
+		psikappa = min(2000.0, 1.0/(obsinvkappa + (diffusionrate*node.branchlength)))
+	end
+	psidist = VonMises(0.0, psikappa)
+	return phidist, psidist
+end
+
+#=
+function branchdiffusionloglikelihood(col::Int, parentnode::TreeNode, node::TreeNode, modelparams::ModelParams, temppath::Array{Array{Int,1},1}=Array{Int,1}[], tempaapath::Array{Array{Int,1},1}=Array{Int,1}[])
+	loglikelihood = 0.0
+	path = node.data.branchpath.paths[col]
+	if length(temppath) > 0
+		path = temppath[node.nodeindex]
+	end
+	aapath = node.data.aabranchpath.paths[col]
+	if length(tempaapath) > 0
+		aapath = tempaapath[node.nodeindex]
+	end
+	if length(path) == 1
+		parentphi = parentnode.data.protein.sites[col].phi
+		parentpsi = parentnode.data.protein.sites[col].psi
+		phi = node.data.protein.sites[col].phi
+		psi = node.data.protein.sites[col].psi
+
+		phidist, psidist = getphipsitrans(node, modelparams, node.data.protein.sites[col].phiobserved, node.data.protein.sites[col].psiobserved)
+		loglikelihood += logpdf(phidist, parentphi-phi)
+		loglikelihood += logpdf(psidist, parentpsi-psi)
+	end
+	loglikelihood += siteloglikelihood(node.data.protein.sites[col], path[end], aapath[end], modelparams, length(path) > 1 || isroot(node), true)
+	return loglikelihood
+end
+
+
+function diffusionloglikelihood2(col::Int, nodelist::Array{TreeNode,1}, modelparams::ModelParams, temppath::Array{Array{Int,1},1}=Array{Int,1}[], tempaapath::Array{Array{Int,1},1}=Array{Int,1}[])
+	loglikelihood = 0.0	
+	for node in nodelist
+		if !isroot(node)
+			parentnode = get(node.parent)
+			if length(temppath) == 0
+				loglikelihood += branchdiffusionloglikelihood(col, parentnode, node, modelparams)
+			else
+				loglikelihood += branchdiffusionloglikelihood(col, parentnode, node, modelparams, temppath, tempaapath)
+			end
+		end
+	end
+	return loglikelihood
+end
+=#
+
+function diffusionloglikelihood(col::Int, nodelist::Array{TreeNode,1}, modelparams::ModelParams, temppath::Array{Array{Int,1},1}=Array{Int,1}[], tempaapath::Array{Array{Int,1},1}=Array{Int,1}[])
+	loglikelihood = 0.0	
+	for node in nodelist
+		path = node.data.branchpath.paths[col]
+		if length(temppath) > 0
+			path = temppath[node.nodeindex]
+		end
+		aapath = node.data.aabranchpath.paths[col]
+		if length(tempaapath) > 0
+			aapath = tempaapath[node.nodeindex]
+		end
+
+		loglikelihood = 0.0
+		if !isroot(node)
+			parentnode = get(node.parent)
+			if length(path) == 1
+				parentphi = parentnode.data.protein.sites[col].phi
+				parentpsi = parentnode.data.protein.sites[col].psi
+				phi = node.data.protein.sites[col].phi
+				psi = node.data.protein.sites[col].psi
+
+				#phidist, psidist = getphipsitrans(node, modelparams, node.data.protein.sites[col].phiobserved, node.data.protein.sites[col].psiobserved)
+				#loglikelihood += logpdf(phidist, parentphi-phi)
+				#loglikelihood += logpdf(psidist, parentpsi-psi)
+				loglikelihood += WrappedNormalOU.loglikwndtpd(modelparams.hiddennodes[path[end]].diffusionnode, parentphi, parentpsi, phi, psi)
+			end
+		end
+		#loglikelihood += siteloglikelihood(node.data.protein.sites[col], path[end], aapath[end], modelparams, false, length(path) > 1 || isroot(node), true)
+		if length(path) > 1 || isroot(node)
+			loglikelihood += siteloglikelihood_wrappednormal(node.data.protein.sites[col], path[end], aapath[end], modelparams)
+		end
+
+
+		
+		#diffusionll += siteloglikelihood(node.data.protein.sites[col], path[end], aapath[end], modelparams, false, length(path) > 1 || isroot(node), true)
+		#=
+		if length(path) > 1 || isroot(node)
+			loglikelihood = siteloglikelihood(node.data.protein.sites[col], path[end], aapath[end], modelparams, true, true, false)
+		else
+			diffusionll = 0.0
+			if !isroot(node)
+				parentnode = get(node.parent)
+				if length(path) == 1
+					parentphi = parentnode.data.protein.sites[col].phi
+					parentpsi = parentnode.data.protein.sites[col].psi
+					phi = node.data.protein.sites[col].phi
+					psi = node.data.protein.sites[col].psi
+
+					phidist, psidist = getphipsitrans(node, modelparams, node.data.protein.sites[col].phiobserved, node.data.protein.sites[col].psiobserved)
+					diffusionll += logpdf(phidist, parentphi-phi)
+					diffusionll += logpdf(psidist, parentpsi-psi)
+				end
+			end
+			diffusionll += siteloglikelihood(node.data.protein.sites[col], path[end], aapath[end], modelparams, false, false, false)
+
+			phipsilik = siteloglikelihood(node.data.protein.sites[col], path[end], aapath[end], modelparams, true, true, false)
+			p = 0.5
+			w1 = log(p)
+			w2 = log(1.0-p)
+			loglikelihood = logsumexp(w1+diffusionll, w2+phipsilik)
+		end=#
+
+		
+	end
+	return loglikelihood
+end
+
+function observationloglikelihood(proteins::Array{Protein,1}, nodelist::Array{TreeNode,1}, modelparams::ModelParams)
+	numcols = length(nodelist[1].data.protein)
+	ll = 0.0
+	for col=1:numcols
+		ll += diffusionloglikelihood(col, nodelist, modelparams)
+	end
+
+	#=
+	ll = 0.0
+	for node in nodelist
+		for col=1:length(node.data.protein)
+			if node.data.protein.sites[col].phiobserved && node.data.protein.sites[col].psiobserved
+				h = node.data.branchpath.paths[col][end]				 
+				ll += siteloglikelihood(proteins[node.seqindex].sites[col], h, node.data.protein.sites[col].aa, modelparams)
+			end
+		end
+	end
+	return ll
+	=#
+	return ll
+end
+
+function indextoangle(index::Int, numcats::Int)
+	delta = 2.0*pi/numcats
+	deltadiv2 = delta/2.0
+	return index*delta - deltadiv2
+end
+
+function angletoindex(angle::Float64, numcats::Int)
+	delta = 2.0*pi/numcats
+	deltadiv2 = delta/2.0
+	return Int(floor((mod2pi(angle))/delta)) + 1	
+end
+
+function getangles(col::Int, nodelist::Array{TreeNode,1})
+	angles = Tuple{Float64,Float64}[]
+	for node in nodelist
+		push!(angles, (node.data.protein.sites[col].phi, node.data.protein.sites[col].psi))
+	end
+	return angles
+end
+
+
+function setangles(col::Int, nodelist::Array{TreeNode,1}, angles::Array{Tuple{Float64,Float64},1})
+	for (node,(phi,psi)) in zip(nodelist, angles)
+		node.data.protein.sites[col].phi = phi
+		node.data.protein.sites[col].psi = psi
+	end
+end
+
+function calculatetransliks!(likelihoods::Array{Float64,2}, nodeindex::Int, x::Int, leftlikelihoods::Array{Float64,1}, rightlikelihoods::Array{Float64,1}, lefttransdist::VonMises, righttransdist::VonMises, leftpath::Array{Int,1}, rightpath::Array{Int,1})
+	numcats = length(leftlikelihoods)
+	leftloglik = -Inf
+	rightloglik = -Inf
+	for y=1:numcats
+		deltaangle = indextoangle(x, numcats) - indextoangle(y, numcats)
+
+		transloglik = 0.0
+		if length(leftpath) == 1
+			transloglik += logpdf(lefttransdist, deltaangle)
+			transloglik += log(leftlikelihoods[y])
+		end
+		leftloglik = logsumexp(leftloglik, transloglik)
+
+		transloglik = 0.0
+		if length(rightpath) == 1
+			transloglik += logpdf(righttransdist, deltaangle)
+			transloglik += log(rightlikelihoods[y])
+		end
+		rightloglik = logsumexp(rightloglik, transloglik)
+	end
+	likelihoods[nodeindex,x] = leftloglik + rightloglik
+end
+
+function backwardsampling_angles(rng::AbstractRNG, philikelihoods::Array{Float64,2}, psilikelihoods::Array{Float64,2}, col::Int, nodelist::Array{TreeNode,1}, modelparams::ModelParams, path::Array{Array{Int,1},1}=Array{Int,1}[], aapath::Array{Array{Int,1},1}=Array{Int,1}[])
+	numcats = size(philikelihoods,2)
+	phistates = zeros(Int, length(nodelist))
+	psistates = zeros(Int, length(nodelist))
+	phistates[1] = CommonUtils.sample(rng, philikelihoods[1,:])
+	psistates[1] = CommonUtils.sample(rng, psilikelihoods[1,:])
+	for node in nodelist
+		phistate = phistates[node.nodeindex]
+		psistate = psistates[node.nodeindex]
+		for child in node
+			site =  nodelist[child.nodeindex].data.protein.sites[col]
+			phitrans, psitrans = getphipsitrans(nodelist[child.nodeindex], modelparams, site.phiobserved, site.psiobserved)
+
+			phisamplevec = log.(philikelihoods[child.nodeindex,:])
+			psisamplevec = log.(psilikelihoods[child.nodeindex,:])
+			if length(path[child.nodeindex]) == 1
+				for y=1:numcats
+					deltaangle = indextoangle(phistate, numcats) - indextoangle(y, numcats)
+					phisamplevec[y] += logpdf(phitrans, deltaangle)
+
+					deltaangle = indextoangle(psistate, numcats) - indextoangle(y, numcats)
+					psisamplevec[y] += logpdf(psitrans, deltaangle)
+				end
+			end			
+			phisamplevec = exp.(phisamplevec .- maximum(phisamplevec))
+			psisamplevec = exp.(psisamplevec .- maximum(psisamplevec))
+			phistates[child.nodeindex] = CommonUtils.sample(rng, phisamplevec)
+			psistates[child.nodeindex] = CommonUtils.sample(rng, psisamplevec)
+		end
+	end
+
+	phipsiangles = Tuple{Float64,Float64}[]
+	delta = 2.0*pi/numcats
+	deltadiv2 = delta/2.0
+	for (nodeindex, (phiindex,psiindex)) in enumerate(zip(phistates, psistates))
+		site =  nodelist[nodeindex].data.protein.sites[col]
+		phi = site.phi
+		psi = site.psi
+		if !site.phiobserved || site.phi < -100.0
+			phi = pimod(indextoangle(phiindex, numcats) - deltadiv2 + rand(rng)*delta)
+		end
+		if !site.psiobserved || site.psi < -100.0
+			psi = pimod(indextoangle(psiindex, numcats) - deltadiv2 + rand(rng)*delta)
+		end
+		push!(phipsiangles, (phi,psi))
+	end
+	return phipsiangles
+end
+
+function felsenstein_angles(col::Int, nodelist::Array{TreeNode,1}, modelparams::ModelParams, path::Array{Array{Int,1},1}=Array{Int,1}[], aapath::Array{Array{Int,1},1}=Array{Int,1}[], angles::Array{Tuple{Float64,Float64},1}=Tuple{Float64,Float64}[])
+	calccondloglik = false
+	if length(angles) > 0
+		calccondloglik = true
+	end
+	numcats = 120
+	philogm = zeros(Float64, length(nodelist))
+	psilogm = zeros(Float64, length(nodelist))	
+	philikelihoods = ones(Float64, length(nodelist), numcats)*-Inf
+	psilikelihoods = ones(Float64, length(nodelist), numcats)*-Inf
+	stack = Int[1]
+	while length(stack) > 0
+		nodeindex = stack[end]
+		node = nodelist[nodeindex]
+		site = node.data.protein.sites[col]
+		if isleafnode(node) && calccondloglik
+			for z=1:numcats
+				philikelihoods[nodeindex, z] = 0.0
+				psilikelihoods[nodeindex, z] = 0.0
+			end
+			philikelihoods[nodeindex, angletoindex(angles[nodeindex][1], numcats)] = 1.0
+			psilikelihoods[nodeindex, angletoindex(angles[nodeindex][2], numcats)] = 1.0			
+			pop!(stack)
+		elseif isleafnode(node)
+			if site.phiobserved && site.phi > -100.0
+				for z=1:numcats
+					philikelihoods[nodeindex, z] = 0.0
+				end
+				philikelihoods[nodeindex, angletoindex(site.phi, numcats)] = 1.0
+			else
+				for z=1:numcats
+					philikelihoods[nodeindex, z] = 1.0
+				end
+
+				if length(path[nodeindex]) > 1 || isroot(node)
+					h = path[nodeindex][end]
+					aa = aapath[nodeindex][end]
+					phivm = modelparams.hiddennodes[h].phi_nodes[aa].dist
+					for z=1:numcats
+						theta = indextoangle(z, numcats)
+						philikelihoods[nodeindex,z] += logpdf(phivm, theta)
+					end
+					m = maximum(philikelihoods[nodeindex,:])
+					philikelihoods[nodeindex,:] = philikelihoods[nodeindex,:] .- m
+					philikelihoods[nodeindex,:] = exp.(philikelihoods[nodeindex,:])
+					philogm[nodeindex] = m
+				end
+			end
+
+			if site.psiobserved && site.psi > -100.0
+				for z=1:numcats
+					psilikelihoods[nodeindex, z] = 0.0
+				end
+				psilikelihoods[nodeindex, angletoindex(site.psi, numcats)] = 1.0
+			else
+				for z=1:numcats
+					psilikelihoods[nodeindex, z] = 1.0
+				end
+
+				if length(path[nodeindex]) > 1 || isroot(node)
+					h = path[nodeindex][end]
+					aa = aapath[nodeindex][end]
+					psivm = modelparams.hiddennodes[h].psi_nodes[aa].dist
+					for z=1:numcats
+						theta = indextoangle(z, numcats)
+						psilikelihoods[nodeindex,z] += logpdf(psivm, theta)
+					end
+					m = maximum(psilikelihoods[nodeindex,:])
+					psilikelihoods[nodeindex,:] = psilikelihoods[nodeindex,:] .- m
+					psilikelihoods[nodeindex,:] = exp.(psilikelihoods[nodeindex,:])
+					psilogm[nodeindex] = m
+				end
+			end
+			pop!(stack)
+		else
+			leftchildindex = node.children[1].nodeindex
+			rightchildindex = node.children[2].nodeindex
+			cont = true
+			if philikelihoods[leftchildindex,1] == -Inf
+				push!(stack, leftchildindex)
+				cont = false
+			end
+			if philikelihoods[rightchildindex,1] == -Inf
+				push!(stack, rightchildindex)
+				cont = false
+			end
+
+			if cont
+				leftsite =  nodelist[leftchildindex].data.protein.sites[col]
+				rightsite =  nodelist[rightchildindex].data.protein.sites[col]
+				lefttransphi, lefttranspsi = getphipsitrans(nodelist[leftchildindex], modelparams, leftsite.phiobserved, leftsite.psiobserved)
+				righttransphi, righttranspsi = getphipsitrans(nodelist[rightchildindex], modelparams, rightsite.phiobserved, rightsite.psiobserved)
+				
+				if calccondloglik
+					for x=1:numcats
+						philikelihoods[nodeindex,x] = -Inf
+						psilikelihoods[nodeindex,x] = -Inf
+					end
+					x = angletoindex(angles[nodeindex][1], numcats)
+					philikelihoods[nodeindex,x] = -Inf
+					calculatetransliks!(philikelihoods, nodeindex, x, philikelihoods[leftchildindex,:], philikelihoods[rightchildindex,:], lefttransphi, righttransphi, path[leftchildindex], path[rightchildindex])
+					x = angletoindex(angles[nodeindex][2], numcats)
+					psilikelihoods[nodeindex,x] = -Inf
+					calculatetransliks!(psilikelihoods, nodeindex, x, psilikelihoods[leftchildindex,:], psilikelihoods[rightchildindex,:], lefttranspsi, righttranspsi, path[leftchildindex], path[rightchildindex])					
+				else
+					for x=1:numcats
+						philikelihoods[nodeindex,x] = -Inf
+						calculatetransliks!(philikelihoods, nodeindex, x, philikelihoods[leftchildindex,:], philikelihoods[rightchildindex,:], lefttransphi, righttransphi, path[leftchildindex], path[rightchildindex])
+						psilikelihoods[nodeindex,x] = -Inf
+						calculatetransliks!(psilikelihoods, nodeindex, x, psilikelihoods[leftchildindex,:], psilikelihoods[rightchildindex,:], lefttranspsi, righttranspsi, path[leftchildindex], path[rightchildindex])					
+					end
+				end
+
+				if length(path[nodeindex]) > 1 || isroot(node)
+					h = path[nodeindex][end]
+					aa = aapath[nodeindex][end]
+					phivm = modelparams.hiddennodes[h].phi_nodes[aa].dist
+					psivm = modelparams.hiddennodes[h].psi_nodes[aa].dist
+					if calccondloglik
+						z = angletoindex(angles[nodeindex][1], numcats)
+						theta = indextoangle(z, numcats)
+						philikelihoods[nodeindex,z] += logpdf(phivm, theta)
+						z = angletoindex(angles[nodeindex][2], numcats)
+						theta = indextoangle(z, numcats)
+						psilikelihoods[nodeindex,z] += logpdf(psivm, theta)						
+					else
+						for z=1:numcats
+							theta = indextoangle(z, numcats)
+							philikelihoods[nodeindex,z] += logpdf(phivm, theta)
+							psilikelihoods[nodeindex,z] += logpdf(psivm, theta)
+						end
+					end
+				end
+
+				m = maximum(philikelihoods[nodeindex,:])
+				philikelihoods[nodeindex,:] = philikelihoods[nodeindex,:] .- m
+				philikelihoods[nodeindex,:] = exp.(philikelihoods[nodeindex,:])
+				philogm[nodeindex] = m + philogm[leftchildindex] + philogm[rightchildindex]
+
+				m = maximum(psilikelihoods[nodeindex,:])
+				psilikelihoods[nodeindex,:] = psilikelihoods[nodeindex,:] .- m
+				psilikelihoods[nodeindex,:] = exp.(psilikelihoods[nodeindex,:])
+				psilogm[nodeindex] = m + psilogm[leftchildindex] + psilogm[rightchildindex]
+
+        		pop!(stack)
+        	end
+        end
+    end
+
+    phill = log(sum(philikelihoods)) + philogm[1]
+    psill = log(sum(psilikelihoods)) + psilogm[1]
+   # println("phi $(col) ", philikelihoods[1,:], "\t", phill)
+    #println("psi $(col) ", psilikelihoods[1,:], "\t", psill)
+   
+   	#=
+   	if length(angles) > 0
+	    for i=1:length(nodelist)
+	    	println("phi $(col) ", philikelihoods[i,:], "\t", nodelist[i].data.protein.sites[col].phi, "\t", angles[i][1], "\t", isleafnode(nodelist[i]))
+	    end
+	    for i=1:length(nodelist)
+	    	println("psi $(col) ", psilikelihoods[i,:], "\t", nodelist[i].data.protein.sites[col].psi, "\t", angles[i][2], "\t", isleafnode(nodelist[i]))
+	    end
+	end=#
+    
+    return philikelihoods, psilikelihoods, phill, psill
+end
+
+function samplepaths_seperate_new(rng::AbstractRNG, col::Int, nodelist::Array{TreeNode,1}, modelparams::ModelParams, useoldsampling::Bool=false; samplehiddenstates::Bool=true, sampleaminoacids::Bool=true, dosamplesiterates::Bool=false, accept_everything::Bool=false)
 	#=
 	for node in nodelist
 		joint_to_aa_h!(modelparams, node, col)
@@ -2978,19 +3422,64 @@ function samplepaths_seperate_new(rng::AbstractRNG, col::Int,proteins,nodelist::
 			end=#
 			
 			temppath = Array{Int,1}[copy(node.data.branchpath.paths[col]) for node in nodelist]
-			temptimes = Array{Float64,1}[copy(node.data.branchpath.times[col]) for node in nodelist]			
-			site1 = augmentedloglikelihood(nodelist, cols, modelparams)
-			rootliks = felsensteinresample_hidden(rng, proteins, nodelist, col, cols, col, modelparams)				
-			prop1 = hidden_proposal_likelihood(nodelist, col, modelparams, temppath, temptimes)
+			temptimes = Array{Float64,1}[copy(node.data.branchpath.times[col]) for node in nodelist]						
+			site1 = augmentedloglikelihood(nodelist, cols, modelparams)	
+			angleproposal1 = 0.0
+			currentangles = getangles(col, nodelist)
+			myaapath = Array{Int,1}[]
+			resampleangles = rand(rng,Bool) || accept_everything
+			if modelparams.use_diffusion
+				currentdiffusionloglikelihood = diffusionloglikelihood(col, nodelist, modelparams) 
+				
+				if resampleangles
+					myaapath = Array{Int,1}[copy(node.data.aabranchpath.paths[col]) for node in nodelist]	
+					philikelihoods, psilikelihoods, phill, psill = felsenstein_angles(col, nodelist, modelparams, temppath, myaapath)				
+					d1, d2, phillcond, psillcond = felsenstein_angles(col, nodelist, modelparams, temppath, myaapath, currentangles)	
+					angleproposal1 = phillcond + psillcond - (phill+psill)
+
+					for z=1:5
+						proposedangles = backwardsampling_angles(rng, philikelihoods, psilikelihoods, col, nodelist, modelparams, temppath, myaapath)
+						d1, d2, phillcond, psillcond = felsenstein_angles(col, nodelist, modelparams, temppath, myaapath, currentangles)	
+						angleproposal2 = phillcond + psillcond - (phill+psill)
+						setangles(col, nodelist, proposedangles)
+						proposeddiffusionloglikelihood = diffusionloglikelihood(col, nodelist, modelparams)
+						if accept_everything || exp(proposeddiffusionloglikelihood-currentdiffusionloglikelihood-angleproposal2+angleproposal1) > rand(rng)
+							currentangles = getangles(col,nodelist)
+						else
+							setangles(col, nodelist, currentangles)
+						end
+					end
+				end
+				site1 += currentdiffusionloglikelihood
+			end
+			rootliks = felsensteinresample_hidden(rng, nodelist, col, cols, col, modelparams)				
+			prop1 = hidden_proposal_likelihood(nodelist, col, modelparams, temppath, temptimes, phipsilik=modelparams.use_diffusion)			
 			for z=1:5
 				cont = backwardsampling(rng,nodelist, CommonUtils.sample(rng, rootliks), col, modelparams)
 				#cont = backwardsampling(rng,nodelist[1], CommonUtils.sample(rng, rootliks), col, modelparams)				
 				site2 = augmentedloglikelihood(nodelist, cols, modelparams)	
-				prop2 = hidden_proposal_likelihood(nodelist, col, modelparams)
-				if cont && exp((site2-site1)+(prop1-prop2)) > rand(rng)
+				prop2 = hidden_proposal_likelihood(nodelist, col, modelparams, phipsilik=modelparams.use_diffusion)
+				
+				angleproposal2 = 0.0
+				if modelparams.use_diffusion
+					if resampleangles
+						mypath = Array{Int,1}[copy(node.data.branchpath.paths[col]) for node in nodelist]
+						philikelihoods, psilikelihoods, phill, psill = felsenstein_angles(col, nodelist, modelparams, mypath, myaapath)
+						proposedangles = backwardsampling_angles(rng, philikelihoods, psilikelihoods, col, nodelist, modelparams, mypath, myaapath)
+						d1, d2, phillcond, psillcond = felsenstein_angles(col, nodelist, modelparams, mypath, myaapath, proposedangles)	
+						angleproposal2 = phillcond + psillcond - (phill+psill)
+						setangles(col, nodelist, proposedangles)
+					end
+					site2 += diffusionloglikelihood(col, nodelist, modelparams) 
+				end
+
+				if cont && exp((site2-site1)+(prop1+angleproposal1-prop2-angleproposal2)) > rand(rng)
 					hidden_accepted = true
 					site1 = site2
 					prop1 = prop2
+					if modelparams.use_diffusion	
+						currentangles = getangles(col,nodelist)
+					end
 					temppath = Array{Int,1}[copy(node.data.branchpath.paths[col]) for node in nodelist]
 					temptimes = Array{Float64,1}[copy(node.data.branchpath.times[col]) for node in nodelist]
 				else
@@ -3000,6 +3489,9 @@ function samplepaths_seperate_new(rng::AbstractRNG, col::Int,proteins,nodelist::
 						temppath = Array{Int,1}[copy(node.data.branchpath.paths[col]) for node in nodelist]
 						temptimes = Array{Float64,1}[copy(node.data.branchpath.times[col]) for node in nodelist]
 					else
+						if modelparams.use_diffusion
+							setangles(col, nodelist, currentangles)
+						end
 						for (index,node) in enumerate(nodelist)
 							node.data.branchpath.paths[col] = copy(temppath[index])
 							node.data.branchpath.times[col] = copy(temptimes[index])
@@ -3021,12 +3513,18 @@ function samplepaths_seperate_new(rng::AbstractRNG, col::Int,proteins,nodelist::
 		temppath = Array{Int,1}[copy(node.data.aabranchpath.paths[col]) for node in nodelist]
 		temptimes = Array{Float64,1}[copy(node.data.aabranchpath.times[col]) for node in nodelist]	
 		site1 = augmentedloglikelihood(nodelist, cols, modelparams)
-		rootliks = felsensteinresample_aa(rng, proteins, nodelist, cols, col, modelparams)		
-		prop1 = aa_proposal_likelihood(nodelist, col, modelparams, temppath, temptimes)
+		if modelparams.use_diffusion
+			site1 += diffusionloglikelihood(col, nodelist, modelparams) 
+		end	
+		rootliks = felsensteinresample_aa(rng, nodelist, cols, col, modelparams)		
+		prop1 = aa_proposal_likelihood(nodelist, col, modelparams, temppath, temptimes, phipsilik=modelparams.use_diffusion)
 		for z=1:3
 			cont = backwardsampling_aa(rng,nodelist, CommonUtils.sample(rng, rootliks), col, modelparams)
 			site2 = augmentedloglikelihood(nodelist, cols, modelparams)
-			prop2 = aa_proposal_likelihood(nodelist, col, modelparams)
+			if modelparams.use_diffusion
+				site2 += diffusionloglikelihood(col, nodelist, modelparams) 
+			end	
+			prop2 = aa_proposal_likelihood(nodelist, col, modelparams, phipsilik=modelparams.use_diffusion)
 			if cont && exp((site2-site1)+(prop1-prop2)) > rand(rng)			
 				aa_accepted = true
 				site1 = site2
@@ -3103,7 +3601,7 @@ function aaintegrated_loglikelihood(rng::AbstractRNG, modelparams::ModelParams, 
 	sequencell = 0.0
 	numcols = length(proteins[1])
 	for col=1:numcols
-		sequencell += felsensteinresample_aa(rng, proteins, nodelist, Int[col], col, modelparams, false)
+		sequencell += felsensteinresample_aa(rng, nodelist, Int[col], col, modelparams, false)
 	end
 	return sequencell
 end
@@ -3259,7 +3757,7 @@ function sampletraininginstances(iter::Int, rng::AbstractRNG, trainingexamples::
 				randcols = shuffle(rng, Int[i for i=1:numcols])
 				for col in randcols
 					if accepted[col] < sitethreshold || i % 20 == 0 || (col > 1 && accepted[col-1] < sitethreshold) || (col < numcols && accepted[col+1] < sitethreshold) 
-						a1,a2,a3,a4, hidden_accepted, aa_accepted, hiddentime, aatime = samplepaths_seperate_new(rng,col,proteins,nodelist, modelparams, dosamplesiterates=dosamplesiterates, accept_everything=accept_everything)
+						a1,a2,a3,a4, hidden_accepted, aa_accepted, hiddentime, aatime = samplepaths_seperate_new(rng,col,nodelist, modelparams, dosamplesiterates=dosamplesiterates, accept_everything=accept_everything)
 						totalhiddentime += hiddentime
 						totalaatime += aatime
 						accepted_hidden += a1
