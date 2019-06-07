@@ -6,7 +6,7 @@ module EMNodes
 
 	push!(LOAD_PATH,@__DIR__)
 	using BivariateVonMises
-	using WrappedNormalOU
+	using WrappedUnivariateOU
 
 	export SiteObservation
 	mutable struct SiteObservation
@@ -276,10 +276,14 @@ module EMNodes
 		psi_nodes::Array{VonMisesNode,1}
 		phipsi_nodes::Array{BivariateVonMisesNode,1}
 		omega_nodes::Array{VonMisesNode,1}
+
+		#=
 		obsinvkappa::Float64
 		diffusionrate::Float64
 		diffusionnode::WrappedNormalOUNode
-		diffusionnode_uncorrelated::WrappedNormalOUNode
+		diffusionnode_uncorrelated::WrappedNormalOUNode=#
+		phi_diffusion_node::WrappedUnivariateOUNode
+		psi_diffusion_node::WrappedUnivariateOUNode
 
 	    #aadist::Array{Float64,1}
 
@@ -288,7 +292,18 @@ module EMNodes
 	    	psi_nodes = VonMisesNode[VonMisesNode() for aa=1:20]
 	    	phipsi_nodes = BivariateVonMisesNode[BivariateVonMisesNode() for aa=1:20]
 	    	omega_nodes = VonMisesNode[VonMisesNode() for aa=1:20]
-	        new(CategoricalNode(aafreqs),VonMisesNode(),VonMisesNode(),BivariateVonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(), MultivariateNode(), phi_nodes, psi_nodes, phipsi_nodes, omega_nodes,1e-4, 0.1, WrappedNormalOUNode(1), WrappedNormalOUNode(1))
+	    	
+	    	#=
+	    	wn = WrappedNormalOUNode(1)
+	    	WrappedNormalOU.set_parameters(wn, zeros(Float64,2), Float64[0.5,0.5,0.0], Float64[1.0,1.0])
+	    	set_parameters(wn, 1.0)
+	    	
+	    	wnuncorrelated = WrappedNormalOUNode(1)
+	    	WrappedNormalOU.set_parameters(wnuncorrelated, WrappedNormalOU.get_parameters(wn))
+	    	set_parameters(wnuncorrelated, 1.0)
+	    	
+	        new(CategoricalNode(aafreqs),VonMisesNode(),VonMisesNode(),BivariateVonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(), MultivariateNode(), phi_nodes, psi_nodes, phipsi_nodes, omega_nodes,1e-4, 0.1, wn, wnuncorrelated)=#
+	        new(CategoricalNode(aafreqs),VonMisesNode(),VonMisesNode(),BivariateVonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(),VonMisesNode(), MultivariateNode(), phi_nodes, psi_nodes, phipsi_nodes, omega_nodes, WrappedUnivariateOUNode(), WrappedUnivariateOUNode())
 	    end
 	end
 end

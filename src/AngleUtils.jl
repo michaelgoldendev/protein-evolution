@@ -1,6 +1,20 @@
 module AngleUtils
   using StatsBase
 
+  export indextoangle
+  function indextoangle(index::Int, numcats::Int)
+    delta = 2.0*pi/numcats
+    deltadiv2 = delta/2.0
+    return index*delta - deltadiv2
+  end
+
+  export angletoindex
+  function angletoindex(angle::Float64, numcats::Int)
+    delta = 2.0*pi/numcats
+    deltadiv2 = delta/2.0
+    return Int(floor((mod2pi(angle))/delta)) + 1  
+  end
+
   export angular_rmsd
   function angular_rmsd(theta1::Array{Float64, 1}, theta2::Array{Float64})
 
