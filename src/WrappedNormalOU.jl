@@ -216,7 +216,7 @@ module WrappedNormalOU
           node.twokepivec[2] = node.twokpi[wek2]
           mut = node.mu + node.ExptA * (x0 + node.twokepivec - node.mu)
           xmut = node.x[3:4] - mut
-          xmutinvGammat = node.invGammat * xmut;
+          xmutinvGammat = node.invGammat * xmut
           xmutinvGammatxmutdiv2 = (xmutinvGammat[1]*xmut[1] + xmutinvGammat[2]*xmut[2]) / 2.0
 
           logtpdintermediate = -Inf
@@ -350,6 +350,35 @@ module WrappedNormalOU
         return x0
       end
     end
+  end
+
+  function estimateparameters(data::Array{Float64,1})
+    rx = 0.0
+    ry = 0.0
+    N = 0.0
+    for theta in data
+        rx += cos(theta)
+        ry += sin(theta)
+        N += 1.0
+    end
+        
+    c = rx / n
+    s = ry / n
+    rho = sqrt(c*c + s*s)
+
+    if s > 0
+      mu = acos(c / rho)
+    else
+      mu = 2.0*pi - acos(c / rho)
+    end
+
+
+    if rho < 2.0/3.0
+      kappa = rho * ((2.0 - rho*rho) / (1.0 - rho*rho))
+    else
+      kappa = (rho + 1.0) / (4.0 * rho * (1 - rho))
+    end
+    return mu, kappa
   end
 end
 #=

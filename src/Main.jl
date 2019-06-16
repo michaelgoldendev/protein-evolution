@@ -61,6 +61,7 @@ mutable struct ModelParams
 	aarates::Array{Float64,1}
 	use_bivariate_von_mises::Bool	
 	use_diffusion::Bool 
+	numcats::Int
 
     function ModelParams(aminoacidQ::Array{Float64,2}, numhiddenstates::Int,mu::Float64=1.0,hiddenmu::Float64=1.0)
         initialprobs = ones(Float64, numhiddenstates)./numhiddenstates
@@ -87,8 +88,51 @@ mutable struct ModelParams
 		rates = ones(Float64,numrates)
 		rate_freqs = ones(Float64,numrates)/numrates
 		#
-        new(20,aminoacidQ,LGexchangeability, rate_alpha, numrates, rates,rate_freqs,numhiddenstates,initialprobs,transitioncounts,transitionprobs,transitionrates,hiddennodes,mu,hiddenmu,matrixcache,1.0,1.0,true,true,1, ones(Float64,numhiddenstates), true, true)
+        new(20,aminoacidQ,LGexchangeability, rate_alpha, numrates, rates,rate_freqs,numhiddenstates,initialprobs,transitioncounts,transitionprobs,transitionrates,hiddennodes,mu,hiddenmu,matrixcache,1.0,1.0,true,true,1, ones(Float64,numhiddenstates), true, true, 120)
     end
+end
+
+mutable struct OUDiffusionCache
+	phimatrixcache::Dict{Tuple{Int,Float64},Tuple{Array{Float64,2},Float64}}
+	psimatrixcache::Dict{Tuple{Int,Float64},Tuple{Array{Float64,2},Float64}}
+
+	function OUDiffusionCache()
+		phimatrixcache = Dict{Tuple{Int,Float64},Tuple{Array{Float64,2},Float64}}()
+		psimatrixcache = Dict{Tuple{Int,Float64},Tuple{Array{Float64,2},Float64}}()
+		new(phimatrixcache, psimatrixcache)
+	end
+end
+
+function getphitransitionmatrix(modelparams::ModelParams, oudiffusioncache::OUDiffusionCache, h::Int, node::TreeNode, phiobserved::Bool)
+	t = node.branchlength
+	if phiobserved
+		t += modelparams.hiddennodes[h].phi_diffusion_node.obserror
+	end
+	key = (h,t)
+	if haskey(oudiffusioncache.phimatrixcache, key)
+		return oudiffusioncache.phimatrixcache[key]
+	else
+		phimatrix,philogconst = gettransitionmatrix(modelparams.hiddennodes[h].phi_diffusion_node, modelparams.numcats, node.branchlength, phiobserved)		
+		v = (phimatrix,philogconst)
+		oudiffusioncache.phimatrixcache[key] = v
+		return v
+	end
+end
+
+function getpsitransitionmatrix(modelparams::ModelParams, oudiffusioncache::OUDiffusionCache, h::Int, node::TreeNode, psiobserved::Bool)
+	t = node.branchlength
+	if psiobserved
+		t += modelparams.hiddennodes[h].psi_diffusion_node.obserror
+	end
+	key = (h,t)
+	if haskey(oudiffusioncache.psimatrixcache, key)
+		return oudiffusioncache.psimatrixcache[key]
+	else
+		psimatrix,psilogconst = gettransitionmatrix(modelparams.hiddennodes[h].psi_diffusion_node, modelparams.numcats, node.branchlength, psiobserved)		
+		v = (psimatrix,psilogconst)
+		oudiffusioncache.psimatrixcache[key] = v
+		return v
+	end
 end
 
 function  modifiedrejectionsampling(rng::AbstractRNG, Q::Array{Float64,2}, x0::Int, xt::Int, modelparams::ModelParams, key::Tuple{Int,Int,Int,Int}=(-1000,-1000,-1000,-1000))
@@ -2996,7 +3040,7 @@ function diffusionloglikelihood2(col::Int, nodelist::Array{TreeNode,1}, modelpar
 end
 =#
 
-function diffusionloglikelihood(col::Int, nodelist::Array{TreeNode,1}, modelparams::ModelParams, oudiffusioncache::Dict{Tuple{Int,Int}, Tuple{WrappedUnivariateOUNode,WrappedUnivariateOUNode}}, temppath::Array{Array{Int,1},1}=Array{Int,1}[], tempaapath::Array{Array{Int,1},1}=Array{Int,1}[])
+function diffusionloglikelihood(col::Int, nodelist::Array{TreeNode,1}, modelparams::ModelParams, temppath::Array{Array{Int,1},1}=Array{Int,1}[], tempaapath::Array{Array{Int,1},1}=Array{Int,1}[])
 	loglikelihood = 0.0	
 	for node in nodelist
 		path = node.data.branchpath.paths[col]
@@ -3008,26 +3052,27 @@ function diffusionloglikelihood(col::Int, nodelist::Array{TreeNode,1}, modelpara
 			aapath = tempaapath[node.nodeindex]
 		end
 
-		loglikelihood = 0.0
 		if length(path) == 1 && !isroot(node)
 			parentnode = get(node.parent)
 			parentphi = parentnode.data.protein.sites[col].phi
 			parentpsi = parentnode.data.protein.sites[col].psi
-			phi = node.data.protein.sites[col].phi
-			psi = node.data.protein.sites[col].psi
+			site =  node.data.protein.sites[col]
+			phi = site.phi
+			psi = site.psi
 
-			wnphi = nothing	
-			wnpsi = nothing
-			if length(oudiffusioncache) == 0
-				wnphi = modelparams.hiddennodes[path[end]].phi_diffusion_node
-				set_time(wnphi, node.branchlength)
-				wnpsi = modelparams.hiddennodes[path[end]].psi_diffusion_node
-				set_time(wnpsi, node.branchlength)
-			else
-				wnphi, wnpsi = oudiffusioncache[(path[end], node.nodeindex)]	
+			wnphi = modelparams.hiddennodes[path[end]].phi_diffusion_node
+			set_branchlength(wnphi, node.branchlength, site.phiobserved)
+			wnpsi = modelparams.hiddennodes[path[end]].psi_diffusion_node
+			set_branchlength(wnpsi, node.branchlength, site.psiobserved)
+			llphi = logtpd(wnphi, parentphi, phi)
+			if llphi == -Inf && node.branchlength == 0.0
+				llphi = 0 
 			end
-			loglikelihood += logtpd(wnphi, parentphi, phi)
-			loglikelihood += logtpd(wnpsi, parentpsi, psi)
+			llpsi = logtpd(wnpsi, parentpsi, psi)
+			if llpsi == -Inf && node.branchlength == 0.0
+				llpsi = 0 
+			end
+			loglikelihood += llphi + llpsi
 		end
 		loglikelihood += siteloglikelihood(node.data.protein.sites[col], path[end], aapath[end], modelparams, length(path) > 1 || isroot(node); includesampled=true)
 		
@@ -3039,7 +3084,7 @@ function observationloglikelihood(proteins::Array{Protein,1}, nodelist::Array{Tr
 	numcols = length(nodelist[1].data.protein)
 	ll = 0.0
 	for col=1:numcols
-		ll += diffusionloglikelihood(col, nodelist, modelparams, Dict{Tuple{Int,Int}, Tuple{WrappedUnivariateOUNode,WrappedUnivariateOUNode}}())
+		ll += diffusionloglikelihood(col, nodelist, modelparams)
 	end
 
 	#=
@@ -3098,7 +3143,7 @@ function calculatetransliks!(likelihoods::Array{Float64,2}, nodeindex::Int, x::I
 	likelihoods[nodeindex,x] = leftloglik + rightloglik
 end=#
 
-function backwardsampling_angles(rng::AbstractRNG, philikelihoods::Array{Float64,2}, psilikelihoods::Array{Float64,2}, col::Int, nodelist::Array{TreeNode,1}, modelparams::ModelParams, oudiffusioncache::Dict{Tuple{Int,Int},Tuple{WrappedUnivariateOUNode,WrappedUnivariateOUNode}}, path::Array{Array{Int,1},1}=Array{Int,1}[], aapath::Array{Array{Int,1},1}=Array{Int,1}[])
+function backwardsampling_angles(rng::AbstractRNG, philikelihoods::Array{Float64,2}, psilikelihoods::Array{Float64,2}, col::Int, nodelist::Array{TreeNode,1}, modelparams::ModelParams, cache::OUDiffusionCache, path::Array{Array{Int,1},1}=Array{Int,1}[], aapath::Array{Array{Int,1},1}=Array{Int,1}[])
 	numcats = size(philikelihoods,2)
 	phistates = zeros(Int, length(nodelist))
 	psistates = zeros(Int, length(nodelist))
@@ -3109,19 +3154,16 @@ function backwardsampling_angles(rng::AbstractRNG, philikelihoods::Array{Float64
 		psistate = psistates[node.nodeindex]
 		for child in node
 			site =  nodelist[child.nodeindex].data.protein.sites[col]
-
-			phisamplevec = log.(philikelihoods[child.nodeindex,:])
-			psisamplevec = log.(psilikelihoods[child.nodeindex,:])
+			
+			phisamplevec = philikelihoods[child.nodeindex,:]
+			psisamplevec = psilikelihoods[child.nodeindex,:]
 			if length(path[child.nodeindex]) == 1
 				h = path[child.nodeindex][end]
-				wnphi,wnpsi = oudiffusioncache[(h,child.nodeindex)]
-				for y=1:numcats
-					phisamplevec[y] += logtpd(wnphi, indextoangle(phistate, numcats), indextoangle(y, numcats))
-					psisamplevec[y] += logtpd(wnpsi, indextoangle(psistate, numcats), indextoangle(y, numcats))
-				end
-			end			
-			phisamplevec = exp.(phisamplevec .- maximum(phisamplevec))
-			psisamplevec = exp.(psisamplevec .- maximum(psisamplevec))
+				phitrans, phiconsts = getphitransitionmatrix(modelparams, cache, h, child, site.phiobserved)
+				psitrans, psiconsts = getpsitransitionmatrix(modelparams, cache, h, child, site.psiobserved)				
+				phisamplevec = phitrans[phistate,:].*philikelihoods[child.nodeindex,:]
+				psisamplevec = psitrans[psistate,:].*psilikelihoods[child.nodeindex,:]
+			end
 			phistates[child.nodeindex] = CommonUtils.sample(rng, phisamplevec)
 			psistates[child.nodeindex] = CommonUtils.sample(rng, psisamplevec)
 		end
@@ -3130,6 +3172,7 @@ function backwardsampling_angles(rng::AbstractRNG, philikelihoods::Array{Float64
 	phipsiangles = Tuple{Float64,Float64}[]
 	delta = 2.0*pi/numcats
 	deltadiv2 = delta/2.0
+	#println("---------------")
 	for (nodeindex, (phiindex,psiindex)) in enumerate(zip(phistates, psistates))
 		site =  nodelist[nodeindex].data.protein.sites[col]
 		phi = site.phi
@@ -3141,16 +3184,18 @@ function backwardsampling_angles(rng::AbstractRNG, philikelihoods::Array{Float64
 			psi = pimod(indextoangle(psiindex, numcats) - deltadiv2 + rand(rng)*delta)
 		end
 		push!(phipsiangles, (phi,psi))
+		#println((phi,psi),"\t",site.phiobserved,"\t",site.psiobserved)
 	end
+	#println("*************")
 	return phipsiangles
 end
 
-function felsenstein_angles(col::Int, nodelist::Array{TreeNode,1}, modelparams::ModelParams, oudiffusioncache::Dict{Tuple{Int,Int},Tuple{WrappedUnivariateOUNode,WrappedUnivariateOUNode}}, path::Array{Array{Int,1},1}=Array{Int,1}[], aapath::Array{Array{Int,1},1}=Array{Int,1}[], angles::Array{Tuple{Float64,Float64},1}=Tuple{Float64,Float64}[])
+function felsenstein_angles(col::Int, nodelist::Array{TreeNode,1}, modelparams::ModelParams, cache::OUDiffusionCache, path::Array{Array{Int,1},1}=Array{Int,1}[], aapath::Array{Array{Int,1},1}=Array{Int,1}[], angles::Array{Tuple{Float64,Float64},1}=Tuple{Float64,Float64}[])
 	calccondloglik = false
 	if length(angles) > 0
 		calccondloglik = true
 	end
-	numcats = 60
+	numcats = modelparams.numcats
 	philogm = zeros(Float64, length(nodelist))
 	psilogm = zeros(Float64, length(nodelist))	
 	philikelihoods = ones(Float64, length(nodelist), numcats)*-Inf
@@ -3237,14 +3282,109 @@ function felsenstein_angles(col::Int, nodelist::Array{TreeNode,1}, modelparams::
 				#righttransphi, righttranspsi = getphipsitrans(nodelist[rightchildindex], modelparams, rightsite.phiobserved, rightsite.psiobserved)
 				
 				h = path[nodeindex][end]
-				wnleftphi,wnleftpsi  = oudiffusioncache[(h,leftchildindex)]
-				wnrightphi,wnrightpsi = oudiffusioncache[(h,rightchildindex)]
+				#wnleftphi,wnleftpsi  = oudiffusioncache[(h,leftchildindex)]
+				#leftphitrans, leftphiconsts = gettransitionmatrix(wnleftphi, numcats)
+				#leftpsitrans, leftpsiconsts = gettransitionmatrix(wnleftpsi, numcats)
+				leftphitrans, leftphiconsts = getphitransitionmatrix(modelparams, cache, h, nodelist[leftchildindex], leftsite.phiobserved)
+				leftpsitrans, leftpsiconsts = getpsitransitionmatrix(modelparams, cache, h, nodelist[leftchildindex], leftsite.psiobserved)
+				
+				#wnrightphi,wnrightpsi = oudiffusioncache[(h,rightchildindex)]
+				#rightphitrans, rightphiconsts = gettransitionmatrix(wnrightphi, numcats)
+				#rightpsitrans, rightpsiconsts = gettransitionmatrix(wnrightpsi, numcats)
+				#rightphitrans, rightphiconsts, rightpsitrans, rightpsiconsts = gettransitionmatrices(modelparams, cache, h, nodelist[rightchildindex], rightsite.phiobserved, rightsite.psiobserved)
+				rightphitrans, rightphiconsts = getphitransitionmatrix(modelparams, cache, h, nodelist[rightchildindex], rightsite.phiobserved)
+				rightpsitrans, rightpsiconsts = getpsitransitionmatrix(modelparams, cache, h, nodelist[rightchildindex], rightsite.psiobserved)
+				
 
-				startindex = 1
-				endindex = numcats
-				if calccondloglik
-					endindex = 1
+				
+				if calccondloglik			
+					v1 = sum(philikelihoods[leftchildindex,:])
+					v2 = sum(philikelihoods[rightchildindex,:])		
+					x = angletoindex(angles[nodeindex][1], numcats)
+					if length(path[leftchildindex]) == 1
+						v1 = dot(leftphitrans[x,:], philikelihoods[leftchildindex,:])
+					end
+					if length(path[rightchildindex]) == 1	
+						v2 = dot(rightphitrans[x,:], philikelihoods[rightchildindex,:])
+					end
+					philikelihoods[nodeindex, x] = log(v1*v2)
+
+					v1 = sum(psilikelihoods[leftchildindex,:])
+					v2 = sum(psilikelihoods[rightchildindex,:])
+					x = angletoindex(angles[nodeindex][2], numcats)
+					if length(path[leftchildindex]) == 1
+						v1 = dot(leftpsitrans[x,:], psilikelihoods[leftchildindex,:])
+					end
+					if length(path[rightchildindex]) == 1	
+						v2 = dot(rightpsitrans[x,:], psilikelihoods[rightchildindex,:])
+					end
+					psilikelihoods[nodeindex, x] = log(v1*v2)
+				else
+					v1 = ones(Float64,numcats)*sum(philikelihoods[leftchildindex,:])
+					v2 = ones(Float64,numcats)*sum(philikelihoods[rightchildindex,:])
+					if length(path[leftchildindex]) == 1
+						v1 = leftphitrans*philikelihoods[leftchildindex,:]
+					end
+					if length(path[rightchildindex]) == 1	
+						v2 = rightphitrans*philikelihoods[rightchildindex,:]
+					end
+					philikelihoods[nodeindex, :] = log.(v1.*v2)
+
+					v1 = ones(Float64,numcats)*sum(psilikelihoods[leftchildindex,:])
+					v2 = ones(Float64,numcats)*sum(psilikelihoods[rightchildindex,:])
+					if length(path[leftchildindex]) == 1
+						v1 = leftpsitrans*psilikelihoods[leftchildindex,:]
+					end
+					if length(path[rightchildindex]) == 1	
+						v2 = rightpsitrans*psilikelihoods[rightchildindex,:]
+					end
+					psilikelihoods[nodeindex, :] = log.(v1.*v2)
 				end
+				#philikelihoods[nodeindex, :] = philikelihoods[nodeindex, :] .+ (leftphiconsts + rightphiconsts)
+				#psilikelihoods[nodeindex, :] = psilikelihoods[nodeindex, :] .+ (leftpsiconsts + rightpsiconsts)
+				philogm[nodeindex] = 0.0
+				psilogm[nodeindex] = 0.0
+				if length(path[leftchildindex]) == 1
+					philogm[nodeindex] += leftphiconsts
+					psilogm[nodeindex] += leftpsiconsts
+				end
+				if length(path[rightchildindex]) == 1
+					philogm[nodeindex] += rightphiconsts
+					psilogm[nodeindex] += rightpsiconsts
+				end
+
+				if length(path[nodeindex]) > 1 || isroot(node)
+					h = path[nodeindex][end]
+					wnphi = modelparams.hiddennodes[h].phi_diffusion_node
+					wnpsi = modelparams.hiddennodes[h].psi_diffusion_node					
+
+					if calccondloglik
+						z = angletoindex(angles[nodeindex][1], numcats)
+						theta = indextoangle(z, numcats)
+						philikelihoods[nodeindex,z] += logstat(wnphi, theta)
+						z = angletoindex(angles[nodeindex][2], numcats)
+						theta = indextoangle(z, numcats)
+						psilikelihoods[nodeindex,z] += logstat(wnpsi, theta)				
+					else
+						for z=1:numcats
+							theta = indextoangle(z, numcats)
+							philikelihoods[nodeindex,z] += logstat(wnphi, theta)
+							psilikelihoods[nodeindex,z] += logstat(wnpsi, theta)
+						end
+					end
+				end
+
+				m = maximum(philikelihoods[nodeindex,:])
+				philikelihoods[nodeindex,:] = philikelihoods[nodeindex,:] .- m
+				philikelihoods[nodeindex,:] = exp.(philikelihoods[nodeindex,:])
+				philogm[nodeindex] += m + philogm[leftchildindex] + philogm[rightchildindex]
+
+				m = maximum(psilikelihoods[nodeindex,:])
+				psilikelihoods[nodeindex,:] = psilikelihoods[nodeindex,:] .- m
+				psilikelihoods[nodeindex,:] = exp.(psilikelihoods[nodeindex,:])
+				psilogm[nodeindex] += m + psilogm[leftchildindex] + psilogm[rightchildindex]
+
+				#=
 				for x=startindex:endindex
 					anglephix = indextoangle(x, numcats)
 					anglepsix = anglephix
@@ -3294,39 +3434,7 @@ function felsenstein_angles(col::Int, nodelist::Array{TreeNode,1}, modelparams::
 						rightloglik = logsumexp(rightloglik, transloglik)
 					end
 					psilikelihoods[nodeindex,x] = leftloglik + rightloglik
-				end
-
-				if length(path[nodeindex]) > 1 || isroot(node)
-					h = path[nodeindex][end]
-					wnphi = modelparams.hiddennodes[h].phi_diffusion_node
-					wnpsi = modelparams.hiddennodes[h].psi_diffusion_node
-					
-
-					if calccondloglik
-						z = angletoindex(angles[nodeindex][1], numcats)
-						theta = indextoangle(z, numcats)
-						philikelihoods[nodeindex,z] += logstat(wnphi, theta)
-						z = angletoindex(angles[nodeindex][2], numcats)
-						theta = indextoangle(z, numcats)
-						psilikelihoods[nodeindex,z] += logstat(wnpsi, theta)				
-					else
-						for z=1:numcats
-							theta = indextoangle(z, numcats)
-							philikelihoods[nodeindex,z] += logstat(wnphi, theta)
-							psilikelihoods[nodeindex,z] += logstat(wnpsi, theta)
-						end
-					end
-				end
-
-				m = maximum(philikelihoods[nodeindex,:])
-				philikelihoods[nodeindex,:] = philikelihoods[nodeindex,:] .- m
-				philikelihoods[nodeindex,:] = exp.(philikelihoods[nodeindex,:])
-				philogm[nodeindex] = m + philogm[leftchildindex] + philogm[rightchildindex]
-
-				m = maximum(psilikelihoods[nodeindex,:])
-				psilikelihoods[nodeindex,:] = psilikelihoods[nodeindex,:] .- m
-				psilikelihoods[nodeindex,:] = exp.(psilikelihoods[nodeindex,:])
-				psilogm[nodeindex] = m + psilogm[leftchildindex] + psilogm[rightchildindex]
+				end=#
 
         		pop!(stack)
         	end
@@ -3340,6 +3448,8 @@ function felsenstein_angles(col::Int, nodelist::Array{TreeNode,1}, modelparams::
    
    	#=
    	if length(angles) > 0
+   		println(philogm)
+   		println(psilogm)
 	    for i=1:length(nodelist)
 	    	println("phi $(col) ", philikelihoods[i,:], "\t", nodelist[i].data.protein.sites[col].phi, "\t", angles[i][1], "\t", isleafnode(nodelist[i]))
 	    end
@@ -3351,7 +3461,9 @@ function felsenstein_angles(col::Int, nodelist::Array{TreeNode,1}, modelparams::
     return philikelihoods, psilikelihoods, phill, psill
 end
 
-function samplepaths_seperate_new(rng::AbstractRNG, col::Int, nodelist::Array{TreeNode,1}, modelparams::ModelParams, oudiffusioncache::Dict{Tuple{Int,Int},Tuple{WrappedUnivariateOUNode,WrappedUnivariateOUNode}}, useoldsampling::Bool=false; samplehiddenstates::Bool=true, sampleaminoacids::Bool=true, dosamplesiterates::Bool=false, accept_everything::Bool=false, sampleangles::Bool=true)
+
+
+function samplepaths_seperate_new(rng::AbstractRNG, col::Int, nodelist::Array{TreeNode,1}, modelparams::ModelParams, cache::OUDiffusionCache, useoldsampling::Bool=false; samplehiddenstates::Bool=true, sampleaminoacids::Bool=true, dosamplesiterates::Bool=false, accept_everything::Bool=false, sampleangles::Bool=true)
 	#=
 	for node in nodelist
 		joint_to_aa_h!(modelparams, node, col)
@@ -3414,20 +3526,20 @@ function samplepaths_seperate_new(rng::AbstractRNG, col::Int, nodelist::Array{Tr
 			resampleangles = sampleangles || accept_everything
 			#resampleangles = true
 			if modelparams.use_diffusion
-				currentdiffusionloglikelihood = diffusionloglikelihood(col, nodelist, modelparams, oudiffusioncache) 
+				currentdiffusionloglikelihood = diffusionloglikelihood(col, nodelist, modelparams) 
 				
 				if resampleangles
 					myaapath = Array{Int,1}[copy(node.data.aabranchpath.paths[col]) for node in nodelist]	
-					philikelihoods, psilikelihoods, phill, psill = felsenstein_angles(col, nodelist, modelparams, oudiffusioncache, temppath, myaapath)				
-					d1, d2, phillcond, psillcond = felsenstein_angles(col, nodelist, modelparams, oudiffusioncache, temppath, myaapath, currentangles)	
+					philikelihoods, psilikelihoods, phill, psill = felsenstein_angles(col, nodelist, modelparams, cache, temppath, myaapath)				
+					d1, d2, phillcond, psillcond = felsenstein_angles(col, nodelist, modelparams, cache, temppath, myaapath, currentangles)	
 					angleproposal1 = phillcond + psillcond - (phill+psill)
 
 					for z=1:5
-						proposedangles = backwardsampling_angles(rng, philikelihoods, psilikelihoods, col, nodelist, modelparams, oudiffusioncache, temppath, myaapath)
-						d1, d2, phillcond, psillcond = felsenstein_angles(col, nodelist, modelparams, oudiffusioncache, temppath, myaapath, currentangles)	
+						proposedangles = backwardsampling_angles(rng, philikelihoods, psilikelihoods, col, nodelist, modelparams, cache, temppath, myaapath)
+						d1, d2, phillcond, psillcond = felsenstein_angles(col, nodelist, modelparams, cache, temppath, myaapath, currentangles)	
 						angleproposal2 = phillcond + psillcond - (phill+psill)
 						setangles(col, nodelist, proposedangles)
-						proposeddiffusionloglikelihood = diffusionloglikelihood(col, nodelist, modelparams, oudiffusioncache)
+						proposeddiffusionloglikelihood = diffusionloglikelihood(col, nodelist, modelparams)
 						if accept_everything || exp(proposeddiffusionloglikelihood-currentdiffusionloglikelihood-angleproposal2+angleproposal1) > rand(rng)
 							currentangles = getangles(col,nodelist)
 						else
@@ -3449,13 +3561,13 @@ function samplepaths_seperate_new(rng::AbstractRNG, col::Int, nodelist::Array{Tr
 				if modelparams.use_diffusion
 					if resampleangles
 						mypath = Array{Int,1}[copy(node.data.branchpath.paths[col]) for node in nodelist]
-						philikelihoods, psilikelihoods, phill, psill = felsenstein_angles(col, nodelist, modelparams, oudiffusioncache, mypath, myaapath)
-						proposedangles = backwardsampling_angles(rng, philikelihoods, psilikelihoods, col, nodelist, modelparams, oudiffusioncache, mypath, myaapath)
-						d1, d2, phillcond, psillcond = felsenstein_angles(col, nodelist, modelparams, oudiffusioncache, mypath, myaapath, proposedangles)	
+						philikelihoods, psilikelihoods, phill, psill = felsenstein_angles(col, nodelist, modelparams, cache, mypath, myaapath)
+						proposedangles = backwardsampling_angles(rng, philikelihoods, psilikelihoods, col, nodelist, modelparams, cache, mypath, myaapath)
+						d1, d2, phillcond, psillcond = felsenstein_angles(col, nodelist, modelparams, cache, mypath, myaapath, proposedangles)	
 						angleproposal2 = phillcond + psillcond - (phill+psill)
 						setangles(col, nodelist, proposedangles)
 					end
-					site2 += diffusionloglikelihood(col, nodelist, modelparams, oudiffusioncache) 
+					site2 += diffusionloglikelihood(col, nodelist, modelparams) 
 				end
 
 				if cont && exp((site2-site1)+(prop1+angleproposal1-prop2-angleproposal2)) > rand(rng)
@@ -3499,7 +3611,7 @@ function samplepaths_seperate_new(rng::AbstractRNG, col::Int, nodelist::Array{Tr
 		temptimes = Array{Float64,1}[copy(node.data.aabranchpath.times[col]) for node in nodelist]	
 		site1 = augmentedloglikelihood(nodelist, cols, modelparams)
 		if modelparams.use_diffusion
-			site1 += diffusionloglikelihood(col, nodelist, modelparams, oudiffusioncache) 
+			site1 += diffusionloglikelihood(col, nodelist, modelparams) 
 		end	
 		rootliks = felsensteinresample_aa(rng, nodelist, cols, col, modelparams)		
 		prop1 = aa_proposal_likelihood(nodelist, col, modelparams, temppath, temptimes, phipsilik=modelparams.use_diffusion)
@@ -3507,7 +3619,7 @@ function samplepaths_seperate_new(rng::AbstractRNG, col::Int, nodelist::Array{Tr
 			cont = backwardsampling_aa(rng,nodelist, CommonUtils.sample(rng, rootliks), col, modelparams)
 			site2 = augmentedloglikelihood(nodelist, cols, modelparams)
 			if modelparams.use_diffusion
-				site2 += diffusionloglikelihood(col, nodelist, modelparams, oudiffusioncache) 
+				site2 += diffusionloglikelihood(col, nodelist, modelparams) 
 			end	
 			prop2 = aa_proposal_likelihood(nodelist, col, modelparams, phipsilik=modelparams.use_diffusion)
 			if cont && exp((site2-site1)+(prop1-prop2)) > rand(rng)			
@@ -3720,20 +3832,6 @@ function optimizerates(trainingexamples::Array{Tuple,1}, modelparams::ModelParam
 	modelparams.hiddenmu = minx[2]
 end
 
-function getoudiffusioncache(modelparams::ModelParams, nodelist::Array{TreeNode,1})
-	oudiffusioncache = Dict{Tuple{Int,Int}, Tuple{WrappedUnivariateOUNode,WrappedUnivariateOUNode}}()
-	for h=1:modelparams.numhiddenstates
-		for node in nodelist
-			phi_diffusion_node_temp = deepcopy(modelparams.hiddennodes[h].phi_diffusion_node)
-			set_time(phi_diffusion_node_temp, node.branchlength)
-			psi_diffusion_node_temp = deepcopy(modelparams.hiddennodes[h].psi_diffusion_node)
-			set_time(psi_diffusion_node_temp, node.branchlength)
-			oudiffusioncache[h,node.nodeindex] = (phi_diffusion_node_temp, psi_diffusion_node_temp)
-		end
-	end
-	return oudiffusioncache
-end
-
 function sampletraininginstances(iter::Int, rng::AbstractRNG, trainingexamples::Array{Tuple,1}, modelparams::ModelParams; maxsamplesperiter::Int=500, sitethreshold::Int=2, dosamplesiterates::Bool=true, samplebranchlengths::Bool=true, family_names::Array{String,1}, accept_everything::Bool=false)
 	totalbranchlength_output = 0.0
 	accepted_hidden = 0.0
@@ -3748,15 +3846,16 @@ function sampletraininginstances(iter::Int, rng::AbstractRNG, trainingexamples::
 		if length(proteins) == 1
 			backwardsamplesingle(rng, nodelist[1], modelparams)
 		else
-			oudiffusioncache = getoudiffusioncache(modelparams, nodelist)
+			cache = OUDiffusionCache()
 
 			accepted = zeros(Int, numcols)			
 			for i=1:maxsamplesperiter					
 				randcols = shuffle(rng, Int[i for i=1:numcols])
-				sampleangles = (iter*maxsamplesperiter+i) % 2 == 0
+				#sampleangles = (iter*maxsamplesperiter+i) % 2 == 0
+				sampleangles = true
 				for col in randcols
 					if accepted[col] < sitethreshold || i % 20 == 0 || (col > 1 && accepted[col-1] < sitethreshold) || (col < numcols && accepted[col+1] < sitethreshold) 
-						a1,a2,a3,a4, hidden_accepted, aa_accepted, hiddentime, aatime = samplepaths_seperate_new(rng,col,nodelist, modelparams, oudiffusioncache, dosamplesiterates=dosamplesiterates, accept_everything=accept_everything, sampleangles=sampleangles)
+						a1,a2,a3,a4, hidden_accepted, aa_accepted, hiddentime, aatime = samplepaths_seperate_new(rng,col,nodelist, modelparams, cache, dosamplesiterates=dosamplesiterates, accept_everything=accept_everything, sampleangles=sampleangles)
 						totalhiddentime += hiddentime
 						totalaatime += aatime
 						accepted_hidden += a1
@@ -3783,7 +3882,6 @@ function sampletraininginstances(iter::Int, rng::AbstractRNG, trainingexamples::
 							#println(node.nodeindex,"\t",node.data.inputbranchlength,"\t",node.branchlength,"\t",events,"\t",aa_events)
 						end
 					end
-					oudiffusioncache = getoudiffusioncache(modelparams, nodelist)
 				end
 			end
 			elapsedtime = time()-starttime
@@ -3795,4 +3893,98 @@ function sampletraininginstances(iter::Int, rng::AbstractRNG, trainingexamples::
 		end	
 	end
 	return trainingexamples,totalbranchlength_output,accepted_hidden,accepted_hidden_total,accepted_aa,accepted_aa_total,totalhiddentime,totalaatime
+end
+
+function correctbounds(lower::Array{Float64,1}, upper::Array{Float64,1}, x::Array{Float64,1})
+	ret = zeros(Float64, length(x))
+	for (index, (l,u,v)) in enumerate(zip(lower,upper,x))
+		ret[index] = max(l, min(u, v))
+	end
+	return ret
+end
+
+function diffusionloglikelihood(data::Array{Tuple{Float64,Float64,Float64,Bool,Bool},1}, params::Array{Float64,1})
+	dist = WrappedUnivariateOUNode()
+	set_transformed_parameters(dist, params)
+
+	loglikelihood = 0.0
+	for (branchlength, parenttheta, theta, observed, usetpd) in data
+		ll = 0.0
+		if usetpd
+			set_branchlength(dist, branchlength, observed)
+			ll = logtpd(dist, parenttheta, theta)
+		else
+			ll = logstat(dist, theta)
+		end
+		#=
+		if ll == -Inf
+			println(branchlength, "\t", parenttheta, "\t", theta, "\t", observed, "\t", usetpd)
+		end=#
+		if ll == -Inf && branchlength == 0.0
+			ll = 0.0
+		end
+		loglikelihood += ll
+	end
+	#println(params,"\t",loglikelihood,"\t",length(data))
+	return loglikelihood
+end
+
+function optimizediffusion(data::Array{Tuple{Float64,Float64,Float64,Bool,Bool},1}, wn::WrappedUnivariateOUNode; fixevolutionary::Bool=false)
+	lower, upper = get_bounds(wn)
+	if fixevolutionary
+    	lower[3] = wn.alpha
+    	upper[3] = wn.alpha
+    	lower[4] = wn.obserror
+    	upper[4] = wn.obserror
+    end
+    thetas = Float64[]
+    for (branchlength, parenttheta, theta, observed, usetpd) in data
+    	if !usetpd
+    		push!(thetas,theta)
+    	end
+    end 
+    mu,kappa = estimateparameters(thetas)
+    initparams = get_transformed_parameters(wn)
+    inputparams = copy(initparams)
+    #println("Initial params: ", initparams, "\t", mu,"\t",std(VonMises(0.0,kappa)),"\t",length(thetas))
+    #initparams[1] = mu
+    println("initparams: ", initparams)
+
+    localObjectiveFunction = ((params, grad) -> diffusionloglikelihood(data,params))    
+	#GN_DIRECT
+	#GN_CRS2_LM
+	#GN_DIRECT
+	opt = Opt(:GN_CRS2_LM, length(lower))   
+    lower_bounds!(opt, lower)    
+    upper_bounds!(opt, upper)
+    xtol_rel!(opt,1e-6)
+    maxeval!(opt, 2000)
+    max_objective!(opt, localObjectiveFunction)
+    (minf,minx,ret) = optimize(opt, correctbounds(lower, upper, initparams))
+	set_transformed_parameters(wn,minx)
+
+	if diffusionloglikelihood(data,initparams) > diffusionloglikelihood(data,minx)
+		println("Using previous optima")
+	else
+		initparams = copy(minx)
+		println("Using global optima")
+	end
+
+	opt = Opt(:LN_COBYLA, length(lower))   
+    lower_bounds!(opt, lower)    
+    upper_bounds!(opt, upper)
+    xtol_rel!(opt,1e-6)
+    maxeval!(opt, 500)
+    max_objective!(opt, localObjectiveFunction)
+    (minf,minx,ret) = optimize(opt, correctbounds(lower, upper, initparams))
+	set_transformed_parameters(wn,minx)
+
+
+    #println(data[1:100:end])
+    println("inputparams:  ",inputparams,"\t",diffusionloglikelihood(data,inputparams))	
+	println("initparams:  ",initparams,"\t",diffusionloglikelihood(data,initparams))	
+	println("finalparams: ",minx,"\t",diffusionloglikelihood(data,minx))
+	#println(get_transformed_parameters(wn),"\t",get_parameters(wn),"\t",minf)
+
+	return minx
 end

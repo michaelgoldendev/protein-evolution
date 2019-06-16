@@ -868,23 +868,32 @@ module StructurePlots
 							
 
 							tempmat = zeros(Float64, N, N)
+							h = hiddenpath[end]
 							if length(hiddenpath) == 1
+								#=
 								phikappa = min(2000.0, 1.0/(modelparams.hiddennodes[1].diffusionrate*branchlength))
 								phidist = VonMises(parentphi, phikappa)
 								psikappa = min(2000.0, 1.0/(modelparams.hiddennodes[1].diffusionrate*branchlength))
-								psidist = VonMises(parentpsi, psikappa)
-								for (i, x) in enumerate(range(-pi,stop=pi,length=N))
-									for (j, y) in enumerate(range(-pi,stop=pi,length=N))
-										tempmat[j,i] = pdf(phidist, x)*pdf(psidist, y)
+								psidist = VonMises(parentpsi, psikappa)=#
+								WrappedUnivariateOU.set_time(modelparams.hiddennodes[h].phi_diffusion_node, branchlength)
+								WrappedUnivariateOU.set_time(modelparams.hiddennodes[h].psi_diffusion_node, branchlength)
+
+								tpdphi = Float64[exp(logtpd(modelparams.hiddennodes[h].phi_diffusion_node, parentphi, x)) for (i, x) in enumerate(range(-pi,stop=pi,length=N))]
+								tpdpsi = Float64[exp(logtpd(modelparams.hiddennodes[h].psi_diffusion_node, parentpsi, x)) for (i, x) in enumerate(range(-pi,stop=pi,length=N))]
+								for i=1:N
+									for j=1:N
+										tempmat[j,i] = tpdphi[i]*tpdpsi[j]
 									end
 								end
 								tempmat = tempmat ./ sum(tempmat)
 								mat += tempmat
 							else
 								h = hiddenpath[end]
-								for (i, x) in enumerate(range(-pi,stop=pi,length=N))
-									for (j, y) in enumerate(range(-pi,stop=pi,length=N))											
-										tempmat[j,i] += BivariateVonMises.pdf(modelparams.hiddennodes[h].phipsi_node, Float64[x,y])
+								statphi = Float64[exp(logstat(modelparams.hiddennodes[h].phi_diffusion_node, x)) for (i, x) in enumerate(range(-pi,stop=pi,length=N))]
+								statpsi = Float64[exp(logstat(modelparams.hiddennodes[h].psi_diffusion_node, x)) for (i, x) in enumerate(range(-pi,stop=pi,length=N))]
+								for i=1:N
+									for j=1:N
+										tempmat[j,i] = statphi[i]*statpsi[j]
 									end
 								end
 								tempmat = tempmat ./ sum(tempmat)

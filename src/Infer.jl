@@ -355,6 +355,7 @@ function infer(parsed_args=Dict{String,Any}())
 	sequencescoresatmax = Float64[]
 	ratetotals = zeros(Float64, numcols)
 	maxiters = parsed_args["maxiters"]
+	cache = OUDiffusionCache()
 	for iter=1:maxiters
 		starttime = time()
 		if iter > 10 && samplebranchlengths
@@ -385,7 +386,7 @@ function infer(parsed_args=Dict{String,Any}())
 		println("$(iter).2 Sampling sites START")
 		randcols = shuffle(rng, Int[i for i=1:numcols])
 		for col in randcols
-			a1,a2,a3,a4, accepted_hidden, accepted_aa = samplepaths_seperate_new(rng, col,nodelist, modelparams, dosamplesiterates=dosamplesiterates, accept_everything=(iter<=3))
+			a1,a2,a3,a4, accepted_hidden, accepted_aa = samplepaths_seperate_new(rng, col,nodelist, modelparams, cache, dosamplesiterates=dosamplesiterates, accept_everything=(iter<=3))
 			if accepted_hidden
 				count_hidden_acceptance[col] += 1.0
 			end			
@@ -717,7 +718,7 @@ function infer(parsed_args=Dict{String,Any}())
 				end
 			end
 
-			if iter % 10 == 1
+			if iter % 25 == 1
 				samplesfile = string("$(outputprefix).samples")
 
 				fout = open(samplesfile, "w")
@@ -734,7 +735,7 @@ function infer(parsed_args=Dict{String,Any}())
 
 				StructurePlots.plotaccuracy(samplesfile, othernames, benchmarktype)
 
-				if iter > 1 && iter % 100 == 1
+				if iter > 1 && iter % 200 == 1
 					println(othernames)
 					StructurePlots.plotstructuresamples(samplesfile, othernames, benchmarktype)
 				end

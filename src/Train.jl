@@ -141,9 +141,9 @@ function estimatehmm(rng::AbstractRNG, trainingexamples, modelparams::ModelParam
 		end
 		for h=1:modelparams.numhiddenstates
 			println("diffusion ",h,"\t",length(phidict[h]),"\t",length(psidict[h]))
-			optimizediffusion(phidict[h], modelparams.hiddennodes[h].phi_diffusion_node, fixalpha=true)
+			optimizediffusion(phidict[h], modelparams.hiddennodes[h].phi_diffusion_node, fixevolutionary=true)
 			#println("A ", estimateparameters(append!(Float64[t[2] for t in phidict[h]], Float64[t[1] for t in phidict[h]])))
-			optimizediffusion(psidict[h], modelparams.hiddennodes[h].psi_diffusion_node, fixalpha=true)
+			optimizediffusion(psidict[h], modelparams.hiddennodes[h].psi_diffusion_node, fixevolutionary=true)
 			#println("B ", estimateparameters(append!(Float64[t[2] for t in psidict[h]], Float64[t[1] for t in psidict[h]])))
 		end
 	end
@@ -665,14 +665,23 @@ function estimate_parameters(iter::Int,trainingexamples, modelparams::ModelParam
 				end
 			end
 		end
+
+		phirefs = []
+		psirefs = []
 		for h=1:modelparams.numhiddenstates
 			println("diffusion ",h,"\t",length(phidict[h]),"\t",length(psidict[h]))
-			optimizediffusion(phidict[h], modelparams.hiddennodes[h].phi_diffusion_node)
+			phiref = @spawn optimizediffusion(phidict[h], modelparams.hiddennodes[h].phi_diffusion_node)
+			push!(phirefs, phiref)
 			#println(get_parameters(modelparams.hiddennodes[h].phi_diffusion_node))
 			#println("A ", estimateparameters(append!(Float64[t[2] for t in phidict[h]], Float64[t[1] for t in phidict[h]])))
-			optimizediffusion(psidict[h], modelparams.hiddennodes[h].psi_diffusion_node)
+			psiref = @spawn optimizediffusion(psidict[h], modelparams.hiddennodes[h].psi_diffusion_node)
+			push!(psirefs, psiref)
 			#println(get_parameters(modelparams.hiddennodes[h].psi_diffusion_node))
 			#println("B ", estimateparameters(append!(Float64[t[2] for t in psidict[h]], Float64[t[1] for t in psidict[h]])))
+		end
+		for h=1:modelparams.numhiddenstates
+			set_transformed_parameters(modelparams.hiddennodes[h].phi_diffusion_node, fetch(phirefs[h]))
+			set_transformed_parameters(modelparams.hiddennodes[h].psi_diffusion_node, fetch(psirefs[h]))
 		end
 		#modelparams.rates = rate_cat_events./rate_cat_times
 		#println("RATES ", modelparams.rates)
@@ -703,6 +712,11 @@ function estimate_parameters(iter::Int,trainingexamples, modelparams::ModelParam
 	modelparams.aa_exchangeablities *= scaleaarates
 end
 
+
+
+
+
+#=
 function diffusionloglikelihood(data::Array{Tuple{Float64,Float64,Float64,Bool,Bool},1}, params::Array{Float64,1})
 	dist = WrappedUnivariateOUNode()
 	set_parameters(dist, params)
@@ -725,9 +739,10 @@ function diffusionloglikelihood(data::Array{Tuple{Float64,Float64,Float64,Bool,B
 	return loglikelihood
 end
 
-function optimizediffusion(data::Array{Tuple{Float64,Float64,Float64,Bool,Bool},1}, wn::WrappedUnivariateOUNode; fixalpha::Bool=false)
+
+function optimizediffusion(data::Array{Tuple{Float64,Float64,Float64,Bool,Bool},1}, wn::WrappedUnivariateOUNode; fixevolutionary::Bool=false)
 	lower, upper = get_bounds(wn)
-	if fixalpha
+	if fixevolutionary
     	lower[3] = wn.alpha
     	upper[3] = wn.alpha
     end
@@ -739,8 +754,14 @@ function optimizediffusion(data::Array{Tuple{Float64,Float64,Float64,Bool,Bool},
     end 
     mu,kappa = estimateparameters(thetas)
     initparams = get_parameters(wn)
-    println("Initial params: ", initparams, "\t", mu,"\t",std(VonMises(0.0,kappa)),"\t",length(thetas))
     initparams[1] = mu
+    initparams[2] = kappa
+    lower[1] = mu
+    upper[1] = mu
+    lower[2] = kappa
+    upper[2] = kappa
+    println("Initial params: ", initparams, "\t", mu,"\t",kappa,"\t",std(VonMises(0.0,kappa)),"\t",length(thetas))
+    #initparams[1] = mu
 
     localObjectiveFunction = ((params, grad) -> diffusionloglikelihood(data,params))    
 	#GN_DIRECT
@@ -754,64 +775,10 @@ function optimizediffusion(data::Array{Tuple{Float64,Float64,Float64,Bool,Bool},
 	set_parameters(wn,minx)
 
 
-	println(get_parameters(wn),"\t",get_parameters(wn),"\t",minf)
-end
-
-#=
-function diffusionloglikelihood(data::Array{Tuple{Float64,Float64,Float64,Bool,Bool},1}, params::Array{Float64,1})
-	dist = WrappedUnivariateOUNode()
-	set_transformed_parameters(dist, params)
-	currentbranchlength = 1.0
-	set_time(dist, currentbranchlength)
-
-	loglikelihood = 0.0
-	for (branchlength, parenttheta, theta, observed, usetpd) in data
-		if usetpd
-			if currentbranchlength != branchlength
-				set_time(dist, branchlength)
-				currentbranchlength = branchlength
-			end
-			loglikelihood += logtpd(dist, parenttheta, theta)
-		else
-			loglikelihood += logstat(dist, theta)
-		end
-	end
-	println(params,"\t",loglikelihood,"\t",length(data))
-	return loglikelihood
-end
-
-function optimizediffusion(data::Array{Tuple{Float64,Float64,Float64,Bool,Bool},1}, wn::WrappedUnivariateOUNode; fixalpha::Bool=false)
-	lower, upper = get_bounds(wn)
-	if fixalpha
-    	lower[3] = wn.alpha
-    	upper[3] = wn.alpha
-    end
-    thetas = Float64[]
-    for (branchlength, parenttheta, theta, observed, usetpd) in data
-    	if !usetpd
-    		push!(thetas,theta)
-    	end
-    end 
-    mu,kappa = estimateparameters(thetas)
-    initparams = get_transformed_parameters(wn)
-    println("Initial params: ", initparams, "\t", mu,"\t",std(VonMises(0.0,kappa)),"\t",length(thetas))
-    initparams[1] = mu
-
-    localObjectiveFunction = ((params, grad) -> diffusionloglikelihood(data,params))    
-	#GN_DIRECT
-	opt = Opt(:LN_COBYLA, length(lower))   
-    lower_bounds!(opt, lower)    
-    upper_bounds!(opt, upper)
-    xtol_rel!(opt,1e-5)
-    maxeval!(opt, 300)
-    max_objective!(opt, localObjectiveFunction)
-    (minf,minx,ret) = optimize(opt, initparams)
-	set_transformed_parameters(wn,minx)
-
-
 	println(get_transformed_parameters(wn),"\t",get_parameters(wn),"\t",minf)
-end
-=#
+end=#
+
+
 
 #=
 function diffusionloglikelihood(data::Array{Tuple{Float64,Float64,Float64,Bool},1}, params::Array{Float64,1})
@@ -1031,6 +998,18 @@ function train(parsed_args=Dict{String,Any}())
 		exit()
 	end
 
+	#=
+	for (index, (familyname, training_example)) in enumerate(zip(family_names, trainingexamples))
+		nodelist = training_example[2]
+		for node in nodelist
+			if !isroot(node) && node.branchlength == 0.0
+				println(index,"\t",familyname, "\t", node.name)
+			end
+		end
+	end
+	exit()
+	=#
+
 	if !parsed_args["loadfromcache"] && parsed_args["precluster"] > 0
 		estimatehmm(rng, trainingexamples, modelparams, parsed_args["precluster"], parsed_args)
 		family_names,trainingexamples,traininghashbase36 = loadtrainingexamples(rng, parsed_args, family_directories, modelparams)
@@ -1080,6 +1059,7 @@ function train(parsed_args=Dict{String,Any}())
 			end
 		end
 	end
+
 	println("Init.")
 	trainingexamples, = parallelsample(0, rng, trainingexamples, modelparams, maxsamplesperiter=2, sitethreshold=2, dosamplesiterates=dosamplesiterates, samplebranchlengths=samplebranchlengths, family_names=family_names, accept_everything=true)
 	println("Finished.")

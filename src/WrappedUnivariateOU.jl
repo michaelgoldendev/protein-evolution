@@ -10,53 +10,59 @@ module WrappedUnivariateOU
 		sigma::Float64
 		alpha::Float64
 		t::Float64
+		branchlength::Float64
+		obserror::Float64
 		maxk::Int
 		statdist::Normal
 		transdist::Normal
 
-		function WrappedUnivariateOUNode(mu::Float64=0.0, sigma::Float64=2.0, alpha::Float64=1.0, t::Float64=1.0, maxk::Int=1)
+		statdistvm::VonMises
+		transdistvm::VonMises
+
+		function WrappedUnivariateOUNode(mu::Float64=0.0, sigma::Float64=0.3, alpha::Float64=0.1, t::Float64=1.0, branchlength::Float64=1.0, obserror::Float64=0.01, maxk::Int=1)
 			statdist = Normal(0.0, sqrt(sigma*sigma/(2.0*alpha)))
 			transdist = Normal(0.0, sqrt((sigma*sigma/(2.0*alpha))*(1.0 - exp(-2.0*alpha*t))))
-			new(mu, sigma, alpha, t, maxk, statdist, transdist)
+			statdistvm = VonMises(mu,1.0/sigma)
+			transdistvm = VonMises(mu,1.0/(t*alpha))
+			new(mu, sigma, alpha, t, branchlength, obserror, maxk, statdist, transdist, statdistvm, transdistvm)
 		end
 	end
 
 	export get_bounds
 	function get_bounds(wn::WrappedUnivariateOUNode)
-		lower = Float64[-4.0*pi, 0.0, 0.0]
-		upper = Float64[4.0*pi, 1000.0, 1000.0]
+		lower = Float64[0.0, 0.0, 0.0, 0.0]
+		upper = Float64[2.0*pi, 0.4, 50.0, 0.1]
 		return lower, upper
 	end
 	
 	export get_parameters
 	function get_parameters(wn::WrappedUnivariateOUNode)
-		return Float64[wn.mu, wn.sigma, wn.alpha]
+		return Float64[wn.mu, wn.sigma, wn.alpha, wn.obserror]
 	end
 
 	export get_transformed_parameters
 	function get_transformed_parameters(wn::WrappedUnivariateOUNode)
 		transsigma = wn.sigma*wn.sigma/(2.0*wn.alpha)
-		return Float64[wn.mu, transsigma, wn.alpha]
+		return Float64[wn.mu, transsigma, wn.alpha, wn.obserror]
 	end
 
 	export set_transformed_parameters
 	function set_transformed_parameters(wn::WrappedUnivariateOUNode, params::Array{Float64,1})
 		transsigma = params[2]
-		transalpha = params[3]
-		sigma = sqrt(transsigma*transalpha*2.0)
-		set_parameters(wn, Float64[params[1], sigma, params[3]])
+		sigma = sqrt(transsigma*params[3]*2.0)
+		set_parameters(wn, Float64[params[1], sigma, params[3], params[4]])
 	end
 
 	export set_parameters
 	function set_parameters(wn::WrappedUnivariateOUNode, params::Array{Float64,1})
-		mu = mod2pi(params[1])
-		sigma = params[2]
-		alpha = params[3]
-		wn.mu = mu
-		wn.sigma = sigma
-		wn.alpha = alpha
-		wn.statdist = Normal(0.0, sqrt(sigma*sigma/(2.0*alpha)))
-		wn.transdist = Normal(0.0, sqrt((sigma*sigma/(2.0*alpha))*(1.0 - exp(-2.0*alpha*wn.t))))
+		wn.mu = mod2pi(params[1])
+		wn.sigma = params[2]
+		wn.alpha = params[3]
+		wn.obserror = params[4]
+		wn.statdist = Normal(0.0, sqrt(wn.sigma*wn.sigma/(2.0*wn.alpha)))
+		wn.transdist = Normal(0.0, sqrt((wn.sigma*wn.sigma/(2.0*wn.alpha))*(1.0 - exp(-2.0*wn.alpha*wn.t))))
+		#wn.statdistvm = VonMises(wn.mu, min(2000.0, wn.sigma))
+		#wn.transdistvm = VonMises(0.0, min(2000.0, 1.0/(wn.t*wn.alpha)))
 	end
 
 	export set_time
@@ -64,28 +70,42 @@ module WrappedUnivariateOU
 		if wn.t != t
 			wn.t = t
 			wn.transdist = Normal(0.0, sqrt((wn.sigma*wn.sigma/(2.0*wn.alpha))*(1.0 - exp(-2.0*wn.alpha*wn.t))))
+			#wn.transdistvm = VonMises(0.0, min(2000.0, 1.0/(wn.t*wn.alpha)))
+		end
+	end
+
+	export set_branchlength
+	function set_branchlength(wn::WrappedUnivariateOUNode, branchlength::Float64, includeobserror::Bool=false)
+		wn.branchlength = branchlength
+		if includeobserror
+			set_time(wn, branchlength+wn.obserror)
+		else
+			set_time(wn, branchlength)
 		end
 	end
 
 	export logstat
-	function logstat(wn::WrappedUnivariateOUNode, x::Float64)
+	function logstat(wn::WrappedUnivariateOUNode, x::Float64)		
 		theta = mod2pi(x)
+		
 		logconst = -Inf
 		for m=-wn.maxk:wn.maxk
 			logconst = logsumexp(logconst, logpdf(wn.statdist, theta - wn.mu + m*2.0*pi))
 		end
 		return logconst
+		
+		#return logpdf(wn.statdistvm, theta)
 	end
 
 	export logtpd
 	function logtpd(wn::WrappedUnivariateOUNode, x0::Float64, xt::Float64)
 		theta0 = mod2pi(x0)
 		thetat = mod2pi(xt)
+		
 		#wmarray, logconst = w(wn.mu, sqrt(wn.sigma*wn.sigma/(2.0*wn.alpha)), theta0, wn.maxk)
 		logll = -Inf
 		wmlogconstant = -Inf
-		for m=-wn.maxk:wn.maxk			
-			index = m+wn.maxk+1
+		for m=-wn.maxk:wn.maxk
 			mut = wn.mu + (theta0 - wn.mu + m*2.0*pi)*exp(-wn.alpha*wn.t)
 			wm = logpdf(wn.statdist, theta0 - wn.mu + m*2.0*pi)
 			wmlogconstant = logsumexp(wmlogconstant, wm)
@@ -96,9 +116,20 @@ module WrappedUnivariateOU
 			logll = logsumexp(logll, wrappedll+wm)
 			#logll = logsumexp(logll, logpdf(wn.transdist, thetat-mut)+wm)
 		end
-		return logll - wmlogconstant
+		
+		#=
+		angledist = abs(x0-xt)
+		if angledist >= 0.355421202
+			logll -= 4.60517018598
+		elseif angledist >= 0.177007686
+			logll -= 2.30258509299
+		end=#
+
+		return logll - wmlogconstant		
+		#return logpdf(wn.transdistvm, thetat-theta0)
 	end
 
+	#=
 	export gettransitionmatrix
 	function gettransitionmatrix(wn::WrappedUnivariateOUNode, numcats::Int, t::Float64=wn.t)
 		set_time(wn,t)
@@ -114,12 +145,11 @@ module WrappedUnivariateOU
 			mat[x,:] = exp.(mat[x,:] .- logconsts[x])
 		end
 		return mat, logconsts
-	end
+	end=#
 
-	#=
 	export gettransitionmatrix
-	function gettransitionmatrix(wn::WrappedUnivariateOUNode, numcats::Int, t::Float64=wn.t)
-		set_time(wn,t)
+	function gettransitionmatrix(wn::WrappedUnivariateOUNode, numcats::Int, branchlength::Float64, includeobserror::Bool)
+		set_branchlength(wn, branchlength, includeobserror)
 		mat = zeros(Float64, numcats, numcats)
 		for x=1:numcats
 			anglex = indextoangle(x, numcats)
@@ -130,7 +160,7 @@ module WrappedUnivariateOU
 		end
 		logconst = maximum(mat)
 		return exp.(mat.-logconst), logconst
-	end=#
+	end
 
 	export logjoint
 	function logjoint(wn::WrappedUnivariateOUNode, x0::Float64, xt::Float64)
@@ -198,16 +228,16 @@ transparams = WrappedUnivariateOU.get_transformed_parameters(wn)
 println(transparams)
 WrappedUnivariateOU.set_transformed_parameters(wn, transparams)
 println(WrappedUnivariateOU.get_parameters(wn))=#
-
+#=
 wn = WrappedUnivariateOU.WrappedUnivariateOUNode()
-WrappedUnivariateOU.set_parameters(wn,Float64[0.0, 1.0, 1.0])
+WrappedUnivariateOU.set_transformed_parameters(wn,Float64[0.0, 1.0, 1.0])
 WrappedUnivariateOU.set_time(wn, 1.0)
-println(WrappedUnivariateOU.gettransitionmatrix(wn,20))
-
+println(WrappedUnivariateOU.gettransitionmatrix(wn, 20))=#
+#=
 for x=-2*pi:0.1:2*pi
 	#println(x, "\t", WrappedUnivariateOU.logstat(wn, x))
 	println(x, "\t", WrappedUnivariateOU.logtpd(wn, 1.0*pi, x))
-end
+end=#
 #=
 println(wn)
 println(WrappedUnivariateOU.logstat(wn, 0.1))
