@@ -3,6 +3,7 @@ module WrappedUnivariateOU
 	push!(LOAD_PATH,@__DIR__)
 	using CommonUtils
 	using AngleUtils
+	using LinearAlgebra
 
 	export WrappedUnivariateOUNode
 	mutable struct WrappedUnivariateOUNode
@@ -19,7 +20,7 @@ module WrappedUnivariateOU
 		statdistvm::VonMises
 		transdistvm::VonMises
 
-		function WrappedUnivariateOUNode(mu::Float64=0.0, sigma::Float64=0.3, alpha::Float64=0.1, t::Float64=1.0, branchlength::Float64=1.0, obserror::Float64=0.01, maxk::Int=1)
+		function WrappedUnivariateOUNode(mu::Float64=0.0, sigma::Float64=0.4, alpha::Float64=0.1, t::Float64=1.0, branchlength::Float64=1.0, obserror::Float64=0.01, maxk::Int=1)
 			statdist = Normal(0.0, sqrt(sigma*sigma/(2.0*alpha)))
 			transdist = Normal(0.0, sqrt((sigma*sigma/(2.0*alpha))*(1.0 - exp(-2.0*alpha*t))))
 			statdistvm = VonMises(mu,1.0/sigma)
@@ -31,7 +32,7 @@ module WrappedUnivariateOU
 	export get_bounds
 	function get_bounds(wn::WrappedUnivariateOUNode)
 		lower = Float64[0.0, 0.0, 0.0, 0.0]
-		upper = Float64[2.0*pi, 0.4, 50.0, 0.1]
+		upper = Float64[2.0*pi, 1.0, 50.0, 0.1]
 		return lower, upper
 	end
 	
@@ -147,19 +148,57 @@ module WrappedUnivariateOU
 		return mat, logconsts
 	end=#
 
+	export getlogstatrow
+	function getlogstatrow(wn::WrappedUnivariateOUNode, numcats::Int)
+		v = zeros(Float64, numcats)
+		for z=1:numcats
+			v[z] = logstat(wn, indextoangle(z, numcats))
+		end
+		return v
+	end
+
+	export gettransitionmatrixrow
+	function gettransitionmatrixrow(wn::WrappedUnivariateOUNode, numcats::Int, branchlength::Float64, includeobserror::Bool, row::Int)
+		set_branchlength(wn, branchlength, includeobserror)
+		if wn.t == 0.0
+			return Matrix{Float64}(I,numcats,numcats)[row,:], 0.0
+		else
+			rowvec = zeros(Float64, numcats)
+			anglex = indextoangle(row, numcats)
+			for y=1:numcats
+				angley = indextoangle(y, numcats)
+				rowvec[y] = logtpd(wn, anglex, angley)
+			end
+			logconst = maximum(rowvec)
+			rowvec = exp.(rowvec.-logconst)
+			for v in rowvec
+				if isnan(v)
+					println("NAN")
+					println(wn.t,"\t",branchlength,"\t",includeobserror,"\t",row)
+					println(rowvec)
+				end
+			end
+			return rowvec, logconst
+		end
+	end
+
 	export gettransitionmatrix
 	function gettransitionmatrix(wn::WrappedUnivariateOUNode, numcats::Int, branchlength::Float64, includeobserror::Bool)
 		set_branchlength(wn, branchlength, includeobserror)
-		mat = zeros(Float64, numcats, numcats)
-		for x=1:numcats
-			anglex = indextoangle(x, numcats)
-			for y=1:numcats
-				angley = indextoangle(y, numcats)
-				mat[x,y] = logtpd(wn, anglex, angley)
+		if wn.t == 0.0
+			return Matrix{Float64}(I,numcats,numcats), 0.0
+		else
+			mat = zeros(Float64, numcats, numcats)
+			for x=1:numcats
+				anglex = indextoangle(x, numcats)
+				for y=1:numcats
+					angley = indextoangle(y, numcats)
+					mat[x,y] = logtpd(wn, anglex, angley)
+				end
 			end
+			logconst = maximum(mat)
+			return exp.(mat.-logconst), logconst
 		end
-		logconst = maximum(mat)
-		return exp.(mat.-logconst), logconst
 	end
 
 	export logjoint
