@@ -1203,7 +1203,7 @@ function parse_training_commandline()
          	default = 3
      	"--maxsamplesperiter"
          	arg_type = Int
-         	default = 5
+         	default = 40
      	"--trainingdirs"
          	help = "comma-seperated list of directories that contain training instance files to be used for training"
         	arg_type = String
